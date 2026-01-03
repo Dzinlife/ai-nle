@@ -49,10 +49,18 @@ const LazySkiaFont = lazy(async () => {
 	};
 });
 
+const LazySkiaDnd = lazy(async () => {
+	await LoadSkiaWeb();
+	return {
+		default: (await import("@/components/SkiaDnd")).default,
+	};
+});
+
 function RouteComponent() {
 	return (
 		<div style={{ padding: "20px" }}>
 			<Suspense fallback={<div>Loading CanvasKit...</div>}>
+				<LazySkiaDnd />
 				<LazySkiaFont />
 				<LazySkiaVideo />
 				{/* <LazySkiaVideo2 /> */}
