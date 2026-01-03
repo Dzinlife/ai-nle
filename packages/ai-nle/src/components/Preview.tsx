@@ -18,8 +18,8 @@ import {
 import { ICommonProps } from "@/dsl/types";
 
 interface TimelineElement extends ICommonProps {
-	type: "Group" | "Image" | "Clip";
-	Component: React.ComponentType<any>;
+	__type: "Group" | "Image" | "Clip";
+	__Component: React.ComponentType<any>;
 }
 
 const timeline = (
@@ -39,7 +39,7 @@ const timeline = (
 			height={50}
 			left={50}
 			top={50}
-			src="https://via.placeholder.com/150"
+			uri="/logo512.png"
 		/>
 		<Clip
 			id="clip1"
@@ -48,7 +48,8 @@ const timeline = (
 			height={100}
 			left={150}
 			top={50}
-		></Clip>
+			uri="/intro.mp4"
+		/>
 		<Image
 			id="image2"
 			name="image2"
@@ -56,7 +57,7 @@ const timeline = (
 			height={50}
 			left={200}
 			top={100}
-			src="https://via.placeholder.com/150"
+			uri="/photo.jpeg"
 		/>
 	</Timeline>
 );
@@ -85,27 +86,10 @@ function parseTimeline(timelineElement: React.ReactElement): TimelineElement[] {
 				return; // 跳过未知类型
 			}
 
-			// 提取 props
-			const {
-				id,
-				name,
-				width = 0,
-				height = 0,
-				left = 0,
-				top = 0,
-				...rest
-			} = props;
-
 			elements.push({
-				id,
-				name,
-				type: elementType,
-				Component: type,
-				width,
-				height,
-				left,
-				top,
-				...rest,
+				...props,
+				__type: elementType,
+				__Component: type,
 			});
 		}
 	});
@@ -183,8 +167,8 @@ const Preview = () => {
 	const transformedTimeline = useMemo(() => {
 		return (
 			<Timeline>
-				{elements.map(({ id, type, ...rest }) => {
-					switch (type) {
+				{elements.map(({ id, __type, ...rest }) => {
+					switch (__type) {
 						case "Group":
 							// @ts-ignore
 							return <Group key={id} {...rest} />;
@@ -237,19 +221,22 @@ const Preview = () => {
 						<Fill color="#f9fafb" />
 						<SkiaGroup>
 							{elements.map((el) => {
+								const { id, __type, __Component, ...rest } = el;
+
 								const { x, y, width, height } =
 									converMetaLayoutToCanvasLayout(el);
 								return (
-									<el.Component
-										key={el.id}
+									<el.__Component
+										key={id}
+										{...rest}
 										left={x}
 										top={y}
 										width={width}
 										height={height}
 										color={
-											el.type === "Group"
+											el.__type === "Group"
 												? "#3b82f6"
-												: el.type === "Image"
+												: el.__type === "Image"
 													? "#10b981"
 													: "#f59e0b"
 										}
