@@ -6,7 +6,7 @@ import React, {
 	useRef,
 	useState,
 } from "react";
-import { Rect as KonvaRect, Layer, Stage } from "react-konva";
+import { Rect as KonvaRect, Layer, Stage, Transformer } from "react-konva";
 import { Canvas, Fill, Group as SkiaGroup } from "react-skia-lite";
 import {
 	Clip,
@@ -21,6 +21,7 @@ import { usePreview } from "./PreviewProvider";
 interface TimelineElement extends ICommonProps {
 	__type: "Group" | "Image" | "Clip";
 	__Component: React.ComponentType<any>;
+	rotation?: number;
 }
 
 const timeline = (
@@ -106,8 +107,18 @@ const Preview = () => {
 
 	const [hoveredId, setHoveredId] = useState<string | null>(null);
 	const [draggingId, setDraggingId] = useState<string | null>(null);
+	const [selectedIds, setSelectedIds] = useState<string[]>([]);
+	const [selectionRect, setSelectionRect] = useState({
+		visible: false,
+		x1: 0,
+		y1: 0,
+		x2: 0,
+		y2: 0,
+	});
 	const stageRef = useRef<Konva.Stage>(null);
+	const transformerRef = useRef<Konva.Transformer>(null);
 	const timelineRef = useRef<React.ReactElement | null>(null);
+	const isSelecting = useRef(false);
 
 	const { pictureWidth, pictureHeight, canvasWidth, canvasHeight } =
 		usePreview();
@@ -179,6 +190,258 @@ const Preview = () => {
 			setHoveredId(null);
 		}
 	}, [draggingId]);
+
+	// 更新 Transformer 的节点
+	useEffect(() => {
+		if (!transformerRef.current) return;
+
+		const stage = transformerRef.current.getStage();
+		if (!stage) return;
+
+		const nodes = selectedIds
+			.map((id) => {
+				return stage.findOne(`.element-${id}`);
+			})
+			.filter((node) => node !== undefined);
+
+		transformerRef.current.nodes(nodes);
+	}, [selectedIds]);
+
+	// 处理 transform 事件（实时更新）
+	const handleTransform = useCallback(
+		(id: string, e: Konva.KonvaEventObject<Event>) => {
+			const node = e.target as Konva.Node;
+			const scaleX = node.scaleX();
+			const scaleY = node.scaleY();
+
+			// 如果 scale 为 1，说明没有缩放，不需要更新
+			if (scaleX === 1 && scaleY === 1) {
+				return;
+			}
+
+			const canvasX = node.x();
+			const canvasY = node.y();
+			const canvasWidth_scaled = node.width() * scaleX;
+			const canvasHeight_scaled = node.height() * scaleY;
+
+			// 将 canvas 坐标转换为 picture 坐标
+			const scaleX_ratio = canvasWidth / pictureWidth;
+			const scaleY_ratio = canvasHeight / pictureHeight;
+			const pictureX = canvasX / scaleX_ratio;
+			const pictureY = canvasY / scaleY_ratio;
+			const pictureWidth_scaled = canvasWidth_scaled / scaleX_ratio;
+			const pictureHeight_scaled = canvasHeight_scaled / scaleY_ratio;
+
+			// 只更新元素状态，不修改节点（让 Transformer 继续工作）
+			// 这样底层 Skia Canvas 会实时更新显示
+			const rotationDegrees = node.rotation(); // Konva 返回的是度数
+			// 将度数转换为弧度保存（parseRotate 会将 "45deg" 转换为弧度）
+			const rotationRadians = (rotationDegrees * Math.PI) / 180;
+			setElements((prev) =>
+				prev.map((el) =>
+					el.id === id
+						? {
+								...el,
+								left: pictureX,
+								top: pictureY,
+								width: pictureWidth_scaled,
+								height: pictureHeight_scaled,
+								rotate: `${rotationDegrees}deg`,
+								rotation: rotationRadians,
+							}
+						: el,
+				),
+			);
+		},
+		[canvasWidth, canvasHeight, pictureWidth, pictureHeight],
+	);
+
+	// 处理 transform 结束事件
+	const handleTransformEnd = useCallback(
+		(id: string, e: Konva.KonvaEventObject<Event>) => {
+			const node = e.target as Konva.Node;
+			const scaleX = node.scaleX();
+			const scaleY = node.scaleY();
+
+			// 重置 scale，更新 width 和 height
+			node.scaleX(1);
+			node.scaleY(1);
+
+			const canvasX = node.x();
+			const canvasY = node.y();
+			const canvasWidth_scaled = node.width() * scaleX;
+			const canvasHeight_scaled = node.height() * scaleY;
+
+			// 将 canvas 坐标转换为 picture 坐标（与 handleDrag 使用相同的转换逻辑）
+			const scaleX_ratio = canvasWidth / pictureWidth;
+			const scaleY_ratio = canvasHeight / pictureHeight;
+			const pictureX = canvasX / scaleX_ratio;
+			const pictureY = canvasY / scaleY_ratio;
+			const pictureWidth_scaled = canvasWidth_scaled / scaleX_ratio;
+			const pictureHeight_scaled = canvasHeight_scaled / scaleY_ratio;
+
+			// 更新节点的 width 和 height
+			node.width(canvasWidth_scaled);
+			node.height(canvasHeight_scaled);
+
+			const rotationDegrees = node.rotation(); // Konva 返回的是度数
+			// 将度数转换为弧度保存（parseRotate 会将 "45deg" 转换为弧度）
+			const rotationRadians = (rotationDegrees * Math.PI) / 180;
+			setElements((prev) =>
+				prev.map((el) =>
+					el.id === id
+						? {
+								...el,
+								left: pictureX,
+								top: pictureY,
+								width: pictureWidth_scaled,
+								height: pictureHeight_scaled,
+								rotate: `${rotationDegrees}deg`,
+								rotation: rotationRadians,
+							}
+						: el,
+				),
+			);
+		},
+		[canvasWidth, canvasHeight, pictureWidth, pictureHeight],
+	);
+
+	// 处理点击事件，支持选择/取消选择
+	const handleStageClick = useCallback(
+		(e: Konva.KonvaEventObject<MouseEvent>) => {
+			// 如果正在使用选择框，不处理点击
+			if (
+				selectionRect.visible &&
+				selectionRect.x2 !== selectionRect.x1 &&
+				selectionRect.y2 !== selectionRect.y1
+			) {
+				return;
+			}
+
+			// 点击空白区域，取消选择
+			if (e.target === e.target.getStage()) {
+				setSelectedIds([]);
+				return;
+			}
+
+			// 检查是否点击了元素
+			const clickedId = (e.target as Konva.Node).attrs["data-id"];
+			if (!clickedId) {
+				return;
+			}
+
+			// 检查是否按下了 Shift 或 Ctrl/Cmd
+			const metaPressed = e.evt.shiftKey || e.evt.ctrlKey || e.evt.metaKey;
+			const isSelected = selectedIds.includes(clickedId);
+
+			if (!metaPressed && !isSelected) {
+				// 没有按修饰键且元素未选中，只选择这一个
+				setSelectedIds([clickedId]);
+			} else if (metaPressed && isSelected) {
+				// 按了修饰键且元素已选中，从选择中移除
+				setSelectedIds((prev) => prev.filter((id) => id !== clickedId));
+			} else if (metaPressed && !isSelected) {
+				// 按了修饰键且元素未选中，添加到选择
+				setSelectedIds((prev) => [...prev, clickedId]);
+			}
+		},
+		[selectedIds, selectionRect],
+	);
+
+	// 处理鼠标按下，开始选择框
+	const handleStageMouseDown = useCallback(
+		(e: Konva.KonvaEventObject<MouseEvent>) => {
+			// 如果点击的不是 stage，不处理
+			if (e.target !== e.target.getStage()) {
+				return;
+			}
+
+			const pos = e.target.getStage().getPointerPosition();
+			if (!pos) return;
+
+			isSelecting.current = true;
+			setSelectionRect({
+				visible: true,
+				x1: pos.x,
+				y1: pos.y,
+				x2: pos.x,
+				y2: pos.y,
+			});
+		},
+		[],
+	);
+
+	// 处理鼠标移动，更新选择框
+	const handleStageMouseMove = useCallback(
+		(e: Konva.KonvaEventObject<MouseEvent>) => {
+			if (!isSelecting.current) {
+				return;
+			}
+
+			const pos = e.target.getStage()?.getPointerPosition();
+			if (!pos) return;
+
+			setSelectionRect((prev) => ({
+				...prev,
+				x2: pos.x,
+				y2: pos.y,
+			}));
+		},
+		[],
+	);
+
+	// 处理鼠标抬起，完成选择框
+	const handleStageMouseUp = useCallback(() => {
+		if (!isSelecting.current) {
+			return;
+		}
+
+		isSelecting.current = false;
+
+		// 延迟隐藏选择框，以便点击事件可以检查
+		setTimeout(() => {
+			setSelectionRect((prev) => ({ ...prev, visible: false }));
+		}, 0);
+
+		// 计算选择框区域
+		const selBox = {
+			x: Math.min(selectionRect.x1, selectionRect.x2),
+			y: Math.min(selectionRect.y1, selectionRect.y2),
+			width: Math.abs(selectionRect.x2 - selectionRect.x1),
+			height: Math.abs(selectionRect.y2 - selectionRect.y1),
+		};
+
+		// 查找与选择框相交的元素
+		if (!stageRef.current) return;
+
+		const selected: string[] = [];
+		elements.forEach((el) => {
+			const { x, y, width, height } = converMetaLayoutToCanvasLayout(
+				el,
+				canvasConvertOptions.picture,
+				canvasConvertOptions.canvas,
+			);
+
+			const elBox = {
+				x,
+				y,
+				width,
+				height,
+			};
+
+			// 检查是否相交
+			if (
+				selBox.x < elBox.x + elBox.width &&
+				selBox.x + selBox.width > elBox.x &&
+				selBox.y < elBox.y + elBox.height &&
+				selBox.y + selBox.height > elBox.y
+			) {
+				selected.push(el.id);
+			}
+		});
+
+		setSelectedIds(selected);
+	}, [selectionRect, elements, canvasConvertOptions]);
 
 	// 根据更新后的状态动态生成 timeline JSX
 	// 这个 timeline 可以根据需要用于渲染或导出
@@ -274,17 +537,26 @@ const Preview = () => {
 					width={canvasWidth}
 					height={canvasHeight}
 					className="absolute top-0 left-0 mix-blend-hard-light"
+					onClick={handleStageClick}
+					onMouseDown={handleStageMouseDown}
+					onMouseMove={handleStageMouseMove}
+					onMouseUp={handleStageMouseUp}
 				>
 					<Layer>
 						{elements.map((el) => {
 							const isHovered = hoveredId === el.id;
 							const isDragging = draggingId === el.id;
+							const isSelected = selectedIds.includes(el.id);
 
-							const { x, y, width, height } = converMetaLayoutToCanvasLayout(
-								el,
-								canvasConvertOptions.picture,
-								canvasConvertOptions.canvas,
-							);
+							const { x, y, width, height, rotation } =
+								converMetaLayoutToCanvasLayout(
+									el,
+									canvasConvertOptions.picture,
+									canvasConvertOptions.canvas,
+								);
+
+							// 将弧度转换为度数（Konva 使用度数）
+							const rotationDegrees = (rotation * 180) / Math.PI;
 
 							return (
 								<React.Fragment key={el.id}>
@@ -302,6 +574,7 @@ const Preview = () => {
 													: "transparent"
 										}
 										strokeWidth={3}
+										rotation={rotationDegrees}
 									/>
 									<KonvaRect
 										x={x}
@@ -310,14 +583,19 @@ const Preview = () => {
 										height={height}
 										fill="transparent"
 										stroke={
-											isDragging
-												? "rgba(0,0,0,0.7)"
-												: isHovered
-													? "rgba(0,0,0,0.5)"
-													: "transparent"
+											isSelected
+												? "rgba(59, 130, 246, 0.8)"
+												: isDragging
+													? "rgba(0,0,0,0.7)"
+													: isHovered
+														? "rgba(0,0,0,0.5)"
+														: "transparent"
 										}
-										strokeWidth={1}
+										strokeWidth={isSelected ? 2 : 1}
 										draggable
+										data-id={el.id}
+										name={`element-${el.id}`}
+										rotation={rotationDegrees}
 										onMouseDown={() => handleMouseDown(el.id)}
 										onMouseUp={handleMouseUp}
 										onDragStart={() => handleDragStart(el.id)}
@@ -327,13 +605,42 @@ const Preview = () => {
 										onDragEnd={(e: Konva.KonvaEventObject<DragEvent>) =>
 											handleDragEnd(el.id, e)
 										}
+										onTransform={(e: Konva.KonvaEventObject<Event>) =>
+											handleTransform(el.id, e)
+										}
+										onTransformEnd={(e: Konva.KonvaEventObject<Event>) =>
+											handleTransformEnd(el.id, e)
+										}
 										onMouseEnter={() => handleMouseEnter(el.id)}
 										onMouseLeave={handleMouseLeave}
-										cursor="move"
+										cursor={isSelected ? "default" : "move"}
 									/>
 								</React.Fragment>
 							);
 						})}
+						{/* Transformer 用于缩放和旋转 */}
+						<Transformer
+							ref={transformerRef}
+							boundBoxFunc={(oldBox, newBox) => {
+								// 限制最小尺寸
+								if (newBox.width < 5 || newBox.height < 5) {
+									return oldBox;
+								}
+								return newBox;
+							}}
+						/>
+						{/* 选择框 */}
+						{selectionRect.visible && (
+							<KonvaRect
+								x={Math.min(selectionRect.x1, selectionRect.x2)}
+								y={Math.min(selectionRect.y1, selectionRect.y2)}
+								width={Math.abs(selectionRect.x2 - selectionRect.x1)}
+								height={Math.abs(selectionRect.y2 - selectionRect.y1)}
+								fill="rgba(59, 130, 246, 0.1)"
+								stroke="rgba(59, 130, 246, 0.8)"
+								strokeWidth={1}
+							/>
+						)}
 					</Layer>
 				</Stage>
 

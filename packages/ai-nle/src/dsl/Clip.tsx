@@ -27,7 +27,7 @@ const Clip = ({
 	const { pictureWidth, pictureHeight, canvasWidth, canvasHeight } =
 		usePreview();
 
-	const { x, y, width, height } = converMetaLayoutToCanvasLayout(
+	const { x, y, width, height, rotation } = converMetaLayoutToCanvasLayout(
 		props,
 		{
 			width: pictureWidth,
@@ -351,7 +351,14 @@ const Clip = ({
 	// 显示视频帧
 	return (
 		<Group>
-			<Rect x={x} y={y} width={width} height={height}>
+			<Rect
+				x={x}
+				y={y}
+				width={width}
+				height={height}
+				transform={[{ rotate: rotation }]}
+				origin={{ x, y }}
+			>
 				{currentFrameImage && (
 					<ImageShader
 						image={currentFrameImage}

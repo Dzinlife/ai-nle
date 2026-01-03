@@ -37,6 +37,36 @@ export const parseUnit = (
 };
 
 /**
+ * 解析旋转角度字符串，支持 "45deg" 格式
+ * @param rotate 旋转角度字符串，如 "45deg" 或数字（度数）
+ * @returns 解析后的角度数值（弧度）
+ */
+export const parseRotate = (rotate?: string | number): number => {
+	if (rotate === undefined || rotate === null) {
+		return 0;
+	}
+
+	let degrees = 0;
+
+	if (typeof rotate === "number") {
+		degrees = rotate;
+	} else if (typeof rotate === "string") {
+		// 处理 "45deg" 格式
+		const match = rotate.match(/^(-?\d+(?:\.\d+)?)deg$/);
+		if (match) {
+			degrees = parseFloat(match[1]);
+		} else {
+			// 如果不是 "deg" 格式，尝试直接解析为数字（假设是度数）
+			const num = parseFloat(rotate);
+			degrees = isNaN(num) ? 0 : num;
+		}
+	}
+
+	// 将度数转换为弧度
+	return (degrees * Math.PI) / 180;
+};
+
+/**
  * 将 meta layout（picture 坐标系）转换为 canvas layout（canvas 坐标系）
  * @param metaLayout 布局元数据
  * @param picture 影片尺寸（原始坐标系）
@@ -54,7 +84,13 @@ export const converMetaLayoutToCanvasLayout = (
 		height: number;
 	},
 	pixelRatio = 1,
-): { x: number; y: number; width: number; height: number } => {
+): {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+	rotation: number;
+} => {
 	const {
 		left,
 		right,
@@ -63,6 +99,7 @@ export const converMetaLayoutToCanvasLayout = (
 		width: metaWidth,
 		height: metaHeight,
 		constraints,
+		rotate,
 	} = metaLayout;
 
 	// 计算缩放比例（从 picture 到 canvas）
@@ -367,10 +404,14 @@ export const converMetaLayoutToCanvasLayout = (
 		}
 	}
 
+	// 解析旋转角度
+	const rotation = parseRotate(rotate);
+
 	return {
 		x: canvasX,
 		y: canvasY,
 		width: canvasWidth,
 		height: canvasHeight,
+		rotation,
 	};
 };

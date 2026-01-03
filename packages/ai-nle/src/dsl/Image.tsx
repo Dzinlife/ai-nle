@@ -7,7 +7,7 @@ const Image = ({ uri, ...props }: ICommonProps & { uri?: string }) => {
 	const { pictureWidth, pictureHeight, canvasWidth, canvasHeight } =
 		usePreview();
 
-	const { x, y, width, height } = converMetaLayoutToCanvasLayout(
+	const { x, y, width, height, rotation } = converMetaLayoutToCanvasLayout(
 		props,
 		{
 			width: pictureWidth,
@@ -24,7 +24,14 @@ const Image = ({ uri, ...props }: ICommonProps & { uri?: string }) => {
 
 	return (
 		<Group>
-			<Rect x={x} y={y} width={width} height={height}>
+			<Rect
+				x={x}
+				y={y}
+				width={width}
+				height={height}
+				transform={[{ rotate: rotation }]}
+				origin={{ x, y }}
+			>
 				<ImageShader
 					image={image}
 					fit="contain"

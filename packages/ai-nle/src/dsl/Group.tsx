@@ -10,7 +10,7 @@ const Group = ({
 	const { pictureWidth, pictureHeight, canvasWidth, canvasHeight } =
 		usePreview();
 
-	const { x, y, width, height } = converMetaLayoutToCanvasLayout(
+	const { x, y, width, height, rotation } = converMetaLayoutToCanvasLayout(
 		props,
 		{
 			width: pictureWidth,
@@ -24,7 +24,15 @@ const Group = ({
 	);
 
 	return (
-		<Rect x={x} y={y} width={width} height={height} color="red">
+		<Rect
+			x={x}
+			y={y}
+			width={width}
+			height={height}
+			color="red"
+			transform={[{ rotate: rotation }]}
+			origin={{ x, y }}
+		>
 			{children}
 		</Rect>
 	);

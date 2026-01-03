@@ -15,6 +15,8 @@ export interface LayoutMeta {
 		vertical: "TOP" | "BOTTOM" | "CENTER" | "TOP_BOTTOM" | "SCALE";
 	};
 
+	rotate?: string; // 度数 eg: "45deg"
+
 	// 锚点（旋转或scale变换参考点）
 	anchor?: "top-left" | "center" | "bottom-right";
 
