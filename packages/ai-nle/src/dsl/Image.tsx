@@ -1,9 +1,24 @@
 import { Group, ImageShader, Rect, useImage } from "react-skia-lite";
+import { usePreview } from "@/components/PreviewProvider";
 import { converMetaLayoutToCanvasLayout } from "./layout";
 import { ICommonProps } from "./types";
 
 const Image = ({ uri, ...props }: ICommonProps & { uri?: string }) => {
-	const { x, y, width, height } = converMetaLayoutToCanvasLayout(props);
+	const { pictureWidth, pictureHeight, canvasWidth, canvasHeight } =
+		usePreview();
+
+	const { x, y, width, height } = converMetaLayoutToCanvasLayout(
+		props,
+		{
+			width: pictureWidth,
+			height: pictureHeight,
+		},
+		{
+			width: canvasWidth,
+			height: canvasHeight,
+		},
+		window.devicePixelRatio,
+	);
 
 	const image = useImage(uri);
 

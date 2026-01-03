@@ -16,6 +16,7 @@ import {
 	Timeline,
 } from "@/dsl";
 import { ICommonProps } from "@/dsl/types";
+import { usePreview } from "./PreviewProvider";
 
 interface TimelineElement extends ICommonProps {
 	__type: "Group" | "Image" | "Clip";
@@ -108,8 +109,19 @@ const Preview = () => {
 	const stageRef = useRef<Konva.Stage>(null);
 	const timelineRef = useRef<React.ReactElement | null>(null);
 
-	const canvasWidth = 600;
-	const canvasHeight = 500;
+	const { pictureWidth, pictureHeight, canvasWidth, canvasHeight } =
+		usePreview();
+
+	const canvasConvertOptions = {
+		picture: {
+			width: pictureWidth,
+			height: pictureHeight,
+		},
+		canvas: {
+			width: canvasWidth,
+			height: canvasHeight,
+		},
+	};
 
 	const handleMouseDown = useCallback((id: string) => {
 		setDraggingId(id);
@@ -127,16 +139,22 @@ const Preview = () => {
 	const handleDrag = useCallback(
 		(id: string, e: Konva.KonvaEventObject<DragEvent>) => {
 			const node = e.target;
-			const newX = node.x();
-			const newY = node.y();
+			const canvasX = node.x();
+			const canvasY = node.y();
+
+			// 将 canvas 坐标转换为 picture 坐标
+			const scaleX = canvasWidth / pictureWidth;
+			const scaleY = canvasHeight / pictureHeight;
+			const pictureX = canvasX / scaleX;
+			const pictureY = canvasY / scaleY;
 
 			setElements((prev) =>
 				prev.map((el) =>
-					el.id === id ? { ...el, left: newX, top: newY } : el,
+					el.id === id ? { ...el, left: pictureX, top: pictureY } : el,
 				),
 			);
 		},
-		[],
+		[canvasWidth, canvasHeight, pictureWidth, pictureHeight],
 	);
 
 	const handleDragEnd = useCallback(
@@ -223,8 +241,11 @@ const Preview = () => {
 							{elements.map((el) => {
 								const { id, __type, __Component, ...rest } = el;
 
-								const { x, y, width, height } =
-									converMetaLayoutToCanvasLayout(el);
+								const { x, y, width, height } = converMetaLayoutToCanvasLayout(
+									el,
+									canvasConvertOptions.picture,
+									canvasConvertOptions.canvas,
+								);
 								return (
 									<el.__Component
 										key={id}
@@ -259,8 +280,11 @@ const Preview = () => {
 							const isHovered = hoveredId === el.id;
 							const isDragging = draggingId === el.id;
 
-							const { x, y, width, height } =
-								converMetaLayoutToCanvasLayout(el);
+							const { x, y, width, height } = converMetaLayoutToCanvasLayout(
+								el,
+								canvasConvertOptions.picture,
+								canvasConvertOptions.canvas,
+							);
 
 							return (
 								<React.Fragment key={el.id}>
@@ -328,7 +352,11 @@ const Preview = () => {
 						const isHovered = hoveredId === el.id;
 						if (!isHovered) return null;
 
-						const { x, y, width } = converMetaLayoutToCanvasLayout(el);
+						const { x, y, width } = converMetaLayoutToCanvasLayout(
+							el,
+							canvasConvertOptions.picture,
+							canvasConvertOptions.canvas,
+						);
 						const center = x + width / 2;
 
 						return (

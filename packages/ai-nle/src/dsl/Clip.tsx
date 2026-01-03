@@ -7,6 +7,7 @@ import {
 } from "mediabunny";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Group, ImageShader, Rect, type SkImage, Skia } from "react-skia-lite";
+import { usePreview } from "@/components/PreviewProvider";
 import { converMetaLayoutToCanvasLayout } from "./layout";
 import { ICommonProps } from "./types";
 
@@ -23,7 +24,21 @@ const Clip = ({
 	uri,
 	...props
 }: ICommonProps & { children?: React.ReactNode; uri?: string }) => {
-	const { x, y, width, height } = converMetaLayoutToCanvasLayout(props);
+	const { pictureWidth, pictureHeight, canvasWidth, canvasHeight } =
+		usePreview();
+
+	const { x, y, width, height } = converMetaLayoutToCanvasLayout(
+		props,
+		{
+			width: pictureWidth,
+			height: pictureHeight,
+		},
+		{
+			width: canvasWidth,
+			height: canvasHeight,
+		},
+		window.devicePixelRatio,
+	);
 
 	const { currentTime } = useTimeline();
 

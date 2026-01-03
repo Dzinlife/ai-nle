@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
 import { LoadSkiaWeb, WithSkiaWeb } from "react-skia-lite";
+import PreviewProvider from "@/components/PreviewProvider";
 
 export const Route = createFileRoute("/")({
 	component: RouteComponent,
@@ -73,7 +74,9 @@ function RouteComponent() {
 	return (
 		<div style={{ padding: "20px" }}>
 			<Suspense fallback={<div>Loading CanvasKit...</div>}>
-				<LazyPreview />
+				<PreviewProvider>
+					<LazyPreview />
+				</PreviewProvider>
 				<LazySkiaZoom />
 				<LazySkiaDnd />
 				<LazySkiaFont />
