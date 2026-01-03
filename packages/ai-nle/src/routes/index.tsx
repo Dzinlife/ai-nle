@@ -56,10 +56,18 @@ const LazySkiaDnd = lazy(async () => {
 	};
 });
 
+const LazySkiaZoom = lazy(async () => {
+	await LoadSkiaWeb();
+	return {
+		default: (await import("@/components/SkiaZoom")).default,
+	};
+});
+
 function RouteComponent() {
 	return (
 		<div style={{ padding: "20px" }}>
 			<Suspense fallback={<div>Loading CanvasKit...</div>}>
+				<LazySkiaZoom />
 				<LazySkiaDnd />
 				<LazySkiaFont />
 				<LazySkiaVideo />
