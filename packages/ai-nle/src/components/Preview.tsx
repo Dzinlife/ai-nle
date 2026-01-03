@@ -6,19 +6,13 @@ import React, {
 	useRef,
 	useState,
 } from "react";
-import {
-	Rect as KonvaRect,
-	Text as KonvaText,
-	Layer,
-	Stage,
-} from "react-konva";
+import { Rect as KonvaRect, Layer, Stage } from "react-konva";
 import { Canvas, Fill, Group as SkiaGroup } from "react-skia-lite";
 import {
 	Clip,
 	converMetaLayoutToCanvasLayout,
 	Group,
 	Image,
-	parseUnit,
 	Timeline,
 } from "@/dsl";
 import { ICommonProps } from "@/dsl/types";
@@ -32,7 +26,7 @@ const timeline = (
 	<Timeline>
 		<Group
 			id="group1"
-			name="group1"
+			name="group1group1group1group1"
 			width={50}
 			height={100}
 			left={0}
@@ -133,8 +127,17 @@ const Preview = () => {
 	const canvasWidth = 600;
 	const canvasHeight = 500;
 
+	const handleMouseDown = useCallback((id: string) => {
+		setDraggingId(id);
+	}, []);
+
+	const handleMouseUp = useCallback(() => {
+		setDraggingId(null);
+	}, []);
+
 	const handleDragStart = useCallback((id: string) => {
 		setDraggingId(id);
+		setHoveredId(id); // 拖拽开始时保持 hover 状态
 	}, []);
 
 	const handleDrag = useCallback(
@@ -262,7 +265,7 @@ const Preview = () => {
 					ref={stageRef}
 					width={canvasWidth}
 					height={canvasHeight}
-					style={{ position: "absolute", top: 0, left: 0 }}
+					className="absolute top-0 left-0 mix-blend-hard-light"
 				>
 					<Layer>
 						{elements.map((el) => {
@@ -273,21 +276,39 @@ const Preview = () => {
 								converMetaLayoutToCanvasLayout(el);
 
 							return (
-								<>
-									{isHovered && (
-										<KonvaText text={el.name} x={x - 2} y={y - 16} />
-									)}
+								<React.Fragment key={el.id}>
 									<KonvaRect
-										key={el.id}
 										x={x}
 										y={y}
 										width={width}
 										height={height}
 										fill="transparent"
-										stroke={isHovered || isDragging ? "#6366f1" : "transparent"}
-										strokeWidth={isHovered || isDragging ? 3 : 0}
-										dash={isHovered && !isDragging ? [5, 5] : undefined}
+										stroke={
+											isDragging
+												? "rgba(255,255,255,0.5)"
+												: isHovered
+													? "rgba(255,255,255,0.5)"
+													: "transparent"
+										}
+										strokeWidth={3}
+									/>
+									<KonvaRect
+										x={x}
+										y={y}
+										width={width}
+										height={height}
+										fill="transparent"
+										stroke={
+											isDragging
+												? "rgba(0,0,0,0.7)"
+												: isHovered
+													? "rgba(0,0,0,0.5)"
+													: "transparent"
+										}
+										strokeWidth={1}
 										draggable
+										onMouseDown={() => handleMouseDown(el.id)}
+										onMouseUp={handleMouseUp}
 										onDragStart={() => handleDragStart(el.id)}
 										onDragMove={(e: Konva.KonvaEventObject<DragEvent>) =>
 											handleDrag(el.id, e)
@@ -298,16 +319,45 @@ const Preview = () => {
 										onMouseEnter={() => handleMouseEnter(el.id)}
 										onMouseLeave={handleMouseLeave}
 										cursor="move"
-										shadowBlur={isDragging ? 10 : 0}
-										shadowColor={isDragging ? "rgba(0,0,0,0.3)" : undefined}
-										shadowOffsetX={isDragging ? 5 : 0}
-										shadowOffsetY={isDragging ? 5 : 0}
 									/>
-								</>
+								</React.Fragment>
 							);
 						})}
 					</Layer>
 				</Stage>
+
+				{/* DOM 文字标签层 */}
+				<div
+					style={{
+						position: "absolute",
+						top: 0,
+						left: 0,
+						width: canvasWidth,
+						height: canvasHeight,
+						pointerEvents: "none",
+					}}
+				>
+					{elements.map((el) => {
+						const isHovered = hoveredId === el.id;
+						if (!isHovered) return null;
+
+						const { x, y, width } = converMetaLayoutToCanvasLayout(el);
+						const center = x + width / 2;
+
+						return (
+							<div
+								key={el.id}
+								className="absolute text-black/60 bg-white/70 border border-black/10 max-w-32 truncate font-medium backdrop-blur-sm backdrop-saturate-150 px-3 py-1 -top-8 translate-x-[-50%] rounded-full text-xs whitespace-nowrap pointer-events-none"
+								style={{
+									left: center,
+									top: y - 30,
+								}}
+							>
+								{el.name}
+							</div>
+						);
+					})}
+				</div>
 			</div>
 		</div>
 	);
