@@ -1,0 +1,47 @@
+{
+  "name": "react-skia-lite",
+  "version": "0.1.0",
+  "description": "ESM version of react-native-skia for web",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "lint": "biome check .",
+    "format": "biome format --write ."
+  },
+  "keywords": [
+    "react",
+    "skia",
+    "canvas",
+    "web",
+    "esm"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "canvaskit-wasm": "^0.40.0",
+    "react": "^19.2.0",
+    "react-reconciler": "^0.32.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.2.4",
+    "@types/react": "^19.2.0",
+    "@types/react-reconciler": "^0.32.3",
+    "typescript": "^5.7.2"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0"
+  }
+}

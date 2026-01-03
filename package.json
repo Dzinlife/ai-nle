@@ -1,0 +1,25 @@
+{
+  "name": "ai-nle-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "format": "turbo run format",
+    "check": "biome check .",
+    "preview": "turbo run preview",
+    "deploy": "turbo run deploy"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.2.4",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  }
+}
