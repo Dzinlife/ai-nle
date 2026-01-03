@@ -29,9 +29,7 @@ export const WithSkiaWeb = <TProps extends object>({
 	opts,
 	componentProps,
 }: WithSkiaProps<TProps>) => {
-	// biome-ignore lint/correctness/useExhaustiveDependencies: We we to run this only once.
 	const Inner = useMemo(
-		// biome-ignore lint/suspicious/noExplicitAny: avoid type errors.
 		(): any =>
 			lazy(async () => {
 				await LoadSkiaWeb(opts);

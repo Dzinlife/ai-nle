@@ -13,7 +13,7 @@ export abstract class Host {
 	readonly CanvasKit: CanvasKit;
 
 	constructor(CanvasKit: CanvasKit) {
-		this.CanvasKit = global.CanvasKit;
+		this.CanvasKit = CanvasKit;
 	}
 }
 

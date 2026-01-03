@@ -1,8 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
 import { LoadSkiaWeb, WithSkiaWeb } from "react-skia-lite";
-import SkiaNeon from "@/components/SkiaNeon";
-import SkiaCircle from "../components/SkiaCircle";
 
 export const Route = createFileRoute("/")({
 	component: RouteComponent,
@@ -44,10 +42,18 @@ const LazySkiaVideo = lazy(async () => {
 // 	};
 // });
 
+const LazySkiaFont = lazy(async () => {
+	await LoadSkiaWeb();
+	return {
+		default: (await import("@/components/SkiaFont")).default,
+	};
+});
+
 function RouteComponent() {
 	return (
 		<div style={{ padding: "20px" }}>
 			<Suspense fallback={<div>Loading CanvasKit...</div>}>
+				<LazySkiaFont />
 				<LazySkiaVideo />
 				{/* <LazySkiaVideo2 /> */}
 				<LazySkiaCircle />

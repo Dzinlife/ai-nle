@@ -1,7 +1,10 @@
+import { LoadSkiaWeb } from "../LoadSkiaWeb";
 import type { Skia as SkiaType } from "./types";
 import { JsiSkApi } from "./web";
 
-// export const Skia = JsiSkApi(global.CanvasKit);
+if (typeof global !== "undefined" && !global.CanvasKit) {
+	await LoadSkiaWeb();
+}
 
 export const Skia = new Proxy({} as SkiaType, {
 	get(_target, prop) {

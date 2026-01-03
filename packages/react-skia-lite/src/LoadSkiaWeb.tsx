@@ -17,8 +17,6 @@ if (typeof global === "undefined") {
 	});
 }
 
-// global.CanvasKit = await CanvasKitInit();
-
 export let ckSharedPromise: Promise<CanvasKitType>;
 
 export const LoadSkiaWeb = async (opts?: CanvasKitInitOptions) => {

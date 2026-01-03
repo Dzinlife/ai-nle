@@ -68,7 +68,7 @@ export class JsiSkImageFactory extends Host implements ImageFactory {
 	}
 
 	MakeImageFromEncoded(encoded: SkData) {
-		const image = global.CanvasKit.MakeImageFromEncoded(
+		const image = this.CanvasKit.MakeImageFromEncoded(
 			JsiSkData.fromValue(encoded),
 		);
 		if (image === null) {
