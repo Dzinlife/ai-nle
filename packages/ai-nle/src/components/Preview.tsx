@@ -1,3 +1,4 @@
+import { transcode } from "buffer";
 import Konva from "konva";
 import React, {
 	useCallback,
@@ -6,7 +7,14 @@ import React, {
 	useRef,
 	useState,
 } from "react";
-import { Rect as KonvaRect, Layer, Stage, Transformer } from "react-konva";
+import {
+	Circle as KonvaCircle,
+	Line as KonvaLine,
+	Rect as KonvaRect,
+	Layer,
+	Stage,
+	Transformer,
+} from "react-konva";
 import { Canvas, Fill, Group as SkiaGroup } from "react-skia-lite";
 import {
 	Clip,
@@ -28,6 +36,7 @@ interface TimelineElement extends ICommonProps {
 interface LabelLayerProps {
 	elements: TimelineElement[];
 	hoveredId: string | null;
+	selectedIds: string[];
 	stageRef: React.RefObject<Konva.Stage | null>;
 	canvasConvertOptions: {
 		picture: { width: number; height: number };
@@ -38,27 +47,38 @@ interface LabelLayerProps {
 const LabelLayer: React.FC<LabelLayerProps> = ({
 	elements,
 	hoveredId,
+	selectedIds,
 	stageRef,
 	canvasConvertOptions,
 }) => {
 	const [labelPositions, setLabelPositions] = useState<
-		Record<string, { x: number; y: number }>
+		Record<
+			string,
+			{ x: number; y: number; rotation: number; height: number; width: number }
+		>
 	>({});
 
 	// 更新 label 位置的函数
 	const updateLabelPositions = useCallback(() => {
-		if (!stageRef.current || !hoveredId) {
-			setLabelPositions({});
-			return;
-		}
+		// if (!stageRef.current || !hoveredId) {
+		// 	setLabelPositions({});
+		// 	return;
+		// }
 
 		const stage = stageRef.current;
-		const positions: Record<string, { x: number; y: number }> = {};
+		const positions: Record<
+			string,
+			{ x: number; y: number; rotation: number; height: number; width: number }
+		> = {};
 
 		elements.forEach((el) => {
-			if (el.id !== hoveredId) return;
+			if (!selectedIds.length) return;
 
-			const node = stage.findOne(`.element-${el.id}`) as Konva.Node | undefined;
+			if (!selectedIds.includes(el.id)) return;
+
+			const node = stage?.findOne(`.element-${el.id}`) as
+				| Konva.Node
+				| undefined;
 			if (!node) {
 				// 如果找不到节点，使用 layout 计算的位置
 				const { x, y, width, height } = converMetaLayoutToCanvasLayout(
@@ -69,6 +89,9 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 				positions[el.id] = {
 					x: x + width / 2,
 					y: y + height / 2,
+					rotation: 0,
+					height: height,
+					width: width,
 				};
 				return;
 			}
@@ -106,6 +129,9 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 			positions[el.id] = {
 				x: rotatedCenterX,
 				y: rotatedCenterY,
+				height: height,
+				width: width,
+				rotation: rotation,
 			};
 		});
 
@@ -116,24 +142,6 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 	useEffect(() => {
 		updateLabelPositions();
 	}, [updateLabelPositions]);
-
-	// 实时更新：使用 requestAnimationFrame 来持续更新位置
-	useEffect(() => {
-		if (!hoveredId) return;
-
-		let animationFrameId: number;
-		const update = () => {
-			updateLabelPositions();
-			animationFrameId = requestAnimationFrame(update);
-		};
-		animationFrameId = requestAnimationFrame(update);
-
-		return () => {
-			if (animationFrameId) {
-				cancelAnimationFrame(animationFrameId);
-			}
-		};
-	}, [hoveredId, updateLabelPositions]);
 
 	const canvasWidth = canvasConvertOptions.canvas.width;
 	const canvasHeight = canvasConvertOptions.canvas.height;
@@ -150,24 +158,45 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 			}}
 		>
 			{elements.map((el) => {
-				const isHovered = hoveredId === el.id;
-				if (!isHovered) return null;
+				// const isHovered = hoveredId === el.id;
+				// if (!isHovered) return null;
 
 				const position = labelPositions[el.id];
 				if (!position) return null;
 
+				let translateY = 0;
+
+				if (
+					Math.abs(position.rotation % 180) > 45 &&
+					Math.abs(position.rotation % 180) < 135
+				)
+					translateY = position.width / 2 + 20;
+				else {
+					translateY = position.height / 2 + 20;
+				}
+
+				let normalizedRotation = position.rotation % 90;
+
+				if (position.rotation % 90 > 45) {
+					normalizedRotation -= 90 * Math.ceil(normalizedRotation / 90);
+				} else if (position.rotation % 90 < -45) {
+					normalizedRotation -= 90 * Math.floor(normalizedRotation / 90);
+				}
+
 				return (
-					<div
-						key={el.id}
-						className="absolute text-black/60 bg-white/70 border border-black/10 max-w-32 truncate font-medium backdrop-blur-sm backdrop-saturate-150 px-3 py-1 -top-8 rounded-full text-xs whitespace-nowrap pointer-events-none"
-						style={{
-							left: position.x,
-							top: position.y,
-							transform: "translate(-50%, -50%)",
-						}}
-					>
-						{el.name}
-					</div>
+					<>
+						<div
+							key={el.id}
+							className="absolute text-red-500 bg-black/80 border border-red-500/70 max-w-32 truncate font-medium backdrop-blur-sm backdrop-saturate-150 px-3 py-1 -top-8 rounded-full text-xs whitespace-nowrap pointer-events-none"
+							style={{
+								left: position.x,
+								top: position.y,
+								transform: `translate(-50%, -50%) rotate(${normalizedRotation}deg) translateY(${translateY}px)`,
+							}}
+						>
+							{Math.round(position.width)} &times; {Math.round(position.height)}
+						</div>
+					</>
 				);
 			})}
 		</div>
@@ -729,31 +758,15 @@ const Preview = () => {
 										height={height}
 										fill="transparent"
 										stroke={
-											isDragging
-												? "rgba(255,255,255,0.5)"
-												: isHovered
-													? "rgba(255,255,255,0.5)"
-													: "transparent"
-										}
-										strokeWidth={3}
-										rotation={rotationDegrees}
-									/>
-									<KonvaRect
-										x={x}
-										y={y}
-										width={width}
-										height={height}
-										fill="transparent"
-										stroke={
 											isSelected
-												? "rgba(59, 130, 246, 0.8)"
+												? "rgba(255,0,0,1)"
 												: isDragging
-													? "rgba(0,0,0,0.7)"
+													? "rgba(255,0,0,0.7)"
 													: isHovered
 														? "rgba(0,0,0,0.5)"
 														: "transparent"
 										}
-										strokeWidth={isSelected ? 2 : 1}
+										strokeWidth={isSelected ? 1 : 1}
 										draggable
 										data-id={el.id}
 										name={`element-${el.id}`}
@@ -790,19 +803,12 @@ const Preview = () => {
 								}
 								return newBox;
 							}}
+							anchorFill="black"
+							anchorStroke="rgba(255,0,0,1)"
+							anchorStrokeWidth={1.25}
+							anchorSize={7}
+							borderStroke="rgba(255,0,0,0.7)"
 						/>
-						{/* 选择框 */}
-						{selectionRect.visible && (
-							<KonvaRect
-								x={Math.min(selectionRect.x1, selectionRect.x2)}
-								y={Math.min(selectionRect.y1, selectionRect.y2)}
-								width={Math.abs(selectionRect.x2 - selectionRect.x1)}
-								height={Math.abs(selectionRect.y2 - selectionRect.y1)}
-								fill="rgba(59, 130, 246, 0.1)"
-								stroke="rgba(59, 130, 246, 0.8)"
-								strokeWidth={1}
-							/>
-						)}
 					</Layer>
 				</Stage>
 
@@ -810,6 +816,7 @@ const Preview = () => {
 				<LabelLayer
 					elements={elements}
 					hoveredId={hoveredId}
+					selectedIds={selectedIds}
 					stageRef={stageRef}
 					canvasConvertOptions={canvasConvertOptions}
 				/>
