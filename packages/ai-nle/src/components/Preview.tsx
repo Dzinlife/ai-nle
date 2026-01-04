@@ -24,6 +24,156 @@ interface TimelineElement extends ICommonProps {
 	rotation?: number;
 }
 
+// LabelLayer 组件：从 Konva 节点获取实际位置来显示 label
+interface LabelLayerProps {
+	elements: TimelineElement[];
+	hoveredId: string | null;
+	stageRef: React.RefObject<Konva.Stage | null>;
+	canvasConvertOptions: {
+		picture: { width: number; height: number };
+		canvas: { width: number; height: number };
+	};
+}
+
+const LabelLayer: React.FC<LabelLayerProps> = ({
+	elements,
+	hoveredId,
+	stageRef,
+	canvasConvertOptions,
+}) => {
+	const [labelPositions, setLabelPositions] = useState<
+		Record<string, { x: number; y: number }>
+	>({});
+
+	// 更新 label 位置的函数
+	const updateLabelPositions = useCallback(() => {
+		if (!stageRef.current || !hoveredId) {
+			setLabelPositions({});
+			return;
+		}
+
+		const stage = stageRef.current;
+		const positions: Record<string, { x: number; y: number }> = {};
+
+		elements.forEach((el) => {
+			if (el.id !== hoveredId) return;
+
+			const node = stage.findOne(`.element-${el.id}`) as Konva.Node | undefined;
+			if (!node) {
+				// 如果找不到节点，使用 layout 计算的位置
+				const { x, y, width, height } = converMetaLayoutToCanvasLayout(
+					el,
+					canvasConvertOptions.picture,
+					canvasConvertOptions.canvas,
+				);
+				positions[el.id] = {
+					x: x + width / 2,
+					y: y + height / 2,
+				};
+				return;
+			}
+
+			// 从 Konva 节点获取实际位置和尺寸
+			const x = node.x();
+			const y = node.y();
+			const width = node.width() * node.scaleX();
+			const height = node.height() * node.scaleY();
+			const rotation = node.rotation(); // 度数
+
+			// 获取 offset（如果没有设置，默认为 0, 0，即左上角）
+			const offsetX = node.offsetX() || 0;
+			const offsetY = node.offsetY() || 0;
+
+			// 计算旋转中心点（offset 点）
+			const rotationCenterX = x + offsetX;
+			const rotationCenterY = y + offsetY;
+
+			// 计算未旋转时中心点相对于旋转中心的偏移
+			const centerOffsetX = width / 2 - offsetX;
+			const centerOffsetY = height / 2 - offsetY;
+
+			// 将偏移转换为弧度
+			const rotationRad = (rotation * Math.PI) / 180;
+
+			// 计算旋转后的中心点位置
+			const cos = Math.cos(rotationRad);
+			const sin = Math.sin(rotationRad);
+			const rotatedCenterX =
+				rotationCenterX + centerOffsetX * cos - centerOffsetY * sin;
+			const rotatedCenterY =
+				rotationCenterY + centerOffsetX * sin + centerOffsetY * cos;
+
+			positions[el.id] = {
+				x: rotatedCenterX,
+				y: rotatedCenterY,
+			};
+		});
+
+		setLabelPositions(positions);
+	}, [elements, hoveredId, stageRef, canvasConvertOptions]);
+
+	// 初始更新和 hover 变化时更新
+	useEffect(() => {
+		updateLabelPositions();
+	}, [updateLabelPositions]);
+
+	// 实时更新：使用 requestAnimationFrame 来持续更新位置
+	useEffect(() => {
+		if (!hoveredId) return;
+
+		let animationFrameId: number;
+		const update = () => {
+			updateLabelPositions();
+			animationFrameId = requestAnimationFrame(update);
+		};
+		animationFrameId = requestAnimationFrame(update);
+
+		return () => {
+			if (animationFrameId) {
+				cancelAnimationFrame(animationFrameId);
+			}
+		};
+	}, [hoveredId, updateLabelPositions]);
+
+	const canvasWidth = canvasConvertOptions.canvas.width;
+	const canvasHeight = canvasConvertOptions.canvas.height;
+
+	return (
+		<div
+			style={{
+				position: "absolute",
+				top: 0,
+				left: 0,
+				width: canvasWidth,
+				height: canvasHeight,
+				pointerEvents: "none",
+			}}
+		>
+			{elements.map((el) => {
+				const isHovered = hoveredId === el.id;
+				if (!isHovered) return null;
+
+				const position = labelPositions[el.id];
+				if (!position) return null;
+
+				return (
+					<div
+						key={el.id}
+						className="absolute text-black/60 bg-white/70 border border-black/10 max-w-32 truncate font-medium backdrop-blur-sm backdrop-saturate-150 px-3 py-1 -top-8 rounded-full text-xs whitespace-nowrap pointer-events-none"
+						style={{
+							left: position.x,
+							top: position.y,
+							transform: "translate(-50%, -50%)",
+						}}
+					>
+						{el.name}
+					</div>
+				);
+			})}
+		</div>
+	);
+};
+
 const timeline = (
 	<Timeline>
 		<Group
@@ -645,41 +795,12 @@ const Preview = () => {
 				</Stage>
 
 				{/* DOM 文字标签层 */}
-				<div
-					style={{
-						position: "absolute",
-						top: 0,
-						left: 0,
-						width: canvasWidth,
-						height: canvasHeight,
-						pointerEvents: "none",
-					}}
-				>
-					{elements.map((el) => {
-						const isHovered = hoveredId === el.id;
-						if (!isHovered) return null;
-
-						const { x, y, width } = converMetaLayoutToCanvasLayout(
-							el,
-							canvasConvertOptions.picture,
-							canvasConvertOptions.canvas,
-						);
-						const center = x + width / 2;
-
-						return (
-							<div
-								key={el.id}
-								className="absolute text-black/60 bg-white/70 border border-black/10 max-w-32 truncate font-medium backdrop-blur-sm backdrop-saturate-150 px-3 py-1 -top-8 translate-x-[-50%] rounded-full text-xs whitespace-nowrap pointer-events-none"
-								style={{
-									left: center,
-									top: y - 30,
-								}}
-							>
-								{el.name}
-							</div>
-						);
-					})}
-				</div>
+				<LabelLayer
+					elements={elements}
+					hoveredId={hoveredId}
+					stageRef={stageRef}
+					canvasConvertOptions={canvasConvertOptions}
+				/>
 			</div>
 		</div>
 	);
