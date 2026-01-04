@@ -9,21 +9,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Group, ImageShader, Rect, type SkImage, Skia } from "react-skia-lite";
 import { usePreview } from "@/components/PreviewProvider";
 import { converMetaLayoutToCanvasLayout } from "./layout";
-import { ICommonProps } from "./types";
-
-// TODO, 获取当前帧数据，待 provider 实现
-const useTimeline = () => {
-	return {
-		currentTime: 0,
-		playState: "paused" as "paused" | "playing" | "ended",
-	};
-};
+import { CommonMeta, LayoutMeta, TimelineMeta } from "./types";
 
 const Clip = ({
 	children,
 	uri,
+	currentTime,
 	...props
-}: ICommonProps & { children?: React.ReactNode; uri?: string }) => {
+}: CommonMeta &
+	LayoutMeta &
+	TimelineMeta & {
+		children?: React.ReactNode;
+		uri?: string;
+		currentTime?: number;
+	}) => {
 	const { pictureWidth, pictureHeight, canvasWidth, canvasHeight } =
 		usePreview();
 
@@ -40,7 +39,7 @@ const Clip = ({
 		window.devicePixelRatio,
 	);
 
-	const { currentTime } = useTimeline();
+	// const { currentTime } = useTimeline();
 
 	const [currentFrameImage, setCurrentFrameImage] = useState<SkImage | null>(
 		null,
@@ -61,18 +60,41 @@ const Clip = ({
 	const animationFrameRef = useRef<number | null>(null);
 	const currentTimeRef = useRef(currentTime);
 
+	// 强引用：保持最近几帧图像和对应的 ImageBitmap 不被 GC 回收
+	// 这样可以确保在 Skia 绘制时图像仍然有效
+	const imagePoolRef = useRef<{ image: SkImage; bitmap: ImageBitmap }[]>([]);
+	const MAX_POOL_SIZE = 3; // 保留最近 3 帧
+
 	// 保持 currentTimeRef 与 currentTime 同步
 	useEffect(() => {
 		currentTimeRef.current = currentTime;
 	}, [currentTime]);
 
-	// 更新当前帧
+	// 更新当前帧（复制 canvas 内容避免 mediabunny 复用导致的问题）
 	const updateFrame = useCallback(
-		(canvas: HTMLCanvasElement | OffscreenCanvas) => {
+		async (canvas: HTMLCanvasElement | OffscreenCanvas) => {
 			try {
-				const skiaImage = Skia.Image.MakeImageFromNativeBuffer(canvas);
+				// 使用 createImageBitmap 来复制 canvas 内容
+				// 这样即使 mediabunny 复用原 canvas，我们的数据也是安全的
+				const imageBitmap = await createImageBitmap(canvas);
+				const skiaImage = Skia.Image.MakeImageFromNativeBuffer(imageBitmap);
+
 				if (skiaImage) {
+					// 将新图像和对应的 ImageBitmap 加入池中
+					imagePoolRef.current.push({ image: skiaImage, bitmap: imageBitmap });
+
+					// 如果超出池大小，移除旧的并关闭 ImageBitmap
+					while (imagePoolRef.current.length > MAX_POOL_SIZE) {
+						const removed = imagePoolRef.current.shift();
+						if (removed) {
+							// 关闭 ImageBitmap 释放资源
+							removed.bitmap.close();
+						}
+					}
 					setCurrentFrameImage(skiaImage);
+				} else {
+					// 如果创建 SkImage 失败，关闭 ImageBitmap
+					imageBitmap.close();
 				}
 			} catch (err) {
 				console.error("更新帧失败:", err);
@@ -81,10 +103,19 @@ const Clip = ({
 		[],
 	);
 
+	// 待处理的 seek 时间（当 isSeekingRef 为 true 时记录）
+	const pendingSeekTimeRef = useRef<number | null>(null);
+
 	// 跳转到指定时间并显示帧
 	const seekToTime = useCallback(
 		async (seconds: number) => {
-			if (!videoSinkRef.current || isSeekingRef.current) {
+			if (!videoSinkRef.current) {
+				return;
+			}
+
+			// 如果正在 seeking，记录待处理的时间
+			if (isSeekingRef.current) {
+				pendingSeekTimeRef.current = seconds;
 				return;
 			}
 
@@ -97,34 +128,32 @@ const Clip = ({
 			asyncIdRef.current++;
 			const currentAsyncId = asyncIdRef.current;
 
+			let iterator: AsyncGenerator<WrappedCanvas, void, unknown> | null = null;
+
 			try {
 				// 清理旧的迭代器
-				await videoFrameIteratorRef.current?.return();
+				const oldIterator = videoFrameIteratorRef.current;
+				videoFrameIteratorRef.current = null;
+				await oldIterator?.return();
 
 				// 检查是否已被新的操作替换
 				if (currentAsyncId !== asyncIdRef.current || !videoSinkRef.current) {
-					isSeekingRef.current = false;
 					return;
 				}
 
 				// 创建新的迭代器，从指定时间开始
-				videoFrameIteratorRef.current = videoSinkRef.current.canvases(seconds);
+				iterator = videoSinkRef.current.canvases(seconds);
+				videoFrameIteratorRef.current = iterator;
 
-				if (!videoFrameIteratorRef.current) {
-					isSeekingRef.current = false;
+				if (!iterator) {
 					return;
 				}
 
 				// 获取第一帧（最接近指定时间的帧）
-				const firstFrame =
-					(await videoFrameIteratorRef.current.next()).value ?? null;
+				const firstFrame = (await iterator.next()).value ?? null;
 
 				// 再次检查是否已被替换
-				if (
-					currentAsyncId !== asyncIdRef.current ||
-					!videoFrameIteratorRef.current
-				) {
-					isSeekingRef.current = false;
+				if (currentAsyncId !== asyncIdRef.current) {
 					return;
 				}
 
@@ -138,10 +167,28 @@ const Clip = ({
 						lastSeekTimeRef.current = seconds;
 					}
 				}
+
+				// 关闭迭代器释放资源
+				await iterator.return();
+				if (videoFrameIteratorRef.current === iterator) {
+					videoFrameIteratorRef.current = null;
+				}
 			} catch (err) {
 				console.warn("跳转到指定时间失败:", err);
+				// 出错时也要关闭迭代器
+				await iterator?.return();
 			} finally {
 				isSeekingRef.current = false;
+
+				// 处理待处理的 seek
+				const pendingTime = pendingSeekTimeRef.current;
+				if (pendingTime !== null) {
+					pendingSeekTimeRef.current = null;
+					// 使用 setTimeout 避免递归调用栈溢出
+					setTimeout(() => {
+						void seekToTime(pendingTime);
+					}, 0);
+				}
 			}
 		},
 		[updateFrame],
@@ -248,7 +295,9 @@ const Clip = ({
 				// 初始化后，根据当前时间显示帧（使用最新的 currentTime）
 				if (videoSinkRef.current) {
 					const timeToSeek =
-						currentTimeRef.current >= 0 ? currentTimeRef.current : 0;
+						currentTimeRef.current != null && currentTimeRef.current >= 0
+							? currentTimeRef.current
+							: 0;
 					await seekToTime(timeToSeek);
 				}
 			} catch (err) {
@@ -292,7 +341,12 @@ const Clip = ({
 
 	// 当 currentTime 变化时，更新显示的帧
 	useEffect(() => {
-		if (!videoSinkRef.current || !uri || currentTime < 0) {
+		if (
+			!videoSinkRef.current ||
+			!uri ||
+			currentTime == null ||
+			currentTime < 0
+		) {
 			return;
 		}
 
@@ -304,6 +358,8 @@ const Clip = ({
 			return;
 		}
 
+		const targetTime = currentTime;
+
 		// 使用 requestAnimationFrame 来节流更新
 		if (animationFrameRef.current !== null) {
 			cancelAnimationFrame(animationFrameRef.current);
@@ -311,7 +367,7 @@ const Clip = ({
 
 		animationFrameRef.current = requestAnimationFrame(() => {
 			animationFrameRef.current = null;
-			void seekToTime(currentTime);
+			void seekToTime(targetTime);
 		});
 
 		return () => {
@@ -327,6 +383,15 @@ const Clip = ({
 			if (animationFrameRef.current !== null) {
 				cancelAnimationFrame(animationFrameRef.current);
 			}
+			// 清空图像池并关闭所有 ImageBitmap
+			for (const item of imagePoolRef.current) {
+				try {
+					item.bitmap.close();
+				} catch {
+					// 忽略关闭错误
+				}
+			}
+			imagePoolRef.current = [];
 		};
 	}, []);
 
