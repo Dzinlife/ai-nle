@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
 import { LoadSkiaWeb, WithSkiaWeb } from "react-skia-lite";
-import PreviewProvider from "@/components/PreviewProvider";
+import PreviewProvider, { usePreview } from "@/components/PreviewProvider";
 
 export const Route = createFileRoute("/")({
 	component: RouteComponent,

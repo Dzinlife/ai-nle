@@ -179,36 +179,36 @@ const timeline = (
 		<Group
 			id="group1"
 			name="group1group1group1group1"
-			width={50}
-			height={100}
-			left={0}
+			width={500}
+			height={500}
+			left={250}
 			top={0}
 		></Group>
 		<Image
 			id="image1"
 			name="image1"
-			width={100}
-			height={50}
-			left={50}
+			width={500}
+			height={500}
+			left={1150}
 			top={50}
 			uri="/logo512.png"
 		/>
 		<Clip
 			id="clip1"
 			name="clip1"
-			width={50}
-			height={100}
-			left={150}
-			top={50}
+			width={700}
+			height={700}
+			left={250}
+			top={250}
 			uri="/intro.mp4"
 		/>
 		<Image
 			id="image2"
 			name="image2"
-			width={100}
-			height={50}
-			left={200}
-			top={100}
+			width={500}
+			height={500}
+			left={1250}
+			top={250}
 			uri="/photo.jpeg"
 		/>
 	</Timeline>
@@ -622,6 +622,16 @@ const Preview = () => {
 		timelineRef.current = transformedTimeline;
 	}, [transformedTimeline]);
 
+	const {
+		zoomLevel,
+		isDraggingZoom,
+		tempZoomLevel,
+		startZoomDrag,
+		updateZoomDrag,
+		endZoomDrag,
+		zoomTransform,
+	} = usePreview();
+
 	return (
 		<div className="preview-container" style={{ padding: "20px" }}>
 			<h2>Timeline Preview</h2>
@@ -637,6 +647,8 @@ const Preview = () => {
 					borderRadius: "8px",
 					overflow: "hidden",
 					backgroundColor: "#f9fafb",
+					transform: zoomTransform || undefined,
+					transformOrigin: "top left",
 				}}
 			>
 				{/* 下层：Skia Canvas 渲染实际内容 */}
@@ -802,6 +814,20 @@ const Preview = () => {
 					canvasConvertOptions={canvasConvertOptions}
 				/>
 			</div>
+			<input
+				type="range"
+				min={0.1}
+				max={1}
+				step={0.001}
+				value={isDraggingZoom ? tempZoomLevel : zoomLevel}
+				onMouseDown={startZoomDrag}
+				onChange={(e) => {
+					updateZoomDrag(Number(e.target.value));
+				}}
+				onMouseUp={(e) => {
+					endZoomDrag(Number((e.target as HTMLInputElement).value));
+				}}
+			/>
 		</div>
 	);
 };
