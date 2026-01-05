@@ -1,5 +1,4 @@
 import { Rect } from "react-skia-lite";
-import GroupTimeline from "./GroupTimeline";
 import { EditorComponent } from "./types";
 
 const Group: EditorComponent<{ children?: React.ReactNode }> = ({
@@ -23,6 +22,8 @@ const Group: EditorComponent<{ children?: React.ReactNode }> = ({
 };
 
 Group.displayName = "Group";
-Group.timelineComponent = GroupTimeline;
+Group.timelineComponent = () => {
+	return "Group";
+};
 
 export default Group;

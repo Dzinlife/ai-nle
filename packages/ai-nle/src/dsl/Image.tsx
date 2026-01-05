@@ -1,5 +1,4 @@
 import { Group, ImageShader, Rect, useImage } from "react-skia-lite";
-import ImageTimeline from "./ImageTimeline";
 import { EditorComponent } from "./types";
 
 const Image: EditorComponent<{ uri?: string }> = ({ uri, __renderLayout }) => {
@@ -30,6 +29,15 @@ const Image: EditorComponent<{ uri?: string }> = ({ uri, __renderLayout }) => {
 };
 
 Image.displayName = "Image";
-Image.timelineComponent = ImageTimeline;
+Image.timelineComponent = ({ uri }) => {
+	return (
+		<div
+			className="rounded h-full bg-contain bg-repeat"
+			style={{
+				backgroundImage: `url(${uri})`,
+			}}
+		/>
+	);
+};
 
 export default Image;

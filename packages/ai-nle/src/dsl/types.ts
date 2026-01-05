@@ -59,5 +59,5 @@ export interface EditorElement
 
 export type EditorComponent<T extends Record<string, any> = {}> =
 	React.ComponentType<T & ComponentProps> & {
-		timelineComponent?: React.ComponentType<ComponentTimelineProps>;
+		timelineComponent?: React.ComponentType<T & ComponentTimelineProps>;
 	};

@@ -8,7 +8,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Group, ImageShader, Rect, type SkImage, Skia } from "react-skia-lite";
 import { useTimeline } from "@/components/TimelineContext";
-import ClipTimeline from "./ClipTimeline";
+import { parseStartEndSchema } from "./startEndSchema";
 import { EditorComponent } from "./types";
 
 const Clip: EditorComponent<{
@@ -417,6 +417,258 @@ const Clip: EditorComponent<{
 };
 
 Clip.displayName = "Clip";
-Clip.timelineComponent = ClipTimeline;
+Clip.timelineComponent = ({ uri, start: startProp, end: endProp }) => {
+	const canvasRef = useRef<HTMLCanvasElement>(null);
+	const videoSinkRef = useRef<CanvasSink | null>(null);
+	const inputRef = useRef<Input | null>(null);
+	const isGeneratingRef = useRef(false);
+
+	const start = parseStartEndSchema(startProp);
+	const end = parseStartEndSchema(endProp);
+
+	const clipDuration = end - start;
+
+	// 生成预览图
+	const generateThumbnails = useCallback(
+		async (videoUri: string) => {
+			if (!canvasRef.current || !videoUri || isGeneratingRef.current) {
+				return;
+			}
+
+			isGeneratingRef.current = true;
+			const canvas = canvasRef.current;
+			const ctx = canvas.getContext("2d");
+			if (!ctx) {
+				isGeneratingRef.current = false;
+				return;
+			}
+
+			try {
+				// 清理之前的资源
+				videoSinkRef.current = null;
+				inputRef.current = null;
+
+				// 创建 Input
+				const source = new UrlSource(videoUri);
+				const input = new Input({
+					source,
+					formats: ALL_FORMATS,
+				});
+				inputRef.current = input;
+
+				// 获取视频轨道
+				const videoTrack = await input.getPrimaryVideoTrack();
+
+				if (!videoTrack) {
+					throw new Error("未找到视频轨道");
+				}
+
+				if (videoTrack.codec === null || !(await videoTrack.canDecode())) {
+					throw new Error("无法解码视频轨道");
+				}
+
+				// 创建视频 Sink
+				const videoCanBeTransparent = await videoTrack.canBeTransparent();
+				const videoSink = new CanvasSink(videoTrack, {
+					poolSize: 2,
+					fit: "contain",
+					alpha: videoCanBeTransparent,
+				});
+				videoSinkRef.current = videoSink;
+
+				// 获取视频时长
+				const duration = await input.computeDuration();
+
+				// 设置 canvas 尺寸
+				const canvasWidth = canvas.offsetWidth;
+				const canvasHeight = canvas.offsetHeight;
+				canvas.width = canvasWidth;
+				canvas.height = canvasHeight;
+
+				// 获取最后一帧（用于填充超出视频长度的部分）
+				let lastFrameCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
+				try {
+					const lastFrameTime = Math.max(0, duration - 0.001);
+					if (lastFrameTime >= 0 && duration > 0) {
+						const lastFrameIterator = videoSink.canvases(lastFrameTime);
+						const lastFrame = (await lastFrameIterator.next()).value;
+						if (lastFrame?.canvas) {
+							// 复制最后一帧的 canvas 内容
+							const sourceCanvas = lastFrame.canvas;
+							if (sourceCanvas instanceof HTMLCanvasElement) {
+								const copyCanvas = document.createElement("canvas");
+								copyCanvas.width = sourceCanvas.width;
+								copyCanvas.height = sourceCanvas.height;
+								const copyCtx = copyCanvas.getContext("2d");
+								if (copyCtx) {
+									copyCtx.drawImage(sourceCanvas, 0, 0);
+									lastFrameCanvas = copyCanvas;
+								}
+							} else if (sourceCanvas instanceof OffscreenCanvas) {
+								// 对于 OffscreenCanvas，创建 ImageBitmap 然后转换
+								const imageBitmap = await createImageBitmap(sourceCanvas);
+								const copyCanvas = document.createElement("canvas");
+								copyCanvas.width = imageBitmap.width;
+								copyCanvas.height = imageBitmap.height;
+								const copyCtx = copyCanvas.getContext("2d");
+								if (copyCtx) {
+									copyCtx.drawImage(imageBitmap, 0, 0);
+									imageBitmap.close();
+									lastFrameCanvas = copyCanvas;
+								}
+							}
+						}
+						await lastFrameIterator.return();
+					}
+				} catch (err) {
+					console.warn("获取最后一帧失败:", err);
+				}
+
+				// 根据 clipDuration 和 canvas 宽度，计算能放多少个预览图
+				// 使用一个合理的预览图宽度估算（基于视频宽高比，但最终会裁切填满）
+				// 这里先用一个估算值来计算数量，实际绘制时会填满整个区域
+				const estimatedAspectRatio = 16 / 9; // 估算值，实际会裁切
+				const estimatedThumbnailWidth = canvasHeight * estimatedAspectRatio;
+				const numThumbnails = Math.max(
+					1,
+					Math.ceil(canvasWidth / estimatedThumbnailWidth),
+				);
+
+				// 始终使用 clipDuration 来计算提取间隔
+				const previewInterval = clipDuration / numThumbnails;
+
+				// 计算每个预览图的实际宽度（填满整个 canvas 宽度）
+				const thumbnailWidth = canvasWidth / numThumbnails;
+				const thumbnailHeight = canvasHeight;
+
+				// 清空 canvas
+				ctx.fillStyle = "#e5e7eb";
+				ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+				// 按间隔提取帧并绘制
+				for (let i = 0; i < numThumbnails; i++) {
+					const relativeTime = i * previewInterval; // 相对于 clip start 的时间
+					const absoluteTime = start + relativeTime; // 视频中的绝对时间
+
+					let frameCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
+
+					try {
+						// 如果时间在视频范围内，正常提取
+						if (absoluteTime >= 0 && absoluteTime < duration) {
+							const frameIterator = videoSink.canvases(absoluteTime);
+							const frame = (await frameIterator.next()).value;
+							if (frame?.canvas) {
+								frameCanvas = frame.canvas;
+							}
+							await frameIterator.return();
+						}
+						// 如果时间超出视频长度，使用最后一帧
+						else if (absoluteTime >= duration && lastFrameCanvas) {
+							frameCanvas = lastFrameCanvas;
+						}
+						// 如果时间小于 0，使用第一帧（这种情况应该很少，但为了安全）
+						else if (absoluteTime < 0) {
+							const frameIterator = videoSink.canvases(0);
+							const frame = (await frameIterator.next()).value;
+							if (frame?.canvas) {
+								frameCanvas = frame.canvas;
+							}
+							await frameIterator.return();
+						}
+
+						if (frameCanvas) {
+							const x = i * thumbnailWidth;
+
+							// 基于高度缩放，确保高度完全适应（不裁切上下）
+							const scale = thumbnailHeight / frameCanvas.height;
+
+							// 计算缩放后的宽度
+							const scaledWidth = frameCanvas.width * scale;
+
+							// 如果缩放后的宽度大于目标宽度，需要裁切左右
+							if (scaledWidth > thumbnailWidth) {
+								// 计算需要裁切的左右部分（居中裁切）
+								const sourceWidth = thumbnailWidth / scale;
+								const sourceX = (frameCanvas.width - sourceWidth) / 2;
+
+								// 绘制帧到 canvas（只裁切左右，保持完整高度）
+								ctx.drawImage(
+									frameCanvas,
+									sourceX,
+									0, // 不裁切上下，从顶部开始
+									sourceWidth,
+									frameCanvas.height, // 完整高度
+									x,
+									0,
+									thumbnailWidth,
+									thumbnailHeight,
+								);
+							} else {
+								// 如果缩放后的宽度小于等于目标宽度，居中显示（这种情况应该很少）
+								const offsetX = (thumbnailWidth - scaledWidth) / 2;
+								ctx.drawImage(
+									frameCanvas,
+									0,
+									0,
+									frameCanvas.width,
+									frameCanvas.height,
+									x + offsetX,
+									0,
+									scaledWidth,
+									thumbnailHeight,
+								);
+							}
+						}
+					} catch (err) {
+						console.warn(`提取时间 ${absoluteTime} 的帧失败:`, err);
+					}
+				}
+			} catch (err) {
+				console.error("生成预览图失败:", err);
+				// 绘制错误提示
+				if (ctx) {
+					ctx.fillStyle = "#fee2e2";
+					ctx.fillRect(0, 0, canvas.width, canvas.height);
+					ctx.fillStyle = "#dc2626";
+					ctx.font = "12px sans-serif";
+					ctx.textAlign = "center";
+					ctx.fillText(
+						"Video Thumbnails Generation Failed",
+						canvas.width / 2,
+						canvas.height / 2,
+					);
+				}
+			} finally {
+				isGeneratingRef.current = false;
+			}
+		},
+		[start, end, clipDuration],
+	);
+
+	// 当 uri 变化时，生成预览图
+	useEffect(() => {
+		if (!uri) {
+			return;
+		}
+
+		void generateThumbnails(uri);
+
+		return () => {
+			// 清理资源
+			isGeneratingRef.current = false;
+			videoSinkRef.current = null;
+			inputRef.current = null;
+		};
+	}, [uri, generateThumbnails]);
+
+	return (
+		<div className="absolute inset-0 rounded-md overflow-hidden">
+			<div className=" absolute top-1 left-1 px-1 rounded bg-white/50 backdrop-blur-sm text-black/80 text-xs">
+				{clipDuration} s
+			</div>
+			<canvas ref={canvasRef} className="size-full" />
+		</div>
+	);
+};
 
 export default Clip;

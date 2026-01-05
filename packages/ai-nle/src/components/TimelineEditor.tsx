@@ -72,23 +72,25 @@ const TimelineEditor = () => {
 						return (
 							<div
 								key={props.id}
-								className="absolute flex p-1"
+								className="absolute bg-red-200 flex rounded-md "
 								style={{
 									left,
 									width,
-									top: i * 30,
+									top: i * 60,
+									height: 54,
 								}}
 							>
-								{type.timelineComponent ? (
-									<div className="bg-red-200 rounded w-full">
-										{start}-{end}
-										<type.timelineComponent key={props.id} {...props} />
-									</div>
-								) : (
-									<div className="bg-red-200 rounded w-full">
-										no timeline component
-									</div>
-								)}
+								<div className="p-1 size-full">
+									{type.timelineComponent ? (
+										<div className="size-full">
+											<type.timelineComponent key={props.id} {...props} />
+										</div>
+									) : (
+										<div className="bg-red-200 rounded w-full">
+											{type.displayName || type.name}
+										</div>
+									)}
+								</div>
 							</div>
 						);
 					})}
