@@ -10,9 +10,9 @@
 import type * as React from "react";
 import type { Insets } from "../../../types/public/Insets";
 import type { GestureResponderHandlers } from "../../../types/public/ReactNativeRenderer";
-import type { StyleProp } from "../../StyleSheet/StyleSheet";
-import type { ViewStyle } from "../../StyleSheet/StyleSheetTypes";
 import type { Touchable } from "../Touchable/Touchable";
+import type { StyleProp } from "./StyleSheet";
+import type { ViewStyle } from "./StyleSheetTypes";
 
 export type {
 	BlurEvent,
