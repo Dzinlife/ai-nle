@@ -1,27 +1,33 @@
-import type { CanvasKit, ImageFilter } from "canvaskit-wasm";
+import type {
+	CanvasKit,
+	FilterOptions,
+	ImageFilter,
+	Matrix3x3,
+} from "canvaskit-wasm";
 
 import type {
+	BlendMode,
 	ColorChannel,
+	FilterMode,
 	ImageFilterFactory,
+	MipmapMode,
 	SkColor,
 	SkColorFilter,
+	SkImage,
 	SkImageFilter,
-	BlendMode,
+	SkMatrix,
+	SkPicture,
+	SkPoint3,
 	SkRect,
 	SkRuntimeShaderBuilder,
 	SkShader,
 	TileMode,
-	FilterMode,
-	MipmapMode,
-	SkImage,
-	SkMatrix,
-	SkPicture,
-	SkPoint3,
 } from "../types";
 
-import { Host, throwNotImplementedOnRNWeb, getEnum } from "./Host";
+import { getEnum, Host, throwNotImplementedOnRNWeb } from "./Host";
 import { JsiSkColorFilter } from "./JsiSkColorFilter";
 import { JsiSkImageFilter } from "./JsiSkImageFilter";
+import { JsiSkMatrix } from "./JsiSkMatrix";
 
 export class JsiSkImageFilterFactory
 	extends Host
@@ -96,12 +102,31 @@ export class JsiSkImageFilterFactory
 		throw throwNotImplementedOnRNWeb();
 	}
 	MakeMatrixTransform(
-		_matrix: SkMatrix,
-		_filterMode?: FilterMode,
-		_mipmap?: MipmapMode,
-		_input?: SkImageFilter | null,
+		matrix: SkMatrix,
+		filterMode?: FilterMode,
+		mipmap?: MipmapMode,
+		input?: SkImageFilter | null,
 	): SkImageFilter {
-		throw throwNotImplementedOnRNWeb();
+		const matrixRef = JsiSkMatrix.fromValue<Matrix3x3>(matrix);
+		const inputFilter =
+			input === null || input === undefined
+				? null
+				: JsiSkImageFilter.fromValue<ImageFilter>(input);
+		// Create FilterOptions object for CanvasKit
+		const filterOptions: FilterOptions = {
+			filter: filterMode
+				? getEnum(this.CanvasKit, "FilterMode", filterMode)
+				: this.CanvasKit.FilterMode.Linear,
+			mipmap: mipmap
+				? getEnum(this.CanvasKit, "MipmapMode", mipmap)
+				: this.CanvasKit.MipmapMode.None,
+		};
+		const filter = this.CanvasKit.ImageFilter.MakeMatrixTransform(
+			matrixRef,
+			filterOptions,
+			inputFilter,
+		);
+		return new JsiSkImageFilter(this.CanvasKit, filter);
 	}
 	MakeMerge(
 		_filters: Array<SkImageFilter | null>,
