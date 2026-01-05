@@ -7,6 +7,7 @@ import {
 } from "mediabunny";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Group, ImageShader, Rect, type SkImage, Skia } from "react-skia-lite";
+import { useOffscreenRender } from "@/components/OffscreenRenderContext";
 import { useTimeline } from "@/components/TimelineContext";
 import { parseStartEndSchema } from "./startEndSchema";
 import { EditorComponent } from "./types";
@@ -15,6 +16,7 @@ const Clip: EditorComponent<{
 	uri?: string;
 }> = ({ uri, __renderLayout }) => {
 	const { currentTime } = useTimeline();
+	const { isOffscreen, registerReadyCallback } = useOffscreenRender();
 
 	const { x, y, w: width, h: height, r: rotate = 0 } = __renderLayout;
 
@@ -36,6 +38,8 @@ const Clip: EditorComponent<{
 	const lastSeekTimeRef = useRef<number | null>(null);
 	const animationFrameRef = useRef<number | null>(null);
 	const currentTimeRef = useRef(currentTime);
+	const isReadyRef = useRef(false);
+	const readyPromiseRef = useRef<Promise<void> | null>(null);
 
 	// 强引用：保持最近几帧图像和对应的 ImageBitmap 不被 GC 回收
 	// 这样可以确保在 Skia 绘制时图像仍然有效
@@ -69,6 +73,7 @@ const Clip: EditorComponent<{
 						}
 					}
 					setCurrentFrameImage(skiaImage);
+					isReadyRef.current = true;
 				} else {
 					// 如果创建 SkImage 失败，关闭 ImageBitmap
 					imageBitmap.close();
@@ -140,7 +145,7 @@ const Clip: EditorComponent<{
 						canvas instanceof HTMLCanvasElement ||
 						canvas instanceof OffscreenCanvas
 					) {
-						updateFrame(canvas);
+						await updateFrame(canvas);
 						lastSeekTimeRef.current = seconds;
 					}
 				}
@@ -276,6 +281,17 @@ const Clip: EditorComponent<{
 							? currentTimeRef.current
 							: 0;
 					await seekToTime(timeToSeek);
+					// seekToTime 会调用 updateFrame，updateFrame 会设置 isReadyRef.current = true
+					// 如果是离屏渲染，额外等待一下确保帧已准备好
+					if (isOffscreen && !isReadyRef.current) {
+						// 等待 currentFrameImage 不为 null
+						let attempts = 0;
+						const maxAttempts = 100; // 最多等待 2 秒（20ms * 100）
+						while (!isReadyRef.current && attempts < maxAttempts) {
+							await new Promise((resolve) => setTimeout(resolve, 20));
+							attempts++;
+						}
+					}
 				}
 			} catch (err) {
 				// 只有在当前初始化仍然有效时才设置错误
@@ -289,13 +305,48 @@ const Clip: EditorComponent<{
 		[seekToTime],
 	);
 
+	// 注册 ready 回调（用于离屏渲染）
+	useEffect(() => {
+		if (isOffscreen && registerReadyCallback) {
+			const readyCallback = async () => {
+				if (!uri) {
+					return;
+				}
+				// 如果视频还没有加载，等待加载完成
+				if (!videoSinkRef.current || isLoading) {
+					let attempts = 0;
+					const maxAttempts = 150; // 最多等待 3 秒（20ms * 150）
+					while (
+						(!videoSinkRef.current || isLoading) &&
+						attempts < maxAttempts
+					) {
+						await new Promise((resolve) => setTimeout(resolve, 20));
+						attempts++;
+					}
+				}
+				// 如果视频帧还没有准备好，等待
+				if (!isReadyRef.current && videoSinkRef.current) {
+					let attempts = 0;
+					const maxAttempts = 100; // 最多等待 2 秒（20ms * 100）
+					while (!isReadyRef.current && attempts < maxAttempts) {
+						await new Promise((resolve) => setTimeout(resolve, 20));
+						attempts++;
+					}
+				}
+			};
+			registerReadyCallback(readyCallback);
+		}
+	}, [isOffscreen, registerReadyCallback, uri, isLoading]);
+
 	// 当 uri 变化时，加载视频
 	useEffect(() => {
 		if (!uri) {
+			isReadyRef.current = false;
 			return;
 		}
 
 		let isCancelled = false;
+		isReadyRef.current = false;
 
 		const loadVideo = async () => {
 			await initMediaPlayer(uri);
@@ -308,6 +359,7 @@ const Clip: EditorComponent<{
 
 		return () => {
 			isCancelled = true;
+			isReadyRef.current = false;
 			setIsLoading(false);
 			void videoFrameIteratorRef.current?.return();
 			videoSinkRef.current = null;

@@ -10,7 +10,7 @@ export * from "./LoadSkiaWeb";
 export * from "./renderer";
 export * from "./renderer/Canvas";
 export { useContextBridge } from "./renderer/ContextBridge";
-export * from "./SkiaLock";
 export * from "./skia";
 export { JsiSkImage } from "./skia/web/JsiSkImage";
+export * from "./sksg";
 export * from "./WithSkiaWeb";

@@ -2,7 +2,9 @@ import { createContext, useContext, useMemo, useState } from "react";
 
 export const TimelineContext = createContext({
 	currentTime: 0,
-	setCurrentTime: (currentTime: number) => {},
+	setCurrentTime: (_currentTime: number) => {
+		// 默认实现，不做任何事
+	},
 });
 
 export const useTimeline = () => {
@@ -11,17 +13,21 @@ export const useTimeline = () => {
 
 export const TimelineProvider = ({
 	children,
+	currentTime: initialCurrentTime,
 }: {
 	children: React.ReactNode;
+	currentTime?: number;
 }) => {
-	const [currentTime, setCurrentTime] = useState(0);
+	const [internalCurrentTime, setCurrentTime] = useState(
+		initialCurrentTime ?? 0,
+	);
 
 	const defaultValues = useMemo(
 		() => ({
-			currentTime,
+			currentTime: initialCurrentTime ?? internalCurrentTime,
 			setCurrentTime,
 		}),
-		[currentTime, setCurrentTime],
+		[initialCurrentTime, internalCurrentTime, setCurrentTime],
 	);
 
 	return (
