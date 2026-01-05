@@ -25,7 +25,7 @@ export interface LayoutMeta {
 	visible?: boolean;
 }
 
-export interface CanvasLayoutMeta {
+export interface LayoutRendererMeta {
 	x: number;
 	y: number;
 	w: number;
@@ -42,3 +42,22 @@ export interface CommonMeta {
 	id: string;
 	name: string;
 }
+
+export interface ComponentProps extends CommonMeta, LayoutMeta, TimelineMeta {
+	__renderLayout: LayoutRendererMeta;
+}
+
+export interface ComponentTimelineProps
+	extends CommonMeta,
+		LayoutMeta,
+		TimelineMeta {}
+
+export interface EditorElement
+	extends React.ReactElement<CommonMeta & LayoutMeta & TimelineMeta> {
+	type: EditorComponent;
+}
+
+export type EditorComponent<T extends Record<string, any> = {}> =
+	React.ComponentType<T & ComponentProps> & {
+		timelineComponent?: React.ComponentType<ComponentTimelineProps>;
+	};

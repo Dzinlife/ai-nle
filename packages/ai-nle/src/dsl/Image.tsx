@@ -1,15 +1,9 @@
 import { Group, ImageShader, Rect, useImage } from "react-skia-lite";
-import { CanvasLayoutMeta, CommonMeta, TimelineMeta } from "./types";
+import ImageTimeline from "./ImageTimeline";
+import { EditorComponent } from "./types";
 
-const Image = ({
-	uri,
-	x,
-	y,
-	w: width,
-	h: height,
-	r: rotate,
-	...props
-}: CommonMeta & CanvasLayoutMeta & TimelineMeta & { uri?: string }) => {
+const Image: EditorComponent<{ uri?: string }> = ({ uri, __renderLayout }) => {
+	const { x, y, w: width, h: height, r: rotate = 0 } = __renderLayout;
 	const image = useImage(uri);
 
 	return (
@@ -34,5 +28,8 @@ const Image = ({
 		</Group>
 	);
 };
+
+Image.displayName = "Image";
+Image.timelineComponent = ImageTimeline;
 
 export default Image;

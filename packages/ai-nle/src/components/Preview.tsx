@@ -3,33 +3,21 @@ import React, {
 	useCallback,
 	useDeferredValue,
 	useEffect,
-	useMemo,
 	useRef,
 	useState,
 } from "react";
 import { Rect as KonvaRect, Layer, Stage, Transformer } from "react-konva";
 import { Canvas, Fill, Group as SkiaGroup } from "react-skia-lite";
-import {
-	Clip,
-	converMetaLayoutToCanvasLayout,
-	Group,
-	Image,
-	Timeline,
-} from "@/dsl";
-import { CommonMeta, LayoutMeta, TimelineMeta } from "@/dsl/types";
+import { converMetaLayoutToCanvasLayout } from "@/dsl";
+import { parseStartEndSchema } from "@/dsl/startEndSchema";
+import { EditorElement } from "@/dsl/types";
 import { usePreview } from "./PreviewProvider";
 import { useTimeline } from "./TimelineContext";
 import { testTimeline } from "./timeline";
 
-interface TimelineElement extends CommonMeta, LayoutMeta, TimelineMeta {
-	__type: "Group" | "Image" | "Clip";
-	__Component: React.ComponentType<any>;
-	rotation?: number;
-}
-
 // LabelLayer 组件：从 Konva 节点获取实际位置来显示 label
 interface LabelLayerProps {
-	elements: TimelineElement[];
+	elements: EditorElement[];
 	hoveredId: string | null;
 	selectedIds: string[];
 	stageRef: React.RefObject<Konva.Stage | null>;
@@ -69,19 +57,19 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 		elements.forEach((el) => {
 			if (!selectedIds.length) return;
 
-			if (!selectedIds.includes(el.id)) return;
+			if (!selectedIds.includes(el.props.id)) return;
 
-			const node = stage?.findOne(`.element-${el.id}`) as
+			const node = stage?.findOne(`.element-${el.props.id}`) as
 				| Konva.Node
 				| undefined;
 			if (!node) {
 				// 如果找不到节点，使用 layout 计算的位置
 				const { x, y, width, height } = converMetaLayoutToCanvasLayout(
-					el,
+					el.props,
 					canvasConvertOptions.picture,
 					canvasConvertOptions.canvas,
 				);
-				positions[el.id] = {
+				positions[el.props.id] = {
 					x: x + width / 2,
 					y: y + height / 2,
 					rotation: 0,
@@ -121,7 +109,7 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 			const rotatedCenterY =
 				rotationCenterY + centerOffsetX * sin + centerOffsetY * cos;
 
-			positions[el.id] = {
+			positions[el.props.id] = {
 				x: rotatedCenterX,
 				y: rotatedCenterY,
 				height: height,
@@ -156,7 +144,7 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 				// const isHovered = hoveredId === el.id;
 				// if (!isHovered) return null;
 
-				const position = labelPositions[el.id];
+				const position = labelPositions[el.props.id];
 				if (!position) return null;
 
 				let translateY = 0;
@@ -181,7 +169,7 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 				return (
 					<>
 						<div
-							key={el.id}
+							key={el.props.id}
 							className="absolute text-red-500 bg-black/80 border border-red-500/70 max-w-32 truncate font-medium backdrop-blur-sm backdrop-saturate-150 px-3 py-1 -top-8 rounded-full text-xs whitespace-nowrap pointer-events-none"
 							style={{
 								left: position.x,
@@ -199,36 +187,15 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 };
 
 // 从 timeline JSX 中解析出初始状态
-function parseTimeline(timelineElement: React.ReactElement): TimelineElement[] {
-	const elements: TimelineElement[] = [];
+function parseTimeline(timelineElement: React.ReactElement): EditorElement[] {
+	const elements: EditorElement[] = [];
 
 	const children = (timelineElement.props as { children?: React.ReactNode })
 		.children;
 
 	React.Children.forEach(children, (child) => {
 		if (React.isValidElement(child)) {
-			const type = child.type as React.ComponentType;
-			const props = child.props as CommonMeta & LayoutMeta & TimelineMeta;
-
-			// 根据组件类型确定元素类型
-			let elementType: "Group" | "Image" | "Clip";
-			if (type === Group) {
-				elementType = "Group";
-			} else if (type === Image) {
-				elementType = "Image";
-			} else if (type === Clip) {
-				elementType = "Clip";
-			} else {
-				return; // 跳过未知类型
-			}
-
-			elements.push({
-				...props,
-				__type: elementType,
-				__Component: type,
-				start: props.start,
-				end: props.end,
-			});
+			elements.push(child as EditorElement);
 		}
 	});
 
@@ -237,7 +204,7 @@ function parseTimeline(timelineElement: React.ReactElement): TimelineElement[] {
 
 const Preview = () => {
 	// 从 timeline JSX 中提取的初始状态
-	const [elements, setElements] = useState<TimelineElement[]>(
+	const [elements, setElements] = useState<EditorElement[]>(
 		parseTimeline(testTimeline),
 	);
 
@@ -245,7 +212,7 @@ const Preview = () => {
 
 	const currentTime = useDeferredValue(_currentTime);
 
-	const [renderElements, setRenderElements] = useState<TimelineElement[]>([]);
+	const [renderElements, setRenderElements] = useState<EditorElement[]>([]);
 
 	useEffect(() => {
 		setRenderElements((prev) => {
@@ -255,13 +222,13 @@ const Preview = () => {
 
 			const newElements = elements
 				.map((el) => {
-					const { __type, start, end } = el;
+					const { start = 0, end = Infinity } = el.props;
+
 					const visible =
-						__type === "Group"
+						currentTime >= parseStartEndSchema(start) &&
+						currentTime <= parseStartEndSchema(end)
 							? true
-							: currentTime >= start && currentTime <= end
-								? true
-								: false;
+							: false;
 
 					if (!visible) return null;
 
@@ -276,24 +243,6 @@ const Preview = () => {
 			return dirty ? newElements : elements;
 		});
 	}, [elements, currentTime]);
-
-	// const _renderElements = useMemo(() => {
-	// 	return elements
-	// 		.map((el) => {
-	// 			const { __type, start, end } = el;
-	// 			const visible =
-	// 				__type === "Group"
-	// 					? true
-	// 					: currentTime >= start && currentTime <= end
-	// 						? true
-	// 						: false;
-
-	// 			if (!visible) return null;
-
-	// 			return el;
-	// 		})
-	// 		.filter((el) => el !== null);
-	// }, [elements, currentTime]);
 
 	const [hoveredId, setHoveredId] = useState<string | null>(null);
 	const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -350,7 +299,9 @@ const Preview = () => {
 
 			setElements((prev) =>
 				prev.map((el) =>
-					el.id === id ? { ...el, left: pictureX, top: pictureY } : el,
+					el.props.id === id
+						? { ...el, props: { ...el.props, left: pictureX, top: pictureY } }
+						: el,
 				),
 			);
 		},
@@ -383,7 +334,7 @@ const Preview = () => {
 	// 当 renderElements 变化时，清理已消失元素的选中状态
 	useEffect(() => {
 		setSelectedIds((prevSelectedIds) => {
-			const renderElementIds = new Set(renderElements.map((el) => el.id));
+			const renderElementIds = new Set(renderElements.map((el) => el.props.id));
 			const validSelectedIds = prevSelectedIds.filter((id) =>
 				renderElementIds.has(id),
 			);
@@ -443,7 +394,7 @@ const Preview = () => {
 			const rotationRadians = (rotationDegrees * Math.PI) / 180;
 			setElements((prev) =>
 				prev.map((el) =>
-					el.id === id
+					el.props.id === id
 						? {
 								...el,
 								left: pictureX,
@@ -493,7 +444,7 @@ const Preview = () => {
 			const rotationRadians = (rotationDegrees * Math.PI) / 180;
 			setElements((prev) =>
 				prev.map((el) =>
-					el.id === id
+					el.props.id === id
 						? {
 								...el,
 								left: pictureX,
@@ -621,7 +572,7 @@ const Preview = () => {
 		const selected: string[] = [];
 		renderElements.forEach((el) => {
 			const { x, y, width, height } = converMetaLayoutToCanvasLayout(
-				el,
+				el.props,
 				canvasConvertOptions.picture,
 				canvasConvertOptions.canvas,
 			);
@@ -640,7 +591,7 @@ const Preview = () => {
 				selBox.y < elBox.y + elBox.height &&
 				selBox.y + selBox.height > elBox.y
 			) {
-				selected.push(el.id);
+				selected.push(el.props.id);
 			}
 		});
 
@@ -681,27 +632,26 @@ const Preview = () => {
 						pointerEvents: "none",
 					}}
 				>
-					<Canvas style={{ width: canvasWidth, height: canvasHeight }}>
+					<Canvas
+						style={{
+							width: canvasWidth,
+							height: canvasHeight,
+						}}
+					>
+						<Fill color="black" />
 						{renderElements.map((el) => {
-							const { id, __type, __Component, ...rest } = el;
-
 							const { x, y, width, height, rotate } =
 								converMetaLayoutToCanvasLayout(
-									el,
+									el.props,
 									canvasConvertOptions.picture,
 									canvasConvertOptions.canvas,
 								);
 
 							return (
-								<SkiaGroup key={id}>
-									<el.__Component
-										{...rest}
-										x={x}
-										y={y}
-										w={width}
-										h={height}
-										r={rotate}
-										currentTime={currentTime}
+								<SkiaGroup key={el.props.id}>
+									<el.type
+										{...el.props}
+										__renderLayout={{ x, y, w: width, h: height, r: rotate }}
 									/>
 								</SkiaGroup>
 							);
@@ -722,13 +672,14 @@ const Preview = () => {
 				>
 					<Layer>
 						{renderElements.map((el) => {
-							const isHovered = hoveredId === el.id;
-							const isDragging = draggingId === el.id;
-							const isSelected = selectedIds.includes(el.id);
+							const { id } = el.props;
+							const isHovered = hoveredId === id;
+							const isDragging = draggingId === id;
+							const isSelected = selectedIds.includes(id);
 
 							const { x, y, width, height, rotate } =
 								converMetaLayoutToCanvasLayout(
-									el,
+									el.props,
 									canvasConvertOptions.picture,
 									canvasConvertOptions.canvas,
 								);
@@ -737,7 +688,7 @@ const Preview = () => {
 							const rotationDegrees = (rotate * 180) / Math.PI;
 
 							return (
-								<React.Fragment key={el.id}>
+								<React.Fragment key={id}>
 									<KonvaRect
 										x={x}
 										y={y}
@@ -755,25 +706,25 @@ const Preview = () => {
 										}
 										strokeWidth={isSelected ? 1 : 1}
 										draggable
-										data-id={el.id}
-										name={`element-${el.id}`}
+										data-id={id}
+										name={`element-${id}`}
 										rotation={rotationDegrees}
-										onMouseDown={() => handleMouseDown(el.id)}
+										onMouseDown={() => handleMouseDown(id)}
 										onMouseUp={handleMouseUp}
-										onDragStart={() => handleDragStart(el.id)}
+										onDragStart={() => handleDragStart(id)}
 										onDragMove={(e: Konva.KonvaEventObject<DragEvent>) =>
-											handleDrag(el.id, e)
+											handleDrag(id, e)
 										}
 										onDragEnd={(e: Konva.KonvaEventObject<DragEvent>) =>
-											handleDragEnd(el.id, e)
+											handleDragEnd(id, e)
 										}
 										onTransform={(e: Konva.KonvaEventObject<Event>) =>
-											handleTransform(el.id, e)
+											handleTransform(id, e)
 										}
 										onTransformEnd={(e: Konva.KonvaEventObject<Event>) =>
-											handleTransformEnd(el.id, e)
+											handleTransformEnd(id, e)
 										}
-										onMouseEnter={() => handleMouseEnter(el.id)}
+										onMouseEnter={() => handleMouseEnter(id)}
 										onMouseLeave={handleMouseLeave}
 										cursor={isSelected ? "default" : "move"}
 									/>

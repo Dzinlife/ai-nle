@@ -1,17 +1,12 @@
 import { Rect } from "react-skia-lite";
-import { CanvasLayoutMeta, CommonMeta, TimelineMeta } from "./types";
+import GroupTimeline from "./GroupTimeline";
+import { EditorComponent } from "./types";
 
-const Group = ({
+const Group: EditorComponent<{ children?: React.ReactNode }> = ({
 	children,
-	x,
-	y,
-	w: width,
-	h: height,
-	r: rotate = 0,
-	...props
-}: CommonMeta &
-	CanvasLayoutMeta &
-	Partial<TimelineMeta> & { children?: React.ReactNode }) => {
+	__renderLayout,
+}) => {
+	const { x, y, w: width, h: height, r: rotate = 0 } = __renderLayout;
 	return (
 		<Rect
 			x={x}
@@ -26,5 +21,8 @@ const Group = ({
 		</Rect>
 	);
 };
+
+Group.displayName = "Group";
+Group.timelineComponent = GroupTimeline;
 
 export default Group;

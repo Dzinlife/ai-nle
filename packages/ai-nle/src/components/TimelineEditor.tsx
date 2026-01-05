@@ -1,57 +1,19 @@
 import React, { startTransition, useCallback, useState } from "react";
-import { Clip, Group, Image } from "@/dsl";
-import ClipTimeline from "@/dsl/ClipTimeline";
-import GroupTimeline from "@/dsl/GroupTimeline";
-import ImageTimeline from "@/dsl/ImageTimeline";
-import { CommonMeta, TimelineMeta } from "@/dsl/types";
+import { parseStartEndSchema } from "@/dsl/startEndSchema";
+import { EditorElement } from "@/dsl/types";
 import { useTimeline } from "./TimelineContext";
 import { testTimeline } from "./timeline";
 
-interface TimelineEditorElement extends CommonMeta, TimelineMeta {
-	__type: "Group" | "Image" | "Clip";
-	__TimelineEditorComponent: React.ComponentType<any>;
-}
-
-const PlaceholderEditorComponent: React.ComponentType<any> = () => {
-	return <div>PlaceholderEditorComponent</div>;
-};
-
 // 从 timeline JSX 中解析出初始状态
-function parseTimeline(
-	timelineElement: React.ReactElement,
-): TimelineEditorElement[] {
-	const elements: TimelineEditorElement[] = [];
+function parseTimeline(timelineElement: React.ReactElement): EditorElement[] {
+	const elements: EditorElement[] = [];
 
 	const children = (timelineElement.props as { children?: React.ReactNode })
 		.children;
 
 	React.Children.forEach(children, (child) => {
 		if (React.isValidElement(child)) {
-			const type = child.type as React.ComponentType;
-			const props = child.props as CommonMeta;
-
-			let __TimelineEditorComponent: React.ComponentType<any>;
-
-			// 根据组件类型确定元素类型
-			let elementType: "Group" | "Image" | "Clip";
-			if (type === Group) {
-				elementType = "Group";
-				__TimelineEditorComponent = GroupTimeline;
-			} else if (type === Image) {
-				elementType = "Image";
-				__TimelineEditorComponent = ImageTimeline;
-			} else if (type === Clip) {
-				elementType = "Clip";
-				__TimelineEditorComponent = ClipTimeline;
-			} else {
-				return; // 跳过未知类型
-			}
-
-			elements.push({
-				...props,
-				__type: elementType,
-				__TimelineEditorComponent: __TimelineEditorComponent,
-			});
+			elements.push(child as EditorElement);
 		}
 	});
 
@@ -62,7 +24,7 @@ const TimelineEditor = () => {
 	const { currentTime, setCurrentTime } = useTimeline();
 
 	// 从 timeline JSX 中提取的初始状态
-	const [elements, setElements] = useState<TimelineEditorElement[]>(
+	const [elements, setElements] = useState<EditorElement[]>(
 		parseTimeline(testTimeline),
 	);
 
@@ -97,28 +59,41 @@ const TimelineEditor = () => {
 						</div>
 					))}
 				</div>
-				{elements.map((element) => {
-					if (element.__type === "Group") return <div>Group</div>;
+				<div className="relative">
+					{elements.map((element, i) => {
+						const { type, props } = element;
 
-					return (
-						<div
-							key={element.id}
-							className="absolute flex p-1"
-							style={{
-								left: element.start * ratio,
-								width: (element.end - element.start) * ratio,
-							}}
-						>
-							<div className="bg-red-200 rounded w-full">
-								{element.start}-{element.end}
-								<element.__TimelineEditorComponent
-									key={element.id}
-									{...element}
-								/>
+						const { start = 0, end = 1 } = props;
+
+						const left = parseStartEndSchema(start) * ratio;
+						const width =
+							(parseStartEndSchema(end) - parseStartEndSchema(start)) * ratio;
+
+						return (
+							<div
+								key={props.id}
+								className="absolute flex p-1"
+								style={{
+									left,
+									width,
+									top: i * 30,
+								}}
+							>
+								{type.timelineComponent ? (
+									<div className="bg-red-200 rounded w-full">
+										{start}-{end}
+										<type.timelineComponent key={props.id} {...props} />
+									</div>
+								) : (
+									<div className="bg-red-200 rounded w-full">
+										no timeline component
+									</div>
+								)}
 							</div>
-						</div>
-					);
-				})}
+						);
+					})}
+				</div>
+
 				<div
 					className="absolute top-0 left-0 w-full h-full bg-red-500"
 					style={{

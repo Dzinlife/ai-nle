@@ -7,26 +7,14 @@ import {
 } from "mediabunny";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Group, ImageShader, Rect, type SkImage, Skia } from "react-skia-lite";
-import { CanvasLayoutMeta, CommonMeta, TimelineMeta } from "./types";
+import ClipTimeline from "./ClipTimeline";
+import { EditorComponent } from "./types";
 
-const Clip = ({
-	children,
-	uri,
-	currentTime,
-	x,
-	y,
-	w: width,
-	h: height,
-	r: rotate = 0,
-	...props
-}: CommonMeta &
-	CanvasLayoutMeta &
-	TimelineMeta & {
-		children?: React.ReactNode;
-		uri?: string;
-		currentTime?: number;
-	}) => {
-	// const { currentTime } = useTimeline();
+const Clip: EditorComponent<{
+	uri?: string;
+	currentTime?: number;
+}> = ({ uri, currentTime, __renderLayout }) => {
+	const { x, y, w: width, h: height, r: rotate = 0 } = __renderLayout;
 
 	const [currentFrameImage, setCurrentFrameImage] = useState<SkImage | null>(
 		null,
@@ -425,5 +413,8 @@ const Clip = ({
 		</Group>
 	);
 };
+
+Clip.displayName = "Clip";
+Clip.timelineComponent = ClipTimeline;
 
 export default Clip;

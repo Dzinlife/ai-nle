@@ -1,4 +1,4 @@
-import { Clip, Group, Image, Timeline } from "@/dsl";
+import { BackdropZoom, Clip, Group, Image, Timeline } from "@/dsl";
 
 export const testTimeline = (
 	<Timeline>
@@ -10,6 +10,7 @@ export const testTimeline = (
 			left={250}
 			top={0}
 		></Group>
+
 		<Image
 			id="image1"
 			name="image1"
@@ -42,6 +43,19 @@ export const testTimeline = (
 			uri="/photo.jpeg"
 			start={10}
 			end={20}
+		/>
+		<BackdropZoom
+			id="backdropZoom1"
+			name="backdropZoom1"
+			width={300}
+			height={300}
+			left={200}
+			top={250}
+			zoom={1.5}
+			shape="circle"
+			cornerRadius={16}
+			start={0}
+			end={30}
 		/>
 	</Timeline>
 );
