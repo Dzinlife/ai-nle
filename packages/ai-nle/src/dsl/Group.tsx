@@ -1,28 +1,17 @@
 import { Rect } from "react-skia-lite";
-import { usePreview } from "@/components/PreviewProvider";
-import { converMetaLayoutToCanvasLayout } from "./layout";
-import { ICommonProps } from "./types";
+import { CanvasLayoutMeta, CommonMeta, TimelineMeta } from "./types";
 
 const Group = ({
 	children,
+	x,
+	y,
+	w: width,
+	h: height,
+	r: rotate = 0,
 	...props
-}: ICommonProps & { children?: React.ReactNode }) => {
-	const { pictureWidth, pictureHeight, canvasWidth, canvasHeight } =
-		usePreview();
-
-	const { x, y, width, height, rotation } = converMetaLayoutToCanvasLayout(
-		props,
-		{
-			width: pictureWidth,
-			height: pictureHeight,
-		},
-		{
-			width: canvasWidth,
-			height: canvasHeight,
-		},
-		window.devicePixelRatio,
-	);
-
+}: CommonMeta &
+	CanvasLayoutMeta &
+	Partial<TimelineMeta> & { children?: React.ReactNode }) => {
 	return (
 		<Rect
 			x={x}
@@ -30,7 +19,7 @@ const Group = ({
 			width={width}
 			height={height}
 			color="red"
-			transform={[{ rotate: rotation }]}
+			transform={[{ rotate }]}
 			origin={{ x, y }}
 		>
 			{children}

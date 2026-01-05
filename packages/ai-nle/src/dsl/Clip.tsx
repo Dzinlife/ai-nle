@@ -7,38 +7,25 @@ import {
 } from "mediabunny";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Group, ImageShader, Rect, type SkImage, Skia } from "react-skia-lite";
-import { usePreview } from "@/components/PreviewProvider";
-import { converMetaLayoutToCanvasLayout } from "./layout";
-import { CommonMeta, LayoutMeta, TimelineMeta } from "./types";
+import { CanvasLayoutMeta, CommonMeta, TimelineMeta } from "./types";
 
 const Clip = ({
 	children,
 	uri,
 	currentTime,
+	x,
+	y,
+	w: width,
+	h: height,
+	r: rotate = 0,
 	...props
 }: CommonMeta &
-	LayoutMeta &
+	CanvasLayoutMeta &
 	TimelineMeta & {
 		children?: React.ReactNode;
 		uri?: string;
 		currentTime?: number;
 	}) => {
-	const { pictureWidth, pictureHeight, canvasWidth, canvasHeight } =
-		usePreview();
-
-	const { x, y, width, height, rotation } = converMetaLayoutToCanvasLayout(
-		props,
-		{
-			width: pictureWidth,
-			height: pictureHeight,
-		},
-		{
-			width: canvasWidth,
-			height: canvasHeight,
-		},
-		window.devicePixelRatio,
-	);
-
 	// const { currentTime } = useTimeline();
 
 	const [currentFrameImage, setCurrentFrameImage] = useState<SkImage | null>(
@@ -421,7 +408,7 @@ const Clip = ({
 				y={y}
 				width={width}
 				height={height}
-				transform={[{ rotate: rotation }]}
+				transform={[{ rotate }]}
 				origin={{ x, y }}
 			>
 				{currentFrameImage && (

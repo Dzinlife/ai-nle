@@ -25,7 +25,20 @@ export interface LayoutMeta {
 	visible?: boolean;
 }
 
-export interface ICommonProps extends LayoutMeta {
+export interface CanvasLayoutMeta {
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+	r?: number;
+}
+
+export interface TimelineMeta {
+	start: number | string;
+	end: number | string;
+}
+
+export interface CommonMeta {
 	id: string;
 	name: string;
 }

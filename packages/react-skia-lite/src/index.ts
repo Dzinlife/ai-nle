@@ -9,6 +9,7 @@ export * from "./dom/types";
 export * from "./LoadSkiaWeb";
 export * from "./renderer";
 export * from "./renderer/Canvas";
+export * from "./SkiaLock";
 export * from "./skia";
 export { JsiSkImage } from "./skia/web/JsiSkImage";
 export * from "./WithSkiaWeb";

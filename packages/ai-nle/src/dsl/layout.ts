@@ -89,7 +89,7 @@ export const converMetaLayoutToCanvasLayout = (
 	y: number;
 	width: number;
 	height: number;
-	rotation: number;
+	rotate: number;
 } => {
 	const {
 		left,
@@ -404,14 +404,11 @@ export const converMetaLayoutToCanvasLayout = (
 		}
 	}
 
-	// 解析旋转角度
-	const rotation = parseRotate(rotate);
-
 	return {
 		x: canvasX,
 		y: canvasY,
 		width: canvasWidth,
 		height: canvasHeight,
-		rotation,
+		rotate: parseRotate(rotate),
 	};
 };

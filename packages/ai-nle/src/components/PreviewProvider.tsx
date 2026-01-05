@@ -81,11 +81,14 @@ const PreviewProvider = ({ children }: { children: React.ReactNode }) => {
 		setTempZoomLevel(zoomLevel);
 	}, [zoomLevel]);
 
-	const updateZoomDrag = useCallback((value: number) => {
-		if (isDraggingZoom) {
-			setTempZoomLevel(value);
-		}
-	}, [isDraggingZoom]);
+	const updateZoomDrag = useCallback(
+		(value: number) => {
+			if (isDraggingZoom) {
+				setTempZoomLevel(value);
+			}
+		},
+		[isDraggingZoom],
+	);
 
 	const endZoomDrag = useCallback(
 		(value: number) => {

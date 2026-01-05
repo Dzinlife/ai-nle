@@ -1,25 +1,15 @@
 import { Group, ImageShader, Rect, useImage } from "react-skia-lite";
-import { usePreview } from "@/components/PreviewProvider";
-import { converMetaLayoutToCanvasLayout } from "./layout";
-import { ICommonProps } from "./types";
+import { CanvasLayoutMeta, CommonMeta, TimelineMeta } from "./types";
 
-const Image = ({ uri, ...props }: ICommonProps & { uri?: string }) => {
-	const { pictureWidth, pictureHeight, canvasWidth, canvasHeight } =
-		usePreview();
-
-	const { x, y, width, height, rotation } = converMetaLayoutToCanvasLayout(
-		props,
-		{
-			width: pictureWidth,
-			height: pictureHeight,
-		},
-		{
-			width: canvasWidth,
-			height: canvasHeight,
-		},
-		window.devicePixelRatio,
-	);
-
+const Image = ({
+	uri,
+	x,
+	y,
+	w: width,
+	h: height,
+	r: rotate,
+	...props
+}: CommonMeta & CanvasLayoutMeta & TimelineMeta & { uri?: string }) => {
 	const image = useImage(uri);
 
 	return (
@@ -29,7 +19,7 @@ const Image = ({ uri, ...props }: ICommonProps & { uri?: string }) => {
 				y={y}
 				width={width}
 				height={height}
-				transform={[{ rotate: rotation }]}
+				transform={[{ rotate: rotate ?? 0 }]}
 				origin={{ x, y }}
 			>
 				<ImageShader

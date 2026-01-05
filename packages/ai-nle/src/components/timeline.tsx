@@ -1,0 +1,47 @@
+import { Clip, Group, Image, Timeline } from "@/dsl";
+
+export const testTimeline = (
+	<Timeline>
+		<Group
+			id="group1"
+			name="group1group1group1group1"
+			width={500}
+			height={500}
+			left={250}
+			top={0}
+		></Group>
+		<Image
+			id="image1"
+			name="image1"
+			width={500}
+			height={500}
+			left={1150}
+			top={50}
+			uri="/logo512.png"
+			start={20}
+			end={30}
+		/>
+		<Clip
+			id="clip1"
+			name="clip1"
+			width={700}
+			height={700}
+			left={250}
+			top={250}
+			uri="/intro.mp4"
+			start={0}
+			end={10}
+		/>
+		<Image
+			id="image2"
+			name="image2"
+			width={500}
+			height={500}
+			left={1250}
+			top={250}
+			uri="/photo.jpeg"
+			start={10}
+			end={20}
+		/>
+	</Timeline>
+);

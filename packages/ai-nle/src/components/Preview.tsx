@@ -1,20 +1,13 @@
-import { transcode } from "buffer";
 import Konva from "konva";
 import React, {
 	useCallback,
+	useDeferredValue,
 	useEffect,
 	useMemo,
 	useRef,
 	useState,
 } from "react";
-import {
-	Circle as KonvaCircle,
-	Line as KonvaLine,
-	Rect as KonvaRect,
-	Layer,
-	Stage,
-	Transformer,
-} from "react-konva";
+import { Rect as KonvaRect, Layer, Stage, Transformer } from "react-konva";
 import { Canvas, Fill, Group as SkiaGroup } from "react-skia-lite";
 import {
 	Clip,
@@ -23,10 +16,12 @@ import {
 	Image,
 	Timeline,
 } from "@/dsl";
-import { ICommonProps } from "@/dsl/types";
+import { CommonMeta, LayoutMeta, TimelineMeta } from "@/dsl/types";
 import { usePreview } from "./PreviewProvider";
+import { useTimeline } from "./TimelineContext";
+import { testTimeline } from "./timeline";
 
-interface TimelineElement extends ICommonProps {
+interface TimelineElement extends CommonMeta, LayoutMeta, TimelineMeta {
 	__type: "Group" | "Image" | "Clip";
 	__Component: React.ComponentType<any>;
 	rotation?: number;
@@ -203,46 +198,6 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 	);
 };
 
-const timeline = (
-	<Timeline>
-		<Group
-			id="group1"
-			name="group1group1group1group1"
-			width={500}
-			height={500}
-			left={250}
-			top={0}
-		></Group>
-		<Image
-			id="image1"
-			name="image1"
-			width={500}
-			height={500}
-			left={1150}
-			top={50}
-			uri="/logo512.png"
-		/>
-		<Clip
-			id="clip1"
-			name="clip1"
-			width={700}
-			height={700}
-			left={250}
-			top={250}
-			uri="/intro.mp4"
-		/>
-		<Image
-			id="image2"
-			name="image2"
-			width={500}
-			height={500}
-			left={1250}
-			top={250}
-			uri="/photo.jpeg"
-		/>
-	</Timeline>
-);
-
 // 从 timeline JSX 中解析出初始状态
 function parseTimeline(timelineElement: React.ReactElement): TimelineElement[] {
 	const elements: TimelineElement[] = [];
@@ -253,7 +208,7 @@ function parseTimeline(timelineElement: React.ReactElement): TimelineElement[] {
 	React.Children.forEach(children, (child) => {
 		if (React.isValidElement(child)) {
 			const type = child.type as React.ComponentType;
-			const props = child.props as ICommonProps;
+			const props = child.props as CommonMeta & LayoutMeta & TimelineMeta;
 
 			// 根据组件类型确定元素类型
 			let elementType: "Group" | "Image" | "Clip";
@@ -271,6 +226,8 @@ function parseTimeline(timelineElement: React.ReactElement): TimelineElement[] {
 				...props,
 				__type: elementType,
 				__Component: type,
+				start: props.start,
+				end: props.end,
 			});
 		}
 	});
@@ -281,8 +238,62 @@ function parseTimeline(timelineElement: React.ReactElement): TimelineElement[] {
 const Preview = () => {
 	// 从 timeline JSX 中提取的初始状态
 	const [elements, setElements] = useState<TimelineElement[]>(
-		parseTimeline(timeline),
+		parseTimeline(testTimeline),
 	);
+
+	const { currentTime: _currentTime } = useTimeline();
+
+	const currentTime = useDeferredValue(_currentTime);
+
+	const [renderElements, setRenderElements] = useState<TimelineElement[]>([]);
+
+	useEffect(() => {
+		setRenderElements((prev) => {
+			let dirty = false;
+
+			let index = 0;
+
+			const newElements = elements
+				.map((el) => {
+					const { __type, start, end } = el;
+					const visible =
+						__type === "Group"
+							? true
+							: currentTime >= start && currentTime <= end
+								? true
+								: false;
+
+					if (!visible) return null;
+
+					if (!dirty || prev[index++] !== el) {
+						dirty = true;
+					}
+
+					return el;
+				})
+				.filter((el) => el !== null);
+
+			return dirty ? newElements : elements;
+		});
+	}, [elements, currentTime]);
+
+	// const _renderElements = useMemo(() => {
+	// 	return elements
+	// 		.map((el) => {
+	// 			const { __type, start, end } = el;
+	// 			const visible =
+	// 				__type === "Group"
+	// 					? true
+	// 					: currentTime >= start && currentTime <= end
+	// 						? true
+	// 						: false;
+
+	// 			if (!visible) return null;
+
+	// 			return el;
+	// 		})
+	// 		.filter((el) => el !== null);
+	// }, [elements, currentTime]);
 
 	const [hoveredId, setHoveredId] = useState<string | null>(null);
 	const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -296,7 +307,6 @@ const Preview = () => {
 	});
 	const stageRef = useRef<Konva.Stage>(null);
 	const transformerRef = useRef<Konva.Transformer>(null);
-	const timelineRef = useRef<React.ReactElement | null>(null);
 	const isSelecting = useRef(false);
 
 	const { pictureWidth, pictureHeight, canvasWidth, canvasHeight } =
@@ -369,6 +379,21 @@ const Preview = () => {
 			setHoveredId(null);
 		}
 	}, [draggingId]);
+
+	// 当 renderElements 变化时，清理已消失元素的选中状态
+	useEffect(() => {
+		setSelectedIds((prevSelectedIds) => {
+			const renderElementIds = new Set(renderElements.map((el) => el.id));
+			const validSelectedIds = prevSelectedIds.filter((id) =>
+				renderElementIds.has(id),
+			);
+
+			// 如果有元素被移除，返回新的数组；否则返回原数组以保持引用稳定
+			return validSelectedIds.length !== prevSelectedIds.length
+				? validSelectedIds
+				: prevSelectedIds;
+		});
+	}, [renderElements]);
 
 	// 更新 Transformer 的节点
 	useEffect(() => {
@@ -594,7 +619,7 @@ const Preview = () => {
 		if (!stageRef.current) return;
 
 		const selected: string[] = [];
-		elements.forEach((el) => {
+		renderElements.forEach((el) => {
 			const { x, y, width, height } = converMetaLayoutToCanvasLayout(
 				el,
 				canvasConvertOptions.picture,
@@ -620,36 +645,7 @@ const Preview = () => {
 		});
 
 		setSelectedIds(selected);
-	}, [selectionRect, elements, canvasConvertOptions]);
-
-	// 根据更新后的状态动态生成 timeline JSX
-	// 这个 timeline 可以根据需要用于渲染或导出
-	const transformedTimeline = useMemo(() => {
-		return (
-			<Timeline>
-				{elements.map(({ id, __type, ...rest }) => {
-					switch (__type) {
-						case "Group":
-							// @ts-ignore
-							return <Group key={id} {...rest} />;
-						case "Image":
-							// @ts-ignore
-							return <Image key={id} {...rest} />;
-						case "Clip":
-							// @ts-ignore
-							return <Clip key={id} {...rest} />;
-						default:
-							return null;
-					}
-				})}
-			</Timeline>
-		);
-	}, [elements]);
-
-	// 将更新后的 timeline 存储到 ref 中，便于外部访问
-	useEffect(() => {
-		timelineRef.current = transformedTimeline;
-	}, [transformedTimeline]);
+	}, [selectionRect, renderElements, canvasConvertOptions]);
 
 	const {
 		zoomLevel,
@@ -662,11 +658,7 @@ const Preview = () => {
 	} = usePreview();
 
 	return (
-		<div className="preview-container" style={{ padding: "20px" }}>
-			<h2>Timeline Preview</h2>
-			<p style={{ marginBottom: "20px", color: "#666" }}>
-				拖拽元素更新位置，timeline 会根据状态重新渲染
-			</p>
+		<div>
 			<div
 				style={{
 					position: "relative",
@@ -690,35 +682,30 @@ const Preview = () => {
 					}}
 				>
 					<Canvas style={{ width: canvasWidth, height: canvasHeight }}>
-						<Fill color="#f9fafb" />
-						<SkiaGroup>
-							{elements.map((el) => {
-								const { id, __type, __Component, ...rest } = el;
+						{renderElements.map((el) => {
+							const { id, __type, __Component, ...rest } = el;
 
-								const { x, y, width, height } = converMetaLayoutToCanvasLayout(
+							const { x, y, width, height, rotate } =
+								converMetaLayoutToCanvasLayout(
 									el,
 									canvasConvertOptions.picture,
 									canvasConvertOptions.canvas,
 								);
-								return (
+
+							return (
+								<SkiaGroup key={id}>
 									<el.__Component
-										key={id}
 										{...rest}
-										left={x}
-										top={y}
-										width={width}
-										height={height}
-										color={
-											el.__type === "Group"
-												? "#3b82f6"
-												: el.__type === "Image"
-													? "#10b981"
-													: "#f59e0b"
-										}
+										x={x}
+										y={y}
+										w={width}
+										h={height}
+										r={rotate}
+										currentTime={currentTime}
 									/>
-								);
-							})}
-						</SkiaGroup>
+								</SkiaGroup>
+							);
+						})}
 					</Canvas>
 				</div>
 
@@ -734,12 +721,12 @@ const Preview = () => {
 					onMouseUp={handleStageMouseUp}
 				>
 					<Layer>
-						{elements.map((el) => {
+						{renderElements.map((el) => {
 							const isHovered = hoveredId === el.id;
 							const isDragging = draggingId === el.id;
 							const isSelected = selectedIds.includes(el.id);
 
-							const { x, y, width, height, rotation } =
+							const { x, y, width, height, rotate } =
 								converMetaLayoutToCanvasLayout(
 									el,
 									canvasConvertOptions.picture,
@@ -747,7 +734,7 @@ const Preview = () => {
 								);
 
 							// 将弧度转换为度数（Konva 使用度数）
-							const rotationDegrees = (rotation * 180) / Math.PI;
+							const rotationDegrees = (rotate * 180) / Math.PI;
 
 							return (
 								<React.Fragment key={el.id}>
@@ -814,7 +801,7 @@ const Preview = () => {
 
 				{/* DOM 文字标签层 */}
 				<LabelLayer
-					elements={elements}
+					elements={renderElements}
 					hoveredId={hoveredId}
 					selectedIds={selectedIds}
 					stageRef={stageRef}
