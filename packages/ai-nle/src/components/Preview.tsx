@@ -7,12 +7,17 @@ import React, {
 	useState,
 } from "react";
 import { Rect as KonvaRect, Layer, Stage, Transformer } from "react-konva";
-import { Canvas, Fill, Group as SkiaGroup } from "react-skia-lite";
+import {
+	Canvas,
+	Fill,
+	Group as SkiaGroup,
+	useContextBridge,
+} from "react-skia-lite";
 import { converMetaLayoutToCanvasLayout } from "@/dsl";
 import { parseStartEndSchema } from "@/dsl/startEndSchema";
 import { EditorElement } from "@/dsl/types";
 import { usePreview } from "./PreviewProvider";
-import { useTimeline } from "./TimelineContext";
+import { TimelineContext, useTimeline } from "./TimelineContext";
 import { testTimeline } from "./timeline";
 
 // LabelLayer 组件：从 Konva 节点获取实际位置来显示 label
@@ -608,6 +613,8 @@ const Preview = () => {
 		zoomTransform,
 	} = usePreview();
 
+	const ContextBridge = useContextBridge(TimelineContext);
+
 	return (
 		<div>
 			<div
@@ -638,24 +645,26 @@ const Preview = () => {
 							height: canvasHeight,
 						}}
 					>
-						<Fill color="black" />
-						{renderElements.map((el) => {
-							const { x, y, width, height, rotate } =
-								converMetaLayoutToCanvasLayout(
-									el.props,
-									canvasConvertOptions.picture,
-									canvasConvertOptions.canvas,
-								);
+						<ContextBridge>
+							<Fill color="black" />
+							{renderElements.map((el) => {
+								const { x, y, width, height, rotate } =
+									converMetaLayoutToCanvasLayout(
+										el.props,
+										canvasConvertOptions.picture,
+										canvasConvertOptions.canvas,
+									);
 
-							return (
-								<SkiaGroup key={el.props.id}>
-									<el.type
-										{...el.props}
-										__renderLayout={{ x, y, w: width, h: height, r: rotate }}
-									/>
-								</SkiaGroup>
-							);
-						})}
+								return (
+									<SkiaGroup key={el.props.id}>
+										<el.type
+											{...el.props}
+											__renderLayout={{ x, y, w: width, h: height, r: rotate }}
+										/>
+									</SkiaGroup>
+								);
+							})}
+						</ContextBridge>
 					</Canvas>
 				</div>
 

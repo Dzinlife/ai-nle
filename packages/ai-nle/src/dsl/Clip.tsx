@@ -7,13 +7,15 @@ import {
 } from "mediabunny";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Group, ImageShader, Rect, type SkImage, Skia } from "react-skia-lite";
+import { useTimeline } from "@/components/TimelineContext";
 import ClipTimeline from "./ClipTimeline";
 import { EditorComponent } from "./types";
 
 const Clip: EditorComponent<{
 	uri?: string;
-	currentTime?: number;
-}> = ({ uri, currentTime, __renderLayout }) => {
+}> = ({ uri, __renderLayout }) => {
+	const { currentTime } = useTimeline();
+
 	const { x, y, w: width, h: height, r: rotate = 0 } = __renderLayout;
 
 	const [currentFrameImage, setCurrentFrameImage] = useState<SkImage | null>(

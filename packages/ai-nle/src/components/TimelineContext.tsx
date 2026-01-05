@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo, useState } from "react";
 
-const TimelineContext = createContext({
+export const TimelineContext = createContext({
 	currentTime: 0,
 	setCurrentTime: (currentTime: number) => {},
 });
@@ -21,7 +21,7 @@ export const TimelineProvider = ({
 			currentTime,
 			setCurrentTime,
 		}),
-		[currentTime],
+		[currentTime, setCurrentTime],
 	);
 
 	return (
