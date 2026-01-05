@@ -231,7 +231,7 @@ const Preview = () => {
 
 					const visible =
 						currentTime >= parseStartEndSchema(start) &&
-						currentTime <= parseStartEndSchema(end)
+						currentTime < parseStartEndSchema(end)
 							? true
 							: false;
 
@@ -248,6 +248,8 @@ const Preview = () => {
 			return dirty ? newElements : elements;
 		});
 	}, [elements, currentTime]);
+
+	console.log("renderElements", renderElements);
 
 	const [hoveredId, setHoveredId] = useState<string | null>(null);
 	const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -402,12 +404,15 @@ const Preview = () => {
 					el.props.id === id
 						? {
 								...el,
-								left: pictureX,
-								top: pictureY,
-								width: pictureWidth_scaled,
-								height: pictureHeight_scaled,
-								rotate: `${rotationDegrees}deg`,
-								rotation: rotationRadians,
+								props: {
+									...el.props,
+									left: pictureX,
+									top: pictureY,
+									width: pictureWidth_scaled,
+									height: pictureHeight_scaled,
+									rotate: `${rotationDegrees}deg`,
+									rotation: rotationRadians,
+								},
 							}
 						: el,
 				),
