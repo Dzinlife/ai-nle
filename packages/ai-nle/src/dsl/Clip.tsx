@@ -14,11 +14,22 @@ import { EditorComponent } from "./types";
 
 const Clip: EditorComponent<{
 	uri?: string;
-}> = ({ uri, __renderLayout }) => {
+	reversed?: boolean;
+}> = ({
+	uri,
+	reversed,
+	start: startProp,
+	end: _endProp, // 保留以备将来使用，倒放时不再需要
+	__renderLayout,
+}) => {
 	const { currentTime } = useTimeline();
 	const { isOffscreen, registerReadyCallback } = useOffscreenRender();
 
 	const { x, y, w: width, h: height, r: rotate = 0 } = __renderLayout;
+
+	// 解析 start 时间
+	const start = parseStartEndSchema(startProp ?? 0);
+	// end 在倒放计算中不再需要，因为倒放从视频末尾开始
 
 	const [currentFrameImage, setCurrentFrameImage] = useState<SkImage | null>(
 		null,
@@ -39,7 +50,7 @@ const Clip: EditorComponent<{
 	const animationFrameRef = useRef<number | null>(null);
 	const currentTimeRef = useRef(currentTime);
 	const isReadyRef = useRef(false);
-	const readyPromiseRef = useRef<Promise<void> | null>(null);
+	const videoDurationRef = useRef<number | null>(null);
 
 	// 强引用：保持最近几帧图像和对应的 ImageBitmap 不被 GC 回收
 	// 这样可以确保在 Skia 绘制时图像仍然有效
@@ -228,6 +239,10 @@ const Clip: EditorComponent<{
 				});
 				inputRef.current = input;
 
+				// 获取视频总时长
+				const duration = await input.computeDuration();
+				videoDurationRef.current = duration;
+
 				// 获取视频轨道
 				let videoTrack = await input.getPrimaryVideoTrack();
 
@@ -276,11 +291,18 @@ const Clip: EditorComponent<{
 
 				// 初始化后，根据当前时间显示帧（使用最新的 currentTime）
 				if (videoSinkRef.current) {
-					const timeToSeek =
+					const timelineTime =
 						currentTimeRef.current != null && currentTimeRef.current >= 0
 							? currentTimeRef.current
 							: 0;
-					await seekToTime(timeToSeek);
+					// 计算实际要 seek 的视频时间（考虑倒放）
+					const relativeTime = timelineTime - start;
+					const videoTime = reversed
+						? videoDurationRef.current != null
+							? Math.max(0, videoDurationRef.current - relativeTime)
+							: 0
+						: start + relativeTime;
+					await seekToTime(videoTime);
 					// seekToTime 会调用 updateFrame，updateFrame 会设置 isReadyRef.current = true
 					// 如果是离屏渲染，额外等待一下确保帧已准备好
 					if (isOffscreen && !isReadyRef.current) {
@@ -368,6 +390,30 @@ const Clip: EditorComponent<{
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [uri]);
 
+	// 计算实际要 seek 的视频时间（考虑倒放）
+	const calculateVideoTime = useCallback(
+		(timelineTime: number): number => {
+			// 计算在 clip 中的相对时间
+			const relativeTime = timelineTime - start;
+
+			if (reversed) {
+				// 倒放：从视频末尾开始倒推
+				// 视频时间 = videoDuration - relativeTime
+				const videoDuration = videoDurationRef.current;
+				if (videoDuration == null) {
+					// 如果视频时长还未加载，返回 0
+					return 0;
+				}
+				return Math.max(0, videoDuration - relativeTime);
+			} else {
+				// 正放：从 start 开始
+				// 视频时间 = start + relativeTime
+				return start + relativeTime;
+			}
+		},
+		[start, reversed],
+	);
+
 	// 当 currentTime 变化时，更新显示的帧
 	useEffect(() => {
 		if (
@@ -379,15 +425,16 @@ const Clip: EditorComponent<{
 			return;
 		}
 
+		// 计算实际要 seek 的视频时间
+		const videoTime = calculateVideoTime(currentTime);
+
 		// 如果时间变化超过 0.1 秒，才更新帧（避免频繁 seek）
 		if (
 			lastSeekTimeRef.current !== null &&
-			Math.abs(lastSeekTimeRef.current - currentTime) < 0.1
+			Math.abs(lastSeekTimeRef.current - videoTime) < 0.1
 		) {
 			return;
 		}
-
-		const targetTime = currentTime;
 
 		// 使用 requestAnimationFrame 来节流更新
 		if (animationFrameRef.current !== null) {
@@ -396,7 +443,7 @@ const Clip: EditorComponent<{
 
 		animationFrameRef.current = requestAnimationFrame(() => {
 			animationFrameRef.current = null;
-			void seekToTime(targetTime);
+			void seekToTime(videoTime);
 		});
 
 		return () => {
@@ -404,7 +451,7 @@ const Clip: EditorComponent<{
 				cancelAnimationFrame(animationFrameRef.current);
 			}
 		};
-	}, [currentTime, uri, seekToTime]);
+	}, [currentTime, uri, seekToTime, calculateVideoTime]);
 
 	// 清理
 	useEffect(() => {
@@ -469,7 +516,12 @@ const Clip: EditorComponent<{
 };
 
 Clip.displayName = "Clip";
-Clip.timelineComponent = ({ uri, start: startProp, end: endProp }) => {
+Clip.timelineComponent = ({
+	uri,
+	start: startProp,
+	end: endProp,
+	reversed,
+}) => {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const videoSinkRef = useRef<CanvasSink | null>(null);
 	const inputRef = useRef<Input | null>(null);
@@ -600,7 +652,23 @@ Clip.timelineComponent = ({ uri, start: startProp, end: endProp }) => {
 				// 按间隔提取帧并绘制
 				for (let i = 0; i < numThumbnails; i++) {
 					const relativeTime = i * previewInterval; // 相对于 clip start 的时间
-					const absoluteTime = start + relativeTime; // 视频中的绝对时间
+
+					// 计算视频中的绝对时间（考虑倒放）
+					let absoluteTime: number;
+					if (reversed) {
+						// 倒放：从视频末尾开始倒推
+						// 时间线时间 start 对应视频时间 duration（视频末尾）
+						// 时间线时间 end 对应视频时间 0（视频开头）
+						// relativeTime = 0 时，absoluteTime = duration（视频末尾）
+						// relativeTime = clipDuration 时，absoluteTime = 0（视频开头）
+						absoluteTime = Math.max(
+							0,
+							Math.min(duration - 0.001, duration - relativeTime),
+						);
+					} else {
+						// 正放：从 start 开始
+						absoluteTime = start + relativeTime;
+					}
 
 					let frameCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
 
@@ -629,6 +697,9 @@ Clip.timelineComponent = ({ uri, start: startProp, end: endProp }) => {
 						}
 
 						if (frameCanvas) {
+							// 计算绘制位置
+							// 倒放时：左边显示视频末尾，右边显示视频开头（与时间线方向一致）
+							// 正放时：左边显示视频开头，右边显示视频末尾（与时间线方向一致）
 							const x = i * thumbnailWidth;
 
 							// 基于高度缩放，确保高度完全适应（不裁切上下）
@@ -694,7 +765,7 @@ Clip.timelineComponent = ({ uri, start: startProp, end: endProp }) => {
 				isGeneratingRef.current = false;
 			}
 		},
-		[start, end, clipDuration],
+		[start, end, clipDuration, reversed],
 	);
 
 	// 当 uri 变化时，生成预览图
