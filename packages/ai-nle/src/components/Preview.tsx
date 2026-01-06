@@ -24,10 +24,17 @@ import { usePreview } from "./PreviewProvider";
 import { TimelineContext, useTimeline } from "./TimelineContext";
 import { testTimeline } from "./timeline";
 
+interface PinchState {
+	isPinching: boolean;
+	centerX: number;
+	centerY: number;
+	initialZoom: number;
+	currentZoom: number;
+}
+
 // LabelLayer 组件：从 Konva 节点获取实际位置来显示 label
 interface LabelLayerProps {
 	elements: EditorElement[];
-	hoveredId: string | null;
 	selectedIds: string[];
 	stageRef: React.RefObject<Konva.Stage | null>;
 	canvasConvertOptions: {
@@ -36,112 +43,111 @@ interface LabelLayerProps {
 	};
 	offsetX: number;
 	offsetY: number;
-	isDraggingZoom: boolean;
 	zoomLevel: number;
-	tempZoomLevel: number;
+	pinchState: PinchState;
 }
 
 const LabelLayer: React.FC<LabelLayerProps> = ({
 	elements,
-	hoveredId,
 	selectedIds,
 	stageRef,
 	canvasConvertOptions,
 	offsetX,
 	offsetY,
-	isDraggingZoom,
 	zoomLevel,
-	tempZoomLevel,
+	pinchState,
 }) => {
 	const [labelPositions, setLabelPositions] = useState<
 		Record<
 			string,
-			{ x: number; y: number; rotation: number; height: number; width: number }
+			{
+				screenX: number; // 屏幕坐标（用于定位）
+				screenY: number;
+				screenWidth: number; // 屏幕尺寸（用于计算 translateY）
+				screenHeight: number;
+				canvasWidth: number; // 画布尺寸（用于显示）
+				canvasHeight: number;
+				rotation: number;
+			}
 		>
 	>({});
 
-	// 将 Stage 坐标转换为画布坐标
-	const stageToCanvasCoords = useCallback(
-		(stageX: number, stageY: number) => {
-			const currentScale =
-				isDraggingZoom && zoomLevel > 0 ? tempZoomLevel / zoomLevel : 1;
-			const canvasX = (stageX - offsetX) / currentScale;
-			const canvasY = (stageY - offsetY) / currentScale;
-			return { canvasX, canvasY };
-		},
-		[offsetX, offsetY, isDraggingZoom, zoomLevel, tempZoomLevel],
-	);
+	const effectiveZoom = pinchState.isPinching
+		? pinchState.currentZoom
+		: zoomLevel;
 
 	// 更新 label 位置的函数
 	const updateLabelPositions = useCallback(() => {
-		// if (!stageRef.current || !hoveredId) {
-		// 	setLabelPositions({});
-		// 	return;
-		// }
-
 		const stage = stageRef.current;
 		const positions: Record<
 			string,
-			{ x: number; y: number; rotation: number; height: number; width: number }
+			{
+				screenX: number;
+				screenY: number;
+				screenWidth: number;
+				screenHeight: number;
+				canvasWidth: number;
+				canvasHeight: number;
+				rotation: number;
+			}
 		> = {};
 
 		elements.forEach((el) => {
 			if (!selectedIds.length) return;
-
 			if (!selectedIds.includes(el.props.id)) return;
 
 			const node = stage?.findOne(`.element-${el.props.id}`) as
 				| Konva.Node
 				| undefined;
+
 			if (!node) {
-				// 如果找不到节点，使用 layout 计算的位置
+				// 如果找不到节点，使用 layout 计算的位置并转换到屏幕坐标
 				const { x, y, width, height } = converMetaLayoutToCanvasLayout(
 					el.props,
 					canvasConvertOptions.picture,
 					canvasConvertOptions.canvas,
 				);
+				const screenX = x * effectiveZoom + offsetX;
+				const screenY = y * effectiveZoom + offsetY;
+				const screenWidth = width * effectiveZoom;
+				const screenHeight = height * effectiveZoom;
+
 				positions[el.props.id] = {
-					x: x + width / 2,
-					y: y + height / 2,
+					screenX: screenX + screenWidth / 2,
+					screenY: screenY + screenHeight / 2,
+					screenWidth,
+					screenHeight,
+					canvasWidth: width,
+					canvasHeight: height,
 					rotation: 0,
-					height: height,
-					width: width,
 				};
 				return;
 			}
 
-			// 从 Konva 节点获取实际位置和尺寸（Stage 坐标系）
+			// 从 Konva 节点获取实际位置和尺寸（Stage/屏幕坐标系）
 			const stageX = node.x();
 			const stageY = node.y();
 			const stageWidth = node.width() * node.scaleX();
 			const stageHeight = node.height() * node.scaleY();
-			const rotation = node.rotation(); // 度数
+			const rotation = node.rotation();
 
-			// 将 Stage 坐标转换为画布坐标
-			const { canvasX, canvasY } = stageToCanvasCoords(stageX, stageY);
+			// 画布尺寸（用于显示）
+			const canvasWidth = stageWidth / effectiveZoom;
+			const canvasHeight = stageHeight / effectiveZoom;
 
-			// 将 Stage 尺寸转换为画布尺寸
-			const currentScale =
-				isDraggingZoom && zoomLevel > 0 ? tempZoomLevel / zoomLevel : 1;
-			const canvasWidth = stageWidth / currentScale;
-			const canvasHeight = stageHeight / currentScale;
-
-			// 获取 offset（如果没有设置，默认为 0, 0，即左上角）
+			// 获取 offset
 			const nodeOffsetX = node.offsetX() || 0;
 			const nodeOffsetY = node.offsetY() || 0;
 
-			// 计算旋转中心点（offset 点）- 使用画布坐标
-			const rotationCenterX = canvasX + nodeOffsetX;
-			const rotationCenterY = canvasY + nodeOffsetY;
+			// 计算旋转中心点 - Stage 坐标
+			const rotationCenterX = stageX + nodeOffsetX;
+			const rotationCenterY = stageY + nodeOffsetY;
 
-			// 计算未旋转时中心点相对于旋转中心的偏移
-			const centerOffsetX = canvasWidth / 2 - nodeOffsetX;
-			const centerOffsetY = canvasHeight / 2 - nodeOffsetY;
+			// 计算未旋转时中心点相对于旋转中心的偏移（Stage 尺寸）
+			const centerOffsetX = stageWidth / 2 - nodeOffsetX;
+			const centerOffsetY = stageHeight / 2 - nodeOffsetY;
 
-			// 将偏移转换为弧度
 			const rotationRad = (rotation * Math.PI) / 180;
-
-			// 计算旋转后的中心点位置（画布坐标系）
 			const cos = Math.cos(rotationRad);
 			const sin = Math.sin(rotationRad);
 			const rotatedCenterX =
@@ -150,33 +156,30 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 				rotationCenterY + centerOffsetX * sin + centerOffsetY * cos;
 
 			positions[el.props.id] = {
-				x: rotatedCenterX,
-				y: rotatedCenterY,
-				height: canvasHeight,
-				width: canvasWidth,
-				rotation: rotation,
+				screenX: rotatedCenterX,
+				screenY: rotatedCenterY,
+				screenWidth: stageWidth,
+				screenHeight: stageHeight,
+				canvasWidth,
+				canvasHeight,
+				rotation,
 			};
 		});
 
 		setLabelPositions(positions);
 	}, [
 		elements,
-		hoveredId,
+		selectedIds,
 		stageRef,
 		canvasConvertOptions,
-		stageToCanvasCoords,
-		isDraggingZoom,
-		zoomLevel,
-		tempZoomLevel,
+		effectiveZoom,
+		offsetX,
+		offsetY,
 	]);
 
-	// 初始更新和 hover 变化时更新
 	useEffect(() => {
 		updateLabelPositions();
 	}, [updateLabelPositions]);
-
-	const canvasWidth = canvasConvertOptions.canvas.width;
-	const canvasHeight = canvasConvertOptions.canvas.height;
 
 	return (
 		<div
@@ -184,31 +187,27 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 				position: "absolute",
 				top: 0,
 				left: 0,
-				width: canvasWidth,
-				height: canvasHeight,
+				width: "100%",
+				height: "100%",
 				pointerEvents: "none",
 			}}
 		>
 			{elements.map((el) => {
-				// const isHovered = hoveredId === el.id;
-				// if (!isHovered) return null;
-
 				const position = labelPositions[el.props.id];
 				if (!position) return null;
 
+				// 使用屏幕尺寸计算 translateY
 				let translateY = 0;
-
 				if (
 					Math.abs(position.rotation % 180) > 45 &&
 					Math.abs(position.rotation % 180) < 135
-				)
-					translateY = position.width / 2 + 20;
-				else {
-					translateY = position.height / 2 + 20;
+				) {
+					translateY = position.screenWidth / 2 + 20;
+				} else {
+					translateY = position.screenHeight / 2 + 20;
 				}
 
 				let normalizedRotation = position.rotation % 90;
-
 				if (position.rotation % 90 > 45) {
 					normalizedRotation -= 90 * Math.ceil(normalizedRotation / 90);
 				} else if (position.rotation % 90 < -45) {
@@ -216,19 +215,18 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 				}
 
 				return (
-					<>
-						<div
-							key={el.props.id}
-							className="absolute text-red-500 bg-black/80 border border-red-500/70 max-w-32 truncate font-medium backdrop-blur-sm backdrop-saturate-150 px-3 py-1 -top-8 rounded-full text-xs whitespace-nowrap pointer-events-none"
-							style={{
-								left: position.x,
-								top: position.y,
-								transform: `translate(-50%, -50%) rotate(${normalizedRotation}deg) translateY(${translateY}px)`,
-							}}
-						>
-							{Math.round(position.width)} &times; {Math.round(position.height)}
-						</div>
-					</>
+					<div
+						key={el.props.id}
+						className="absolute text-red-500 bg-black/80 border border-red-500/70 max-w-32 truncate font-medium backdrop-blur-sm backdrop-saturate-150 px-3 py-1 -top-8 rounded-full text-xs whitespace-nowrap pointer-events-none"
+						style={{
+							left: position.screenX,
+							top: position.screenY,
+							transform: `translate(-50%, -50%) rotate(${normalizedRotation}deg) translateY(${translateY}px)`,
+						}}
+					>
+						{Math.round(position.canvasWidth)} &times;{" "}
+						{Math.round(position.canvasHeight)}
+					</div>
 				);
 			})}
 		</div>
@@ -313,16 +311,24 @@ const Preview = () => {
 		canvasWidth,
 		canvasHeight,
 		zoomLevel,
-		isDraggingZoom,
-		tempZoomLevel,
-		startZoomDrag,
-		updateZoomDrag,
-		endZoomDrag,
+		setZoomLevel,
 		zoomTransform,
 		setContainerSize,
 		offsetX,
 		offsetY,
+		// Pinch zoom
+		pinchState,
+		startPinchZoom,
+		updatePinchZoom,
+		endPinchZoom,
+		// Pan
+		panOffset,
+		setPanOffset,
+		resetPanOffset,
 	} = usePreview();
+
+	// Pinch zoom state - 记录初始双指距离
+	const pinchStartDistanceRef = useRef<number | null>(null);
 
 	const canvasConvertOptions = {
 		picture: {
@@ -349,35 +355,39 @@ const Preview = () => {
 	}, []);
 
 	// 将 Stage 坐标转换为画布坐标（考虑 offset 和缩放）
+	// 新的坐标系：canvas = picture 尺寸，通过 CSS transform scale(zoomLevel) 显示
 	const stageToCanvasCoords = useCallback(
 		(stageX: number, stageY: number) => {
-			// Stage 覆盖整个容器，但画布内容在 offsetX, offsetY 位置
-			// 需要考虑当前的缩放比例
-			const currentScale =
-				isDraggingZoom && zoomLevel > 0 ? tempZoomLevel / zoomLevel : 1;
+			// 计算当前的有效缩放比例
+			// pinch 时使用 currentZoom，否则使用 zoomLevel
+			const effectiveZoom = pinchState.isPinching
+				? pinchState.currentZoom
+				: zoomLevel;
 
-			// 从 Stage 坐标减去 offset，然后除以缩放比例
-			const canvasX = (stageX - offsetX) / currentScale;
-			const canvasY = (stageY - offsetY) / currentScale;
+			// Stage 坐标 → 减去偏移 → 除以缩放 → Canvas 坐标
+			const canvasX = (stageX - offsetX) / effectiveZoom;
+			const canvasY = (stageY - offsetY) / effectiveZoom;
 
 			return { canvasX, canvasY };
 		},
-		[offsetX, offsetY, isDraggingZoom, zoomLevel, tempZoomLevel],
+		[offsetX, offsetY, zoomLevel, pinchState],
 	);
 
 	// 将画布坐标转换为 Stage 坐标（考虑 offset 和缩放）
 	const canvasToStageCoords = useCallback(
 		(canvasX: number, canvasY: number) => {
-			const currentScale =
-				isDraggingZoom && zoomLevel > 0 ? tempZoomLevel / zoomLevel : 1;
+			// 计算当前的有效缩放比例
+			const effectiveZoom = pinchState.isPinching
+				? pinchState.currentZoom
+				: zoomLevel;
 
-			// 画布坐标乘以缩放比例，然后加上 offset
-			const stageX = canvasX * currentScale + offsetX;
-			const stageY = canvasY * currentScale + offsetY;
+			// Canvas 坐标 → 乘以缩放 → 加上偏移 → Stage 坐标
+			const stageX = canvasX * effectiveZoom + offsetX;
+			const stageY = canvasY * effectiveZoom + offsetY;
 
 			return { stageX, stageY };
 		},
-		[offsetX, offsetY, isDraggingZoom, zoomLevel, tempZoomLevel],
+		[offsetX, offsetY, zoomLevel, pinchState],
 	);
 
 	const handleDrag = useCallback(
@@ -387,29 +397,18 @@ const Preview = () => {
 			const stageY = node.y();
 
 			// 将 Stage 坐标转换为画布坐标
+			// 由于 canvas = picture 尺寸，canvas 坐标即 picture 坐标
 			const { canvasX, canvasY } = stageToCanvasCoords(stageX, stageY);
-
-			// 将 canvas 坐标转换为 picture 坐标
-			const scaleX = canvasWidth / pictureWidth;
-			const scaleY = canvasHeight / pictureHeight;
-			const pictureX = canvasX / scaleX;
-			const pictureY = canvasY / scaleY;
 
 			setElements((prev) =>
 				prev.map((el) =>
 					el.props.id === id
-						? { ...el, props: { ...el.props, left: pictureX, top: pictureY } }
+						? { ...el, props: { ...el.props, left: canvasX, top: canvasY } }
 						: el,
 				),
 			);
 		},
-		[
-			canvasWidth,
-			canvasHeight,
-			pictureWidth,
-			pictureHeight,
-			stageToCanvasCoords,
-		],
+		[stageToCanvasCoords],
 	);
 
 	const handleDragEnd = useCallback(
@@ -484,27 +483,18 @@ const Preview = () => {
 			const stageWidth_scaled = node.width() * scaleX;
 			const stageHeight_scaled = node.height() * scaleY;
 
-			// 将 Stage 坐标转换为画布坐标
+			// 将 Stage 坐标转换为画布/picture 坐标
 			const { canvasX, canvasY } = stageToCanvasCoords(stageX, stageY);
 
-			// 将 Stage 尺寸转换为画布尺寸
-			const currentScale =
-				isDraggingZoom && zoomLevel > 0 ? tempZoomLevel / zoomLevel : 1;
-			const canvasWidth_scaled = stageWidth_scaled / currentScale;
-			const canvasHeight_scaled = stageHeight_scaled / currentScale;
-
-			// 将 canvas 坐标转换为 picture 坐标
-			const scaleX_ratio = canvasWidth / pictureWidth;
-			const scaleY_ratio = canvasHeight / pictureHeight;
-			const pictureX = canvasX / scaleX_ratio;
-			const pictureY = canvasY / scaleY_ratio;
-			const pictureWidth_scaled = canvasWidth_scaled / scaleX_ratio;
-			const pictureHeight_scaled = canvasHeight_scaled / scaleY_ratio;
+			// 将 Stage 尺寸转换为画布/picture 尺寸
+			const effectiveZoom = pinchState.isPinching
+				? pinchState.currentZoom
+				: zoomLevel;
+			const pictureWidth_scaled = stageWidth_scaled / effectiveZoom;
+			const pictureHeight_scaled = stageHeight_scaled / effectiveZoom;
 
 			// 只更新元素状态，不修改节点（让 Transformer 继续工作）
-			// 这样底层 Skia Canvas 会实时更新显示
-			const rotationDegrees = node.rotation(); // Konva 返回的是度数
-			// 将度数转换为弧度保存（parseRotate 会将 "45deg" 转换为弧度）
+			const rotationDegrees = node.rotation();
 			const rotationRadians = (rotationDegrees * Math.PI) / 180;
 			setElements((prev) =>
 				prev.map((el) =>
@@ -513,8 +503,8 @@ const Preview = () => {
 								...el,
 								props: {
 									...el.props,
-									left: pictureX,
-									top: pictureY,
+									left: canvasX,
+									top: canvasY,
 									width: pictureWidth_scaled,
 									height: pictureHeight_scaled,
 									rotate: `${rotationDegrees}deg`,
@@ -525,16 +515,7 @@ const Preview = () => {
 				),
 			);
 		},
-		[
-			canvasWidth,
-			canvasHeight,
-			pictureWidth,
-			pictureHeight,
-			stageToCanvasCoords,
-			isDraggingZoom,
-			zoomLevel,
-			tempZoomLevel,
-		],
+		[stageToCanvasCoords, zoomLevel, pinchState],
 	);
 
 	// 处理 transform 结束事件
@@ -554,37 +535,29 @@ const Preview = () => {
 			const stageWidth_scaled = node.width() * scaleX;
 			const stageHeight_scaled = node.height() * scaleY;
 
-			// 将 Stage 坐标转换为画布坐标
+			// 将 Stage 坐标转换为画布/picture 坐标
 			const { canvasX, canvasY } = stageToCanvasCoords(stageX, stageY);
 
-			// 将 Stage 尺寸转换为画布尺寸
-			const currentScale =
-				isDraggingZoom && zoomLevel > 0 ? tempZoomLevel / zoomLevel : 1;
-			const canvasWidth_scaled = stageWidth_scaled / currentScale;
-			const canvasHeight_scaled = stageHeight_scaled / currentScale;
-
-			// 将 canvas 坐标转换为 picture 坐标（与 handleDrag 使用相同的转换逻辑）
-			const scaleX_ratio = canvasWidth / pictureWidth;
-			const scaleY_ratio = canvasHeight / pictureHeight;
-			const pictureX = canvasX / scaleX_ratio;
-			const pictureY = canvasY / scaleY_ratio;
-			const pictureWidth_scaled = canvasWidth_scaled / scaleX_ratio;
-			const pictureHeight_scaled = canvasHeight_scaled / scaleY_ratio;
+			// 将 Stage 尺寸转换为画布/picture 尺寸
+			const effectiveZoom = pinchState.isPinching
+				? pinchState.currentZoom
+				: zoomLevel;
+			const pictureWidth_scaled = stageWidth_scaled / effectiveZoom;
+			const pictureHeight_scaled = stageHeight_scaled / effectiveZoom;
 
 			// 更新节点的 width 和 height（使用 Stage 坐标系的尺寸）
 			node.width(stageWidth_scaled);
 			node.height(stageHeight_scaled);
 
-			const rotationDegrees = node.rotation(); // Konva 返回的是度数
-			// 将度数转换为弧度保存（parseRotate 会将 "45deg" 转换为弧度）
+			const rotationDegrees = node.rotation();
 			const rotationRadians = (rotationDegrees * Math.PI) / 180;
 			setElements((prev) =>
 				prev.map((el) =>
 					el.props.id === id
 						? {
 								...el,
-								left: pictureX,
-								top: pictureY,
+								left: canvasX,
+								top: canvasY,
 								width: pictureWidth_scaled,
 								height: pictureHeight_scaled,
 								rotate: `${rotationDegrees}deg`,
@@ -594,16 +567,7 @@ const Preview = () => {
 				),
 			);
 		},
-		[
-			canvasWidth,
-			canvasHeight,
-			pictureWidth,
-			pictureHeight,
-			stageToCanvasCoords,
-			isDraggingZoom,
-			zoomLevel,
-			tempZoomLevel,
-		],
+		[stageToCanvasCoords, zoomLevel, pinchState],
 	);
 
 	// 处理点击事件，支持选择/取消选择
@@ -790,6 +754,164 @@ const Preview = () => {
 		};
 	}, [setContainerSize]);
 
+	// 处理 Mac trackpad pinch zoom（通过 wheel 事件）
+	// Mac trackpad 的双指缩放会触发 wheel 事件，并且 ctrlKey 为 true
+	const wheelZoomRef = useRef<{
+		isZooming: boolean;
+		timeoutId: ReturnType<typeof setTimeout> | null;
+		initialZoom: number;
+		accumulatedDelta: number;
+	}>({
+		isZooming: false,
+		timeoutId: null,
+		initialZoom: zoomLevel,
+		accumulatedDelta: 0,
+	});
+
+	useEffect(() => {
+		const container = containerRef.current;
+		if (!container) return;
+
+		const handleWheel = (e: WheelEvent) => {
+			// Mac trackpad pinch zoom 会带有 ctrlKey
+			if (e.ctrlKey) {
+				e.preventDefault();
+				e.stopPropagation(); // 阻止事件冒泡到 document 级别的处理器
+
+				const rect = container.getBoundingClientRect();
+				const centerX = e.clientX - rect.left;
+				const centerY = e.clientY - rect.top;
+
+				// 开始缩放
+				if (!wheelZoomRef.current.isZooming) {
+					wheelZoomRef.current.isZooming = true;
+					wheelZoomRef.current.initialZoom = zoomLevel;
+					wheelZoomRef.current.accumulatedDelta = 0;
+					startPinchZoom(centerX, centerY);
+				}
+
+				// 清除之前的结束计时器
+				if (wheelZoomRef.current.timeoutId) {
+					clearTimeout(wheelZoomRef.current.timeoutId);
+				}
+
+				// 累积 delta 值（负值表示放大，正值表示缩小）
+				wheelZoomRef.current.accumulatedDelta += e.deltaY;
+
+				// 计算缩放比例（使用指数函数使缩放更平滑）
+				const scale = Math.exp(-wheelZoomRef.current.accumulatedDelta * 0.01);
+				updatePinchZoom(scale, centerX, centerY);
+
+				// 设置结束计时器（wheel 事件停止后 150ms 结束缩放）
+				wheelZoomRef.current.timeoutId = setTimeout(() => {
+					wheelZoomRef.current.isZooming = false;
+					wheelZoomRef.current.timeoutId = null;
+					endPinchZoom();
+				}, 150);
+			} else {
+				// 普通滚动 - 用于平移画布
+				e.preventDefault();
+				// shift + 滚动 = 水平滚动
+				const deltaX = e.shiftKey ? e.deltaY : e.deltaX;
+				const deltaY = e.shiftKey ? 0 : e.deltaY;
+
+				setPanOffset({
+					x: panOffset.x - deltaX,
+					y: panOffset.y - deltaY,
+				});
+			}
+		};
+
+		container.addEventListener("wheel", handleWheel, { passive: false });
+
+		return () => {
+			container.removeEventListener("wheel", handleWheel);
+			if (wheelZoomRef.current.timeoutId) {
+				clearTimeout(wheelZoomRef.current.timeoutId);
+			}
+		};
+	}, [
+		zoomLevel,
+		startPinchZoom,
+		updatePinchZoom,
+		endPinchZoom,
+		panOffset,
+		setPanOffset,
+	]);
+
+	// 处理 touch 事件实现 pinch zoom（触摸屏）
+	// 使用 Konva 的事件类型（原生 TouchEvent）
+	const handleTouchStart = useCallback(
+		(e: Konva.KonvaEventObject<TouchEvent>) => {
+			const nativeEvent = e.evt;
+			if (nativeEvent.touches.length === 2) {
+				nativeEvent.preventDefault();
+				const touch1 = nativeEvent.touches[0];
+				const touch2 = nativeEvent.touches[1];
+
+				const container = containerRef.current;
+				if (!container) return;
+				const rect = container.getBoundingClientRect();
+
+				const distance = Math.sqrt(
+					Math.pow(touch1.clientX - touch2.clientX, 2) +
+						Math.pow(touch1.clientY - touch2.clientY, 2),
+				);
+				const centerX = (touch1.clientX + touch2.clientX) / 2 - rect.left;
+				const centerY = (touch1.clientY + touch2.clientY) / 2 - rect.top;
+
+				pinchStartDistanceRef.current = distance;
+				startPinchZoom(centerX, centerY);
+			}
+		},
+		[startPinchZoom],
+	);
+
+	const handleTouchMove = useCallback(
+		(e: Konva.KonvaEventObject<TouchEvent>) => {
+			const nativeEvent = e.evt;
+			if (
+				nativeEvent.touches.length === 2 &&
+				pinchStartDistanceRef.current !== null
+			) {
+				nativeEvent.preventDefault();
+				const touch1 = nativeEvent.touches[0];
+				const touch2 = nativeEvent.touches[1];
+
+				const container = containerRef.current;
+				if (!container) return;
+				const rect = container.getBoundingClientRect();
+
+				const distance = Math.sqrt(
+					Math.pow(touch1.clientX - touch2.clientX, 2) +
+						Math.pow(touch1.clientY - touch2.clientY, 2),
+				);
+				const centerX = (touch1.clientX + touch2.clientX) / 2 - rect.left;
+				const centerY = (touch1.clientY + touch2.clientY) / 2 - rect.top;
+
+				// 计算缩放比例
+				const scale = distance / pinchStartDistanceRef.current;
+				updatePinchZoom(scale, centerX, centerY);
+			}
+		},
+		[updatePinchZoom],
+	);
+
+	const handleTouchEnd = useCallback(
+		(e: Konva.KonvaEventObject<TouchEvent>) => {
+			const nativeEvent = e.evt;
+			// 只有当所有手指都离开时才结束 pinch
+			if (
+				nativeEvent.touches.length < 2 &&
+				pinchStartDistanceRef.current !== null
+			) {
+				pinchStartDistanceRef.current = null;
+				endPinchZoom();
+			}
+		},
+		[endPinchZoom],
+	);
+
 	const skiaCanvas = useMemo(() => {
 		return (
 			<Canvas
@@ -947,23 +1069,23 @@ const Preview = () => {
 				>
 					{skiaCanvas}
 				</div>
+			</div>
 
-				{/* DOM 文字标签层 */}
+			{/* DOM 文字标签层 - 在变换 div 外面，使用屏幕坐标，pinch 过程中隐藏 */}
+			{!pinchState.isPinching && (
 				<LabelLayer
 					elements={renderElements}
-					hoveredId={hoveredId}
 					selectedIds={selectedIds}
 					stageRef={stageRef}
 					canvasConvertOptions={canvasConvertOptions}
 					offsetX={offsetX}
 					offsetY={offsetY}
-					isDraggingZoom={isDraggingZoom}
 					zoomLevel={zoomLevel}
-					tempZoomLevel={tempZoomLevel}
+					pinchState={pinchState}
 				/>
-			</div>
+			)}
 
-			{/* 上层：Konva 交互层 - 覆盖整个容器 */}
+			{/* 上层：Konva 交互层 - 覆盖整个容器，pinch 过程中隐藏内容 */}
 			<Stage
 				ref={stageRef}
 				width={stageWidth}
@@ -972,11 +1094,15 @@ const Preview = () => {
 					position: "absolute",
 					top: 0,
 					left: 0,
+					opacity: pinchState.isPinching ? 0 : 1,
 				}}
 				onClick={handleStageClick}
 				onMouseDown={handleStageMouseDown}
 				onMouseMove={handleStageMouseMove}
 				onMouseUp={handleStageMouseUp}
+				onTouchStart={handleTouchStart}
+				onTouchMove={handleTouchMove}
+				onTouchEnd={handleTouchEnd}
 			>
 				<Layer>
 					{/* 选择框 */}
@@ -1025,11 +1151,12 @@ const Preview = () => {
 						// 将画布坐标转换为 Stage 坐标
 						const { stageX, stageY } = canvasToStageCoords(canvasX, canvasY);
 
-						// 将画布尺寸转换为 Stage 尺寸（需要考虑缩放比例）
-						const currentScale =
-							isDraggingZoom && zoomLevel > 0 ? tempZoomLevel / zoomLevel : 1;
-						const stageWidth = canvasWidth_el * currentScale;
-						const stageHeight = canvasHeight_el * currentScale;
+						// 将画布尺寸转换为 Stage 尺寸
+						const effectiveZoom = pinchState.isPinching
+							? pinchState.currentZoom
+							: zoomLevel;
+						const stageWidth = canvasWidth_el * effectiveZoom;
+						const stageHeight = canvasHeight_el * effectiveZoom;
 
 						// 将弧度转换为度数（Konva 使用度数）
 						const rotationDegrees = (rotate * 180) / Math.PI;
@@ -1096,20 +1223,55 @@ const Preview = () => {
 					/>
 				</Layer>
 			</Stage>
-			<input
-				type="range"
-				min={0.1}
-				max={1}
-				step={0.001}
-				value={isDraggingZoom ? tempZoomLevel : zoomLevel}
-				onMouseDown={startZoomDrag}
-				onChange={(e) => {
-					updateZoomDrag(Number(e.target.value));
+			<div
+				style={{
+					position: "absolute",
+					bottom: 16,
+					left: "50%",
+					transform: "translateX(-50%)",
+					display: "flex",
+					alignItems: "center",
+					gap: 8,
+					background: "rgba(0,0,0,0.6)",
+					padding: "6px 12px",
+					borderRadius: 20,
+					backdropFilter: "blur(8px)",
 				}}
-				onMouseUp={(e) => {
-					endZoomDrag(Number((e.target as HTMLInputElement).value));
-				}}
-			/>
+			>
+				<button
+					type="button"
+					onClick={resetPanOffset}
+					style={{
+						background: "transparent",
+						border: "none",
+						color: "white",
+						cursor: "pointer",
+						padding: "4px 8px",
+						borderRadius: 4,
+						fontSize: 12,
+					}}
+					title="重置视图位置"
+				>
+					⟲
+				</button>
+				<input
+					type="range"
+					min={0.1}
+					max={2}
+					step={0.001}
+					value={pinchState.isPinching ? pinchState.currentZoom : zoomLevel}
+					onChange={(e) => {
+						setZoomLevel(Number(e.target.value));
+					}}
+					style={{ width: 100 }}
+				/>
+				<span style={{ color: "white", fontSize: 12, minWidth: 40 }}>
+					{Math.round(
+						(pinchState.isPinching ? pinchState.currentZoom : zoomLevel) * 100,
+					)}
+					%
+				</span>
+			</div>
 		</div>
 	);
 };

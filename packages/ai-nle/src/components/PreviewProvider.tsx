@@ -2,29 +2,45 @@ import {
 	createContext,
 	useCallback,
 	useContext,
-	useEffect,
 	useMemo,
 	useState,
 } from "react";
 
+interface PinchState {
+	isPinching: boolean;
+	centerX: number; // pinch 中心点 X（相对于容器）
+	centerY: number; // pinch 中心点 Y（相对于容器）
+	initialZoom: number; // pinch 开始时的 zoomLevel
+	currentZoom: number; // 当前临时 zoomLevel
+}
+
 const PreviewContext = createContext({
 	pictureWidth: 1920,
 	pictureHeight: 1080,
-	canvasWidth: 960,
-	canvasHeight: 540,
+	canvasWidth: 1920, // canvas 保持与 picture 相同尺寸
+	canvasHeight: 1080,
 	setZoomLevel: (zoomLevel: number) => {},
 	setPictureSize: (pictureSize: { width: number; height: number }) => {},
-	setCanvasSize: (canvasSize: { width: number; height: number }) => {},
 	setContainerSize: (containerSize: { width: number; height: number }) => {},
 	zoomLevel: 0.5,
-	isDraggingZoom: false,
-	tempZoomLevel: 0.5,
-	startZoomDrag: () => {},
-	updateZoomDrag: (value: number) => {},
-	endZoomDrag: (value: number) => {},
 	zoomTransform: "",
 	offsetX: 0,
 	offsetY: 0,
+	// Pinch zoom
+	pinchState: {
+		isPinching: false,
+		centerX: 0,
+		centerY: 0,
+		initialZoom: 0.5,
+		currentZoom: 0.5,
+	} as PinchState,
+	startPinchZoom: (centerX: number, centerY: number) => {},
+	updatePinchZoom: (scale: number, centerX: number, centerY: number) => {},
+	endPinchZoom: () => {},
+	// Pan offset
+	panOffset: { x: 0, y: 0 },
+	setPanOffset: (offset: { x: number; y: number }) => {},
+	resetPanOffset: () => {},
 });
 
 const PreviewProvider = ({ children }: { children: React.ReactNode }) => {
@@ -33,10 +49,15 @@ const PreviewProvider = ({ children }: { children: React.ReactNode }) => {
 		height: 1080,
 	});
 
-	const [canvasSize, setCanvasSize] = useState({
-		width: 960,
-		height: 540,
-	});
+	// canvas 尺寸保持与 picture 相同，不随 zoom 改变
+	// 所有缩放都通过 CSS transform 实现
+	const canvasSize = useMemo(
+		() => ({
+			width: pictureSize.width,
+			height: pictureSize.height,
+		}),
+		[pictureSize],
+	);
 
 	const [containerSize, setContainerSize] = useState<{
 		width: number;
@@ -50,8 +71,7 @@ const PreviewProvider = ({ children }: { children: React.ReactNode }) => {
 			container: { width: number; height: number } | null,
 		) => {
 			if (!container || container.width === 0 || container.height === 0) {
-				// 如果没有容器尺寸，使用默认的 canvasSize 计算
-				return canvasSize.width / pictureSize.width;
+				return 0.5;
 			}
 
 			// 留出边距，使画面稍微小一圈（留出 5% 的边距）
@@ -65,144 +85,191 @@ const PreviewProvider = ({ children }: { children: React.ReactNode }) => {
 			// 选择较小的缩放比例，确保内容完整显示
 			return Math.min(scaleX, scaleY, 1); // 最大不超过 1（不放大）
 		},
-		[canvasSize.width, pictureSize.width],
+		[],
 	);
 
 	const [zoomLevel, setZoomLevel] = useState(() => {
 		return calculateFitZoomLevel(pictureSize, null);
 	});
 
-	const [isDraggingZoom, setIsDraggingZoom] = useState(false);
-	const [tempZoomLevel, setTempZoomLevel] = useState(zoomLevel);
+	// Pinch zoom state
+	const [pinchState, setPinchState] = useState<PinchState>({
+		isPinching: false,
+		centerX: 0,
+		centerY: 0,
+		initialZoom: zoomLevel,
+		currentZoom: zoomLevel,
+	});
 
-	// 同步 tempZoomLevel 当 zoomLevel 变化且不在拖动状态时
-	useEffect(() => {
-		if (!isDraggingZoom) {
-			setTempZoomLevel(zoomLevel);
-		}
-	}, [zoomLevel, isDraggingZoom]);
+	// Pan offset - 用户手动平移的偏移量
+	const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
 
-	const setZoom = useCallback(
-		(zoomLevel: number) => {
-			setZoomLevel(zoomLevel);
-			setCanvasSize({
-				width: pictureSize.width * zoomLevel,
-				height: pictureSize.height * zoomLevel,
+	const resetPanOffset = useCallback(() => {
+		setPanOffset({ x: 0, y: 0 });
+	}, []);
+
+	// 设置 zoom level（仅更新 zoomLevel，不改变 canvas 尺寸）
+	const setZoom = useCallback((newZoomLevel: number) => {
+		setZoomLevel(Math.min(Math.max(newZoomLevel, 0.1), 2));
+	}, []);
+
+	// Pinch zoom methods
+	const startPinchZoom = useCallback(
+		(centerX: number, centerY: number) => {
+			setPinchState({
+				isPinching: true,
+				centerX,
+				centerY,
+				initialZoom: zoomLevel,
+				currentZoom: zoomLevel,
 			});
 		},
-		[pictureSize.width, pictureSize.height],
+		[zoomLevel],
 	);
 
-	// 监听全局 mouseup 事件，处理拖动时鼠标移出滑块的情况
-	useEffect(() => {
-		if (!isDraggingZoom) return;
-
-		const handleGlobalMouseUp = () => {
-			setIsDraggingZoom(false);
-			setZoom(tempZoomLevel);
-		};
-
-		window.addEventListener("mouseup", handleGlobalMouseUp);
-		return () => {
-			window.removeEventListener("mouseup", handleGlobalMouseUp);
-		};
-	}, [isDraggingZoom, tempZoomLevel, setZoom]);
-
-	const startZoomDrag = useCallback(() => {
-		setIsDraggingZoom(true);
-		setTempZoomLevel(zoomLevel);
-	}, [zoomLevel]);
-
-	const updateZoomDrag = useCallback(
-		(value: number) => {
-			if (isDraggingZoom) {
-				setTempZoomLevel(value);
-			}
+	const updatePinchZoom = useCallback(
+		(scale: number, centerX: number, centerY: number) => {
+			setPinchState((prev) => {
+				if (!prev.isPinching) return prev;
+				const newZoom = Math.min(Math.max(prev.initialZoom * scale, 0.1), 2);
+				return {
+					...prev,
+					centerX,
+					centerY,
+					currentZoom: newZoom,
+				};
+			});
 		},
-		[isDraggingZoom],
+		[],
 	);
 
-	const endZoomDrag = useCallback(
-		(value: number) => {
-			if (isDraggingZoom) {
-				setIsDraggingZoom(false);
-				setZoom(value);
-			}
-		},
-		[isDraggingZoom, setZoom],
-	);
+	const endPinchZoom = useCallback(() => {
+		setPinchState((prev) => {
+			if (!prev.isPinching) return prev;
 
-	// 计算偏移量，使得缩放后的内容居中
-	const { offsetX, offsetY } = useMemo(() => {
+			const { centerX, centerY, currentZoom } = prev;
+			const scaleRatio = currentZoom / zoomLevel;
+
+			// 计算显示尺寸（canvas 尺寸 * zoom）
+			const displayedWidth = canvasSize.width * zoomLevel;
+			const displayedHeight = canvasSize.height * zoomLevel;
+
+			// 计算当前 canvas 在容器中的基础位置
+			const baseOffsetX = containerSize
+				? (containerSize.width - displayedWidth) / 2
+				: 0;
+			const baseOffsetY = containerSize
+				? (containerSize.height - displayedHeight) / 2
+				: 0;
+
+			// 计算 pinch 期间的实际变换位置（CSS transform 的结果）
+			const canvasCenterX = centerX - baseOffsetX - panOffset.x;
+			const canvasCenterY = centerY - baseOffsetY - panOffset.y;
+			const currentTranslateX =
+				baseOffsetX + panOffset.x + canvasCenterX * (1 - scaleRatio);
+			const currentTranslateY =
+				baseOffsetY + panOffset.y + canvasCenterY * (1 - scaleRatio);
+
+			// 计算新的显示尺寸对应的基础偏移
+			const newDisplayedWidth = canvasSize.width * currentZoom;
+			const newDisplayedHeight = canvasSize.height * currentZoom;
+			const newBaseOffsetX = containerSize
+				? (containerSize.width - newDisplayedWidth) / 2
+				: 0;
+			const newBaseOffsetY = containerSize
+				? (containerSize.height - newDisplayedHeight) / 2
+				: 0;
+
+			// 计算需要的 panOffset 使得视觉位置保持不变
+			const newPanX = currentTranslateX - newBaseOffsetX;
+			const newPanY = currentTranslateY - newBaseOffsetY;
+
+			setPanOffset({ x: newPanX, y: newPanY });
+			setZoom(currentZoom);
+
+			return {
+				...prev,
+				isPinching: false,
+				initialZoom: currentZoom,
+			};
+		});
+	}, [setZoom, zoomLevel, containerSize, canvasSize, panOffset]);
+
+	// 计算显示尺寸（canvas 尺寸 * zoom）
+	const displayedSize = useMemo(() => {
+		const currentZoom = pinchState.isPinching
+			? pinchState.currentZoom
+			: zoomLevel;
+		return {
+			width: canvasSize.width * currentZoom,
+			height: canvasSize.height * currentZoom,
+		};
+	}, [canvasSize, zoomLevel, pinchState]);
+
+	// 计算基础偏移量（居中）- 基于显示尺寸
+	const baseOffset = useMemo(() => {
 		if (
 			!containerSize ||
 			containerSize.width === 0 ||
 			containerSize.height === 0
 		) {
-			return { offsetX: 0, offsetY: 0 };
+			return { x: 0, y: 0 };
 		}
 
-		// 计算实际显示的尺寸
-		// canvasSize 已经是基于 zoomLevel 的尺寸
-		// 如果正在拖动，需要应用临时缩放比例
-		let scaledWidth = canvasSize.width;
-		let scaledHeight = canvasSize.height;
+		// 使用当前 zoom 后的显示尺寸计算居中
+		const displayedWidth = canvasSize.width * zoomLevel;
+		const displayedHeight = canvasSize.height * zoomLevel;
 
-		if (isDraggingZoom && zoomLevel > 0) {
-			const scaleRatio = tempZoomLevel / zoomLevel;
-			scaledWidth = canvasSize.width * scaleRatio;
-			scaledHeight = canvasSize.height * scaleRatio;
-		}
+		const x = (containerSize.width - displayedWidth) / 2;
+		const y = (containerSize.height - displayedHeight) / 2;
 
-		// 计算居中所需的偏移量
-		const offsetX = (containerSize.width - scaledWidth) / 2;
-		const offsetY = (containerSize.height - scaledHeight) / 2;
+		return { x, y };
+	}, [containerSize, canvasSize, zoomLevel]);
 
-		return { offsetX, offsetY };
-	}, [containerSize, canvasSize, zoomLevel, tempZoomLevel, isDraggingZoom]);
+	// 最终偏移量 = 基础偏移 + pan 偏移
+	const { offsetX, offsetY } = useMemo(() => {
+		return {
+			offsetX: baseOffset.x + panOffset.x,
+			offsetY: baseOffset.y + panOffset.y,
+		};
+	}, [baseOffset, panOffset]);
 
 	const zoomTransform = useMemo(() => {
-		const transforms: string[] = [];
+		// pinch zoom 时使用特殊的变换，以 pinch 中心点为原点进行缩放
+		if (pinchState.isPinching) {
+			const scaleRatio = pinchState.currentZoom / zoomLevel;
+			const { centerX, centerY } = pinchState;
 
-		// 先应用偏移（居中）
-		if (offsetX !== 0 || offsetY !== 0) {
-			transforms.push(`translate(${offsetX}px, ${offsetY}px)`);
+			// pinch 中心点相对于当前 canvas 位置（考虑 panOffset）的坐标
+			const canvasCenterX = centerX - baseOffset.x - panOffset.x;
+			const canvasCenterY = centerY - baseOffset.y - panOffset.y;
+
+			// 使用 translate + scale 实现以 pinch 中心为原点的缩放
+			const translateX =
+				baseOffset.x + panOffset.x + canvasCenterX * (1 - scaleRatio);
+			const translateY =
+				baseOffset.y + panOffset.y + canvasCenterY * (1 - scaleRatio);
+
+			// 先平移到正确位置，再应用基础缩放，再应用 pinch 缩放
+			return `translate(${translateX}px, ${translateY}px) scale(${zoomLevel * scaleRatio})`;
 		}
 
-		// 计算相对于当前 zoomLevel 的缩放比例
-		// 如果正在拖动，应用临时缩放；否则不应用额外缩放（因为 canvasSize 已经基于 zoomLevel）
-		if (isDraggingZoom && zoomLevel > 0) {
-			const scaleRatio = tempZoomLevel / zoomLevel;
-			if (scaleRatio !== 1) {
-				transforms.push(`scale(${scaleRatio})`);
-			}
-		}
-
-		return transforms.length > 0 ? transforms.join(" ") : "";
-	}, [isDraggingZoom, tempZoomLevel, zoomLevel, offsetX, offsetY]);
-
-	const setCanvas = useCallback(
-		(canvasSize: { width: number; height: number }) => {
-			setCanvasSize(canvasSize);
-			setZoomLevel(canvasSize.width / pictureSize.width);
-		},
-		[setZoomLevel, pictureSize.width, pictureSize.height],
-	);
+		// 正常状态：translate + scale(zoomLevel)
+		return `translate(${offsetX}px, ${offsetY}px) scale(${zoomLevel})`;
+	}, [zoomLevel, offsetX, offsetY, pinchState, baseOffset, panOffset]);
 
 	const setPicture = useCallback(
-		(pictureSize: { width: number; height: number }) => {
-			setPictureSize(pictureSize);
-			const newZoomLevel = calculateFitZoomLevel(pictureSize, containerSize);
+		(newPictureSize: { width: number; height: number }) => {
+			setPictureSize(newPictureSize);
+			const newZoomLevel = calculateFitZoomLevel(newPictureSize, containerSize);
 			setZoomLevel(newZoomLevel);
 		},
 		[calculateFitZoomLevel, containerSize],
 	);
 
 	const setContainer = useCallback(
-		(containerSize: { width: number; height: number }) => {
-			setContainerSize(containerSize);
-			// 只更新容器尺寸（用于居中计算），不重新计算 zoomLevel
-			// 避免与手动缩放冲突
+		(newContainerSize: { width: number; height: number }) => {
+			setContainerSize(newContainerSize);
 		},
 		[],
 	);
@@ -216,16 +283,19 @@ const PreviewProvider = ({ children }: { children: React.ReactNode }) => {
 			zoomLevel,
 			setZoomLevel: setZoom,
 			setPictureSize: setPicture,
-			setCanvasSize: setCanvas,
 			setContainerSize: setContainer,
-			isDraggingZoom,
-			tempZoomLevel,
-			startZoomDrag,
-			updateZoomDrag,
-			endZoomDrag,
 			zoomTransform,
 			offsetX,
 			offsetY,
+			// Pinch zoom
+			pinchState,
+			startPinchZoom,
+			updatePinchZoom,
+			endPinchZoom,
+			// Pan offset
+			panOffset,
+			setPanOffset,
+			resetPanOffset,
 		};
 	}, [
 		pictureSize,
@@ -233,16 +303,17 @@ const PreviewProvider = ({ children }: { children: React.ReactNode }) => {
 		zoomLevel,
 		setZoom,
 		setPicture,
-		setCanvas,
 		setContainer,
-		isDraggingZoom,
-		tempZoomLevel,
-		startZoomDrag,
-		updateZoomDrag,
-		endZoomDrag,
 		zoomTransform,
 		offsetX,
 		offsetY,
+		pinchState,
+		startPinchZoom,
+		updatePinchZoom,
+		endPinchZoom,
+		panOffset,
+		setPanOffset,
+		resetPanOffset,
 	]);
 
 	return (

@@ -1,5 +1,5 @@
 import { createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 
 import Header from "../components/Header";
 
@@ -45,6 +45,36 @@ export const Route = createRootRoute({
 });
 
 function RootDocument({ children }: { children: React.ReactNode }) {
+	// 全局禁止浏览器默认的 pinch-to-zoom 行为
+	// 注意：touchmove 的阻止通过 CSS touch-action: none 实现，不在这里处理
+	// 因为 JS 层面的 preventDefault 会阻止 React 事件处理器正常工作
+	useEffect(() => {
+		const preventGestureZoom = (e: Event) => {
+			e.preventDefault();
+		};
+
+		const preventWheelZoom = (e: WheelEvent) => {
+			// 阻止 ctrl + 滚轮缩放
+			if (e.ctrlKey) {
+				e.preventDefault();
+			}
+		};
+
+		// 阻止 Safari 的 gesturestart/gesturechange/gestureend 缩放
+		document.addEventListener("gesturestart", preventGestureZoom);
+		document.addEventListener("gesturechange", preventGestureZoom);
+		document.addEventListener("gestureend", preventGestureZoom);
+		// 阻止 ctrl + 滚轮缩放
+		document.addEventListener("wheel", preventWheelZoom, { passive: false });
+
+		return () => {
+			document.removeEventListener("gesturestart", preventGestureZoom);
+			document.removeEventListener("gesturechange", preventGestureZoom);
+			document.removeEventListener("gestureend", preventGestureZoom);
+			document.removeEventListener("wheel", preventWheelZoom);
+		};
+	}, []);
+
 	return (
 		<html lang="en">
 			<head>
