@@ -1,76 +1,71 @@
-import {
-	createContext,
-	useCallback,
-	useContext,
-	useEffect,
-	useMemo,
-	useRef,
-	useSyncExternalStore,
-} from "react";
+import { makeAutoObservable, reaction } from "mobx";
+import { observer } from "mobx-react-lite";
+import { createContext, useContext, useEffect, useMemo, useRef } from "react";
 
 type TimeSubscriber = (time: number) => void;
 
 /**
- * Create a timeline store that manages time state outside of React.
- * This prevents parent re-renders when time changes.
+ * MobX-based Timeline Store
+ * - currentTime is observable
+ * - Components using observer() will re-render when currentTime changes
+ * - Components NOT using observer() won't re-render
  */
-function createTimelineStore(initialTime: number) {
-	let currentTime = initialTime;
-	const subscribers = new Set<TimeSubscriber>();
+class TimelineStore {
+	currentTime = 0;
 
-	return {
-		getTime: () => currentTime,
-		setTime: (time: number) => {
-			currentTime = time;
-			for (const subscriber of subscribers) {
-				subscriber(time);
-			}
-		},
-		subscribe: (callback: TimeSubscriber) => {
-			subscribers.add(callback);
-			return () => {
-				subscribers.delete(callback);
-			};
-		},
+	constructor(initialTime: number = 0) {
+		this.currentTime = initialTime;
+		makeAutoObservable(this);
+	}
+
+	setCurrentTime = (time: number) => {
+		this.currentTime = time;
+	};
+
+	getCurrentTime = () => {
+		return this.currentTime;
+	};
+
+	/**
+	 * Subscribe to time changes without using MobX reactions in React.
+	 * Useful for imperative code that needs to react to time changes.
+	 */
+	subscribe = (callback: TimeSubscriber): (() => void) => {
+		return reaction(
+			() => this.currentTime,
+			(time) => callback(time),
+		);
 	};
 }
 
-type TimelineStore = ReturnType<typeof createTimelineStore>;
+// Context for the store instance
+const TimelineStoreContext = createContext<TimelineStore | null>(null);
 
 /**
- * Context for timeline store - value never changes after mount.
+ * Get the timeline store instance.
+ * This does NOT cause re-renders by itself - use with observer() if you need reactivity.
  */
-interface TimelineContextValue {
-	store: TimelineStore;
-	setCurrentTime: (time: number) => void;
-	subscribeToTime: (callback: TimeSubscriber) => () => void;
-	getCurrentTime: () => number;
-}
-
-// Context holds the store - value never changes, so children won't re-render
-const TimelineStoreContext = createContext<TimelineContextValue | null>(null);
+export const useTimelineStore = () => {
+	const store = useContext(TimelineStoreContext);
+	if (!store) {
+		throw new Error("useTimelineStore must be used within a TimelineProvider");
+	}
+	return store;
+};
 
 /**
- * Hook to get timeline state reactively using useSyncExternalStore.
- * This WILL trigger re-renders when time changes.
+ * Hook to get timeline state reactively.
+ * WARNING: This will trigger re-renders on every time change!
+ * The component using this hook should be wrapped with observer() or use useTimelineRef() instead.
  */
 export const useTimeline = () => {
-	const ctx = useContext(TimelineStoreContext);
-	if (!ctx) {
-		throw new Error("useTimeline must be used within a TimelineProvider");
-	}
-
-	const currentTime = useSyncExternalStore(
-		ctx.store.subscribe,
-		ctx.store.getTime,
-		ctx.store.getTime,
-	);
-
+	const store = useTimelineStore();
+	// Return the store - component must be wrapped with observer() to get reactivity
 	return {
-		currentTime,
-		setCurrentTime: ctx.setCurrentTime,
-		subscribeToTime: ctx.subscribeToTime,
-		getCurrentTime: ctx.getCurrentTime,
+		currentTime: store.currentTime,
+		setCurrentTime: store.setCurrentTime,
+		getCurrentTime: store.getCurrentTime,
+		subscribeToTime: store.subscribe,
 	};
 };
 
@@ -79,16 +74,11 @@ export const useTimeline = () => {
  * The callback is called whenever currentTime changes.
  */
 export const useTimelineSubscription = (callback: TimeSubscriber) => {
-	const ctx = useContext(TimelineStoreContext);
-	if (!ctx) {
-		throw new Error(
-			"useTimelineSubscription must be used within a TimelineProvider",
-		);
-	}
+	const store = useTimelineStore();
 
 	useEffect(() => {
-		return ctx.subscribeToTime(callback);
-	}, [ctx.subscribeToTime, callback]);
+		return store.subscribe(callback);
+	}, [store, callback]);
 };
 
 /**
@@ -97,16 +87,17 @@ export const useTimelineSubscription = (callback: TimeSubscriber) => {
  * Use this for performance-critical components that render Skia directly.
  */
 export const useTimelineRef = () => {
-	const ctx = useContext(TimelineStoreContext);
-	if (!ctx) {
-		throw new Error("useTimelineRef must be used within a TimelineProvider");
-	}
+	const store = useTimelineStore();
 
-	return {
-		getCurrentTime: ctx.getCurrentTime,
-		setCurrentTime: ctx.setCurrentTime,
-		subscribeToTime: ctx.subscribeToTime,
-	};
+	// Return stable references that don't change
+	return useMemo(
+		() => ({
+			getCurrentTime: store.getCurrentTime,
+			setCurrentTime: store.setCurrentTime,
+			subscribeToTime: store.subscribe,
+		}),
+		[store],
+	);
 };
 
 // Legacy context for backward compatibility
@@ -132,43 +123,16 @@ export const TimelineProvider = ({
 	// Create store once on mount - never changes
 	const storeRef = useRef<TimelineStore | null>(null);
 	if (!storeRef.current) {
-		storeRef.current = createTimelineStore(initialCurrentTime ?? 0);
+		storeRef.current = new TimelineStore(initialCurrentTime ?? 0);
 	}
 	const store = storeRef.current;
 
-	// Stable callbacks - never change
-	const setCurrentTime = useCallback(
-		(time: number) => {
-			store.setTime(time);
-		},
-		[store],
-	);
-
-	const subscribeToTime = useCallback(
-		(callback: TimeSubscriber) => {
-			return store.subscribe(callback);
-		},
-		[store],
-	);
-
-	const getCurrentTime = useCallback(() => {
-		return store.getTime();
-	}, [store]);
-
-	// Context value - NEVER changes after mount
-	const contextValue = useMemo<TimelineContextValue>(
-		() => ({
-			store,
-			setCurrentTime,
-			subscribeToTime,
-			getCurrentTime,
-		}),
-		[store, setCurrentTime, subscribeToTime, getCurrentTime],
-	);
-
 	return (
-		<TimelineStoreContext.Provider value={contextValue}>
+		<TimelineStoreContext.Provider value={store}>
 			{children}
 		</TimelineStoreContext.Provider>
 	);
 };
+
+// Re-export observer for convenience
+export { observer };

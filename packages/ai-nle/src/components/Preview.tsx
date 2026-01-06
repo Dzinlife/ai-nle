@@ -274,8 +274,6 @@ const Preview = () => {
 	// Use ref-based timeline access to avoid re-renders when time changes
 	const { getCurrentTime, subscribeToTime } = useTimelineRef();
 
-	console.log("TEST");
-
 	// Use ref to store visible elements for Konva interaction layer
 	// This doesn't trigger re-renders when time changes
 	const renderElementsRef = useRef<EditorElement[]>([]);

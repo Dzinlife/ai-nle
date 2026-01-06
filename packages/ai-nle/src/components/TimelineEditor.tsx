@@ -1,7 +1,9 @@
+import { observer } from "mobx-react-lite";
 import React, {
 	startTransition,
 	useCallback,
 	useEffect,
+	useMemo,
 	useRef,
 	useState,
 } from "react";
@@ -130,6 +132,75 @@ const TimelineEditor = () => {
 
 	const trackHeight = 60;
 
+	const timeStamps = useMemo(() => {
+		return (
+			<div
+				className="flex sticky top-0 z-10 border-b border-neutral-700"
+				style={{
+					transform: `translateX(-${scrollLeft}px)`,
+				}}
+			>
+				{Array.from({ length: 100 }).map((_, index) => (
+					<div
+						key={index}
+						className="flex items-center justify-center h-6 -translate-x-1/2 bg-neutral-800/60 text-xs text-white backdrop-blur-2xl shrink-0"
+						style={{ left: index * ratio, width: ratio }}
+					>
+						{index}
+					</div>
+				))}
+			</div>
+		);
+	}, [scrollLeft, ratio]);
+
+	const timelineItems = useMemo(() => {
+		return (
+			<div
+				className="relative pb-10 mt-1.5 box-content"
+				style={{
+					transform: `translateX(-${scrollLeft}px)`,
+					height: 60 * elements.length,
+				}}
+			>
+				{elements.map((element, i) => {
+					const { type, props } = element;
+
+					const { start = 0, end = 1 } = props;
+
+					const left = parseStartEndSchema(start) * ratio;
+					const width =
+						(parseStartEndSchema(end) - parseStartEndSchema(start)) * ratio;
+
+					return (
+						<div
+							key={props.id}
+							className="absolute bg-neutral-700 flex rounded-md "
+							style={{
+								left,
+								width,
+								top: i * trackHeight,
+								height: 54,
+							}}
+						>
+							<div className="p-1 size-full">
+								{type.timelineComponent ? (
+									<div className="size-full">
+										<type.timelineComponent key={props.id} {...props} />
+									</div>
+								) : (
+									<div className="text-white rounded w-full">
+										{type.displayName || type.name}
+									</div>
+								)}
+							</div>
+						</div>
+					);
+				})}
+			</div>
+		);
+	}, [elements, scrollLeft, ratio]);
+	console.log("TimelineEditor", currentTime);
+
 	return (
 		<div className="w-full h-full flex min-h-0 relative bg-neutral-800">
 			{/* 左侧列，绝对定位覆盖在时间线上方 */}
@@ -146,64 +217,8 @@ const TimelineEditor = () => {
 				style={{ paddingLeft: leftColumnWidth }}
 				onMouseMove={handleMouseMove}
 			>
-				<div
-					className="flex sticky top-0 z-10 border-b border-neutral-700"
-					style={{
-						transform: `translateX(-${scrollLeft}px)`,
-					}}
-				>
-					{Array.from({ length: 100 }).map((_, index) => (
-						<div
-							key={index}
-							className="flex items-center justify-center h-6 -translate-x-1/2 bg-neutral-800/60 text-xs text-white backdrop-blur-2xl shrink-0"
-							style={{ left: index * ratio, width: ratio }}
-						>
-							{index}
-						</div>
-					))}
-				</div>
-				<div
-					className="relative pb-10 mt-1.5 box-content"
-					style={{
-						transform: `translateX(-${scrollLeft}px)`,
-						height: 60 * elements.length,
-					}}
-				>
-					{elements.map((element, i) => {
-						const { type, props } = element;
-
-						const { start = 0, end = 1 } = props;
-
-						const left = parseStartEndSchema(start) * ratio;
-						const width =
-							(parseStartEndSchema(end) - parseStartEndSchema(start)) * ratio;
-
-						return (
-							<div
-								key={props.id}
-								className="absolute bg-neutral-700 flex rounded-md "
-								style={{
-									left,
-									width,
-									top: i * trackHeight,
-									height: 54,
-								}}
-							>
-								<div className="p-1 size-full">
-									{type.timelineComponent ? (
-										<div className="size-full">
-											<type.timelineComponent key={props.id} {...props} />
-										</div>
-									) : (
-										<div className="text-white rounded w-full">
-											{type.displayName || type.name}
-										</div>
-									)}
-								</div>
-							</div>
-						);
-					})}
-				</div>
+				{timeStamps}
+				{timelineItems}
 
 				<div
 					className="absolute top-0 left-0 w-full h-full bg-red-500 pointer-events-none"
@@ -218,4 +233,4 @@ const TimelineEditor = () => {
 	);
 };
 
-export default TimelineEditor;
+export default observer(TimelineEditor);
