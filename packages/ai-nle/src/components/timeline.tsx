@@ -1,7 +1,28 @@
-import { BackdropZoom, Clip, Group, Image, Timeline } from "@/dsl";
+import {
+	BackdropZoom,
+	Clip,
+	CloudBackground,
+	Group,
+	Image,
+	Timeline,
+} from "@/dsl";
 
 export const testTimeline = (
 	<Timeline>
+		<CloudBackground
+			id="cloudBackground1"
+			name="云彩背景"
+			width={1920}
+			height={1080}
+			left={0}
+			top={0}
+			speed={0.5}
+			cloudDensity={1.2}
+			skyColor="#87CEEB"
+			cloudColor="#FFFFFF"
+			start={0}
+			end={60}
+		/>
 		<Group
 			id="group1"
 			name="group1group1group1group1"
