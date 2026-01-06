@@ -1,3 +1,4 @@
+import { usePinch } from "@use-gesture/react";
 import Konva from "konva";
 import React, {
 	useCallback,
@@ -623,6 +624,7 @@ const Preview = () => {
 	const ContextBridge = useContextBridge(TimelineContext);
 
 	const skiaCanvasRef = useRef<CanvasRef>(null);
+	const containerRef = useRef<HTMLDivElement>(null);
 
 	const skiaCanvas = useMemo(() => {
 		return (
@@ -630,6 +632,7 @@ const Preview = () => {
 				style={{
 					width: canvasWidth,
 					height: canvasHeight,
+					overflow: "hidden", // 必须要设置 overflow: "hidden"，否则高度无法缩小，原因未知
 				}}
 				ref={skiaCanvasRef}
 			>
@@ -747,21 +750,17 @@ const Preview = () => {
 	]);
 
 	return (
-		<div>
-			<button onClick={handleDownload}>download image</button>
+		<div ref={containerRef} className="w-full h-full overflow-hidden">
+			{/* <button onClick={handleDownload}>download image</button>
 			<button onClick={handleDownloadWithoutBackground}>
 				download image without background
-			</button>
+			</button> */}
 			<div
 				style={{
 					position: "relative",
 					width: canvasWidth,
 					height: canvasHeight,
-					border: "1px solid #ddd",
-					borderRadius: "8px",
-					overflow: "hidden",
-					backgroundColor: "#f9fafb",
-					transform: zoomTransform || undefined,
+					transform: zoomTransform,
 					transformOrigin: "top left",
 				}}
 			>
@@ -782,7 +781,7 @@ const Preview = () => {
 					ref={stageRef}
 					width={canvasWidth}
 					height={canvasHeight}
-					className="absolute top-0 left-0 mix-blend-hard-light"
+					className="absolute top-0 left-0"
 					onClick={handleStageClick}
 					onMouseDown={handleStageMouseDown}
 					onMouseMove={handleStageMouseMove}

@@ -128,11 +128,13 @@ const TimelineEditor = () => {
 		};
 	}, []);
 
+	const trackHeight = 60;
+
 	return (
-		<div className="w-full h-full bg-neutral-100 flex-1 relative">
+		<div className="w-full h-full flex min-h-0 relative bg-neutral-800">
 			{/* 左侧列，绝对定位覆盖在时间线上方 */}
 			<div
-				className="absolute top-0 left-0 h-full bg-neutral/50 z-10 backdrop-blur-2xl"
+				className="absolute top-0 left-0 h-full bg-neutral-800/80 text-white z-20 backdrop-blur-2xl border-r border-neutral-700"
 				style={{ width: leftColumnWidth }}
 			>
 				left column
@@ -140,12 +142,12 @@ const TimelineEditor = () => {
 			{/* 时间线容器，占满整个屏幕，左侧留出 padding 给 left column */}
 			<div
 				ref={containerRef}
-				className="relative w-full h-full overflow-hidden"
+				className="relative w-full h-full overflow-y-auto"
 				style={{ paddingLeft: leftColumnWidth }}
 				onMouseMove={handleMouseMove}
 			>
 				<div
-					className="flex"
+					className="flex sticky top-0 z-10 border-b border-neutral-700"
 					style={{
 						transform: `translateX(-${scrollLeft}px)`,
 					}}
@@ -153,7 +155,7 @@ const TimelineEditor = () => {
 					{Array.from({ length: 100 }).map((_, index) => (
 						<div
 							key={index}
-							className="w-full h-10 bg-blue-200 shrink-0"
+							className="flex items-center justify-center h-6 -translate-x-1/2 bg-neutral-800/60 text-xs text-white backdrop-blur-2xl shrink-0"
 							style={{ left: index * ratio, width: ratio }}
 						>
 							{index}
@@ -161,9 +163,10 @@ const TimelineEditor = () => {
 					))}
 				</div>
 				<div
-					className="relative"
+					className="relative pb-10 mt-1.5 box-content"
 					style={{
 						transform: `translateX(-${scrollLeft}px)`,
+						height: 60 * elements.length,
 					}}
 				>
 					{elements.map((element, i) => {
@@ -178,11 +181,11 @@ const TimelineEditor = () => {
 						return (
 							<div
 								key={props.id}
-								className="absolute bg-red-200 flex rounded-md "
+								className="absolute bg-neutral-700 flex rounded-md "
 								style={{
 									left,
 									width,
-									top: i * 60,
+									top: i * trackHeight,
 									height: 54,
 								}}
 							>
@@ -192,7 +195,7 @@ const TimelineEditor = () => {
 											<type.timelineComponent key={props.id} {...props} />
 										</div>
 									) : (
-										<div className="bg-red-200 rounded w-full">
+										<div className="text-white rounded w-full">
 											{type.displayName || type.name}
 										</div>
 									)}
@@ -206,7 +209,7 @@ const TimelineEditor = () => {
 					className="absolute top-0 left-0 w-full h-full bg-red-500 pointer-events-none"
 					style={{
 						transform: `translateX(${leftColumnWidth + currentTime * ratio - scrollLeft}px)`,
-						width: 2,
+						width: 1,
 						height: "100%",
 					}}
 				></div>
