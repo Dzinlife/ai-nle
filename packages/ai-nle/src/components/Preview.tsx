@@ -1,5 +1,6 @@
 import { usePinch } from "@use-gesture/react";
 import Konva from "konva";
+import { debounce } from "lodash-es";
 import React, {
 	useCallback,
 	useDeferredValue,
@@ -613,26 +614,62 @@ const Preview = () => {
 
 	const {
 		zoomLevel,
-		isDraggingZoom,
-		tempZoomLevel,
-		startZoomDrag,
-		updateZoomDrag,
-		endZoomDrag,
-		zoomTransform,
+		setZoomLevel,
+		containerWidth,
+		containerHeight,
+		setContainerSize,
 	} = usePreview();
-
-	const ContextBridge = useContextBridge(TimelineContext);
 
 	const skiaCanvasRef = useRef<CanvasRef>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
+	const resizeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+	useEffect(() => {
+		if (!containerRef.current) return;
+
+		setContainerSize({
+			width: containerRef.current.clientWidth,
+			height: containerRef.current.clientHeight,
+		});
+
+		const resizeObserver = new ResizeObserver((entries) => {
+			for (const entry of entries) {
+				const { width, height } = entry.contentRect;
+
+				// 清除之前的 timeout
+				if (resizeTimeoutRef.current) {
+					clearTimeout(resizeTimeoutRef.current);
+				}
+
+				// resize 开始时先设为 0
+				setContainerSize({ width: 0, height: 0 });
+
+				// resize 停止后再设置实际值（防抖）
+				resizeTimeoutRef.current = setTimeout(() => {
+					setContainerSize({ width, height });
+					resizeTimeoutRef.current = null;
+				}, 300);
+			}
+		});
+		resizeObserver.observe(containerRef.current);
+		return () => {
+			resizeObserver.disconnect();
+			if (resizeTimeoutRef.current) {
+				clearTimeout(resizeTimeoutRef.current);
+			}
+		};
+	}, []);
+
+	const ContextBridge = useContextBridge(TimelineContext);
 
 	const skiaCanvas = useMemo(() => {
+		if (containerWidth === 0 || containerHeight === 0) return null;
+
 		return (
 			<Canvas
 				style={{
-					width: canvasWidth,
-					height: canvasHeight,
-					overflow: "hidden", // 必须要设置 overflow: "hidden"，否则高度无法缩小，原因未知
+					width: "100%",
+					height: "100%",
 				}}
 				ref={skiaCanvasRef}
 			>
@@ -750,144 +787,121 @@ const Preview = () => {
 	]);
 
 	return (
-		<div ref={containerRef} className="w-full h-full overflow-hidden">
+		<div ref={containerRef} className="relative w-full h-full overflow-hidden">
 			{/* <button onClick={handleDownload}>download image</button>
 			<button onClick={handleDownloadWithoutBackground}>
 				download image without background
 			</button> */}
-			<div
-				style={{
-					position: "relative",
-					width: canvasWidth,
-					height: canvasHeight,
-					transform: zoomTransform,
-					transformOrigin: "top left",
-				}}
+
+			{/* 下层：Skia Canvas 渲染实际内容 */}
+			{skiaCanvas}
+			{/* 上层：Konva 交互层 */}
+			<Stage
+				ref={stageRef}
+				width={containerWidth}
+				height={containerHeight}
+				className="absolute inset-0"
+				onClick={handleStageClick}
+				onMouseDown={handleStageMouseDown}
+				onMouseMove={handleStageMouseMove}
+				onMouseUp={handleStageMouseUp}
 			>
-				{/* 下层：Skia Canvas 渲染实际内容 */}
-				<div
-					style={{
-						position: "absolute",
-						top: 0,
-						left: 0,
-						pointerEvents: "none",
-					}}
-				>
-					{skiaCanvas}
-				</div>
+				<Layer>
+					{renderElements.map((el) => {
+						const { id } = el.props;
+						const isHovered = hoveredId === id;
+						const isDragging = draggingId === id;
+						const isSelected = selectedIds.includes(id);
 
-				{/* 上层：Konva 交互层 */}
-				<Stage
-					ref={stageRef}
-					width={canvasWidth}
-					height={canvasHeight}
-					className="absolute top-0 left-0"
-					onClick={handleStageClick}
-					onMouseDown={handleStageMouseDown}
-					onMouseMove={handleStageMouseMove}
-					onMouseUp={handleStageMouseUp}
-				>
-					<Layer>
-						{renderElements.map((el) => {
-							const { id } = el.props;
-							const isHovered = hoveredId === id;
-							const isDragging = draggingId === id;
-							const isSelected = selectedIds.includes(id);
-
-							const { x, y, width, height, rotate } =
-								converMetaLayoutToCanvasLayout(
-									el.props,
-									canvasConvertOptions.picture,
-									canvasConvertOptions.canvas,
-								);
-
-							// 将弧度转换为度数（Konva 使用度数）
-							const rotationDegrees = (rotate * 180) / Math.PI;
-
-							return (
-								<React.Fragment key={id}>
-									<KonvaRect
-										x={x}
-										y={y}
-										width={width}
-										height={height}
-										fill="transparent"
-										stroke={
-											isSelected
-												? "rgba(255,0,0,1)"
-												: isDragging
-													? "rgba(255,0,0,0.7)"
-													: isHovered
-														? "rgba(0,0,0,0.5)"
-														: "transparent"
-										}
-										strokeWidth={isSelected ? 1 : 1}
-										draggable
-										data-id={id}
-										name={`element-${id}`}
-										rotation={rotationDegrees}
-										onMouseDown={() => handleMouseDown(id)}
-										onMouseUp={handleMouseUp}
-										onDragStart={() => handleDragStart(id)}
-										onDragMove={(e: Konva.KonvaEventObject<DragEvent>) =>
-											handleDrag(id, e)
-										}
-										onDragEnd={(e: Konva.KonvaEventObject<DragEvent>) =>
-											handleDragEnd(id, e)
-										}
-										onTransform={(e: Konva.KonvaEventObject<Event>) =>
-											handleTransform(id, e)
-										}
-										onTransformEnd={(e: Konva.KonvaEventObject<Event>) =>
-											handleTransformEnd(id, e)
-										}
-										onMouseEnter={() => handleMouseEnter(id)}
-										onMouseLeave={handleMouseLeave}
-										cursor={isSelected ? "default" : "move"}
-									/>
-								</React.Fragment>
+						const { x, y, width, height, rotate } =
+							converMetaLayoutToCanvasLayout(
+								el.props,
+								canvasConvertOptions.picture,
+								canvasConvertOptions.canvas,
 							);
-						})}
-						{/* Transformer 用于缩放和旋转 */}
-						<Transformer
-							ref={transformerRef}
-							boundBoxFunc={(oldBox, newBox) => {
-								// 限制最小尺寸
-								if (newBox.width < 5 || newBox.height < 5) {
-									return oldBox;
-								}
-								return newBox;
-							}}
-							anchorFill="black"
-							anchorStroke="rgba(255,0,0,1)"
-							anchorStrokeWidth={1.25}
-							anchorSize={7}
-							borderStroke="rgba(255,0,0,0.7)"
-						/>
-					</Layer>
-				</Stage>
 
-				{/* DOM 文字标签层 */}
-				<LabelLayer
-					elements={renderElements}
-					hoveredId={hoveredId}
-					selectedIds={selectedIds}
-					stageRef={stageRef}
-					canvasConvertOptions={canvasConvertOptions}
-				/>
-			</div>
+						// 将弧度转换为度数（Konva 使用度数）
+						const rotationDegrees = (rotate * 180) / Math.PI;
+
+						return (
+							<React.Fragment key={id}>
+								<KonvaRect
+									x={x}
+									y={y}
+									width={width}
+									height={height}
+									fill="transparent"
+									stroke={
+										isSelected
+											? "rgba(255,0,0,1)"
+											: isDragging
+												? "rgba(255,0,0,0.7)"
+												: isHovered
+													? "rgba(0,0,0,0.5)"
+													: "transparent"
+									}
+									strokeWidth={isSelected ? 1 : 1}
+									draggable
+									data-id={id}
+									name={`element-${id}`}
+									rotation={rotationDegrees}
+									onMouseDown={() => handleMouseDown(id)}
+									onMouseUp={handleMouseUp}
+									onDragStart={() => handleDragStart(id)}
+									onDragMove={(e: Konva.KonvaEventObject<DragEvent>) =>
+										handleDrag(id, e)
+									}
+									onDragEnd={(e: Konva.KonvaEventObject<DragEvent>) =>
+										handleDragEnd(id, e)
+									}
+									onTransform={(e: Konva.KonvaEventObject<Event>) =>
+										handleTransform(id, e)
+									}
+									onTransformEnd={(e: Konva.KonvaEventObject<Event>) =>
+										handleTransformEnd(id, e)
+									}
+									onMouseEnter={() => handleMouseEnter(id)}
+									onMouseLeave={handleMouseLeave}
+									cursor={isSelected ? "default" : "move"}
+								/>
+							</React.Fragment>
+						);
+					})}
+					{/* Transformer 用于缩放和旋转 */}
+					<Transformer
+						ref={transformerRef}
+						boundBoxFunc={(oldBox, newBox) => {
+							// 限制最小尺寸
+							if (newBox.width < 5 || newBox.height < 5) {
+								return oldBox;
+							}
+							return newBox;
+						}}
+						anchorFill="black"
+						anchorStroke="rgba(255,0,0,1)"
+						anchorStrokeWidth={1.25}
+						anchorSize={7}
+						borderStroke="rgba(255,0,0,0.7)"
+					/>
+				</Layer>
+			</Stage>
+
+			{/* DOM 文字标签层 */}
+			<LabelLayer
+				elements={renderElements}
+				hoveredId={hoveredId}
+				selectedIds={selectedIds}
+				stageRef={stageRef}
+				canvasConvertOptions={canvasConvertOptions}
+			/>
 			<input
 				type="range"
 				min={0.1}
 				max={1}
 				step={0.001}
-				value={isDraggingZoom ? tempZoomLevel : zoomLevel}
-				onMouseDown={startZoomDrag}
+				value={zoomLevel}
 				onChange={(e) => {
-					updateZoomDrag(Number(e.target.value));
-				}}
-				onMouseUp={(e) => {
-					endZoomDrag(Number((e.target as HTMLInputElement).value));
+					setZoomLevel(Number(e.target.value));
 				}}
 			/>
 		</div>

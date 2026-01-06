@@ -8,6 +8,8 @@ import {
 } from "react";
 
 const PreviewContext = createContext({
+	containerWidth: 0,
+	containerHeight: 0,
 	pictureWidth: 1920,
 	pictureHeight: 1080,
 	canvasWidth: 960,
@@ -15,16 +17,17 @@ const PreviewContext = createContext({
 	setZoomLevel: (zoomLevel: number) => {},
 	setPictureSize: (pictureSize: { width: number; height: number }) => {},
 	setCanvasSize: (canvasSize: { width: number; height: number }) => {},
+	setContainerSize: (containerSize: { width: number; height: number }) => {},
 	zoomLevel: 0.5,
 	isDraggingZoom: false,
-	tempZoomLevel: 0.5,
-	startZoomDrag: () => {},
-	updateZoomDrag: (value: number) => {},
-	endZoomDrag: (value: number) => {},
-	zoomTransform: "",
 });
 
 const PreviewProvider = ({ children }: { children: React.ReactNode }) => {
+	const [containerSize, setContainerSize] = useState({
+		width: 1920,
+		height: 1080,
+	});
+
 	const [pictureSize, setPictureSize] = useState({
 		width: 1920,
 		height: 1080,
@@ -76,37 +79,6 @@ const PreviewProvider = ({ children }: { children: React.ReactNode }) => {
 		};
 	}, [isDraggingZoom, tempZoomLevel, setZoom]);
 
-	const startZoomDrag = useCallback(() => {
-		setIsDraggingZoom(true);
-		setTempZoomLevel(zoomLevel);
-	}, [zoomLevel]);
-
-	const updateZoomDrag = useCallback(
-		(value: number) => {
-			if (isDraggingZoom) {
-				setTempZoomLevel(value);
-			}
-		},
-		[isDraggingZoom],
-	);
-
-	const endZoomDrag = useCallback(
-		(value: number) => {
-			if (isDraggingZoom) {
-				setIsDraggingZoom(false);
-				setZoom(value);
-			}
-		},
-		[isDraggingZoom, setZoom],
-	);
-
-	const zoomTransform = useMemo(() => {
-		if (isDraggingZoom && zoomLevel > 0) {
-			return `scale(${tempZoomLevel / zoomLevel})`;
-		}
-		return "";
-	}, [isDraggingZoom, tempZoomLevel, zoomLevel]);
-
 	const setCanvas = useCallback(
 		(canvasSize: { width: number; height: number }) => {
 			setCanvasSize(canvasSize);
@@ -134,13 +106,12 @@ const PreviewProvider = ({ children }: { children: React.ReactNode }) => {
 			setPictureSize: setPicture,
 			setCanvasSize: setCanvas,
 			isDraggingZoom,
-			tempZoomLevel,
-			startZoomDrag,
-			updateZoomDrag,
-			endZoomDrag,
-			zoomTransform,
+			containerWidth: containerSize.width,
+			containerHeight: containerSize.height,
+			setContainerSize: setContainerSize,
 		};
 	}, [
+		containerSize,
 		pictureSize,
 		canvasSize,
 		zoomLevel,
@@ -148,11 +119,7 @@ const PreviewProvider = ({ children }: { children: React.ReactNode }) => {
 		setPicture,
 		setCanvas,
 		isDraggingZoom,
-		tempZoomLevel,
-		startZoomDrag,
-		updateZoomDrag,
-		endZoomDrag,
-		zoomTransform,
+		setContainerSize,
 	]);
 
 	return (
