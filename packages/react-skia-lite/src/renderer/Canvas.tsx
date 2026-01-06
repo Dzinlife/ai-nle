@@ -37,6 +37,11 @@ export interface CanvasRef extends FC<CanvasProps> {
 	getNativeId(): number;
 	measure(callback: MeasureOnSuccessCallback): void;
 	measureInWindow(callback: MeasureInWindowOnSuccessCallback): void;
+	/**
+	 * Get the SkiaSGRoot instance for direct rendering.
+	 * This allows bypassing React's reconciliation for performance-critical updates.
+	 */
+	getRoot(): SkiaSGRoot;
 }
 
 export const useCanvasRef = () => useRef<CanvasRef>(null);
@@ -153,7 +158,11 @@ export const Canvas = ({
 				measureInWindow: (callback) => {
 					viewRef.current?.measureInWindow(callback);
 				},
+				getRoot: () => {
+					return root;
+				},
 			}) as CanvasRef,
+		[nativeId, root],
 	);
 
 	const onLayoutWeb = useCallback(

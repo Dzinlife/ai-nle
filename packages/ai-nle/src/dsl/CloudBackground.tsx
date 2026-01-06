@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { Fill, Group, Rect, Shader, Skia } from "react-skia-lite";
-import { useTimeline } from "@/components/TimelineContext";
 import { parseStartEndSchema } from "./startEndSchema";
 import { EditorComponent } from "./types";
 
@@ -10,6 +9,7 @@ const CloudBackground: EditorComponent<{
 	cloudDensity?: number; // 云朵密度，默认 1.0
 	skyColor?: string; // 天空颜色，默认 "#87CEEB"
 	cloudColor?: string; // 云朵颜色，默认 "#FFFFFF"
+	__currentTime?: number; // 直接渲染时传入的时间
 }> = ({
 	start: startProp,
 	end: _endProp,
@@ -18,8 +18,9 @@ const CloudBackground: EditorComponent<{
 	cloudDensity = 1.0,
 	skyColor = "#87CEEB",
 	cloudColor = "#FFFFFF",
+	__currentTime = 0,
 }) => {
-	const { currentTime } = useTimeline();
+	const currentTime = __currentTime;
 	const { x, y, w: width, h: height } = __renderLayout;
 
 	// 解析开始时间
