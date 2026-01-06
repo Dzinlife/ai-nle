@@ -1,4 +1,3 @@
-import { usePinch } from "@use-gesture/react";
 import Konva from "konva";
 import React, {
 	useCallback,
@@ -35,6 +34,11 @@ interface LabelLayerProps {
 		picture: { width: number; height: number };
 		canvas: { width: number; height: number };
 	};
+	offsetX: number;
+	offsetY: number;
+	isDraggingZoom: boolean;
+	zoomLevel: number;
+	tempZoomLevel: number;
 }
 
 const LabelLayer: React.FC<LabelLayerProps> = ({
@@ -43,6 +47,11 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 	selectedIds,
 	stageRef,
 	canvasConvertOptions,
+	offsetX,
+	offsetY,
+	isDraggingZoom,
+	zoomLevel,
+	tempZoomLevel,
 }) => {
 	const [labelPositions, setLabelPositions] = useState<
 		Record<
@@ -50,6 +59,18 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 			{ x: number; y: number; rotation: number; height: number; width: number }
 		>
 	>({});
+
+	// 将 Stage 坐标转换为画布坐标
+	const stageToCanvasCoords = useCallback(
+		(stageX: number, stageY: number) => {
+			const currentScale =
+				isDraggingZoom && zoomLevel > 0 ? tempZoomLevel / zoomLevel : 1;
+			const canvasX = (stageX - offsetX) / currentScale;
+			const canvasY = (stageY - offsetY) / currentScale;
+			return { canvasX, canvasY };
+		},
+		[offsetX, offsetY, isDraggingZoom, zoomLevel, tempZoomLevel],
+	);
 
 	// 更新 label 位置的函数
 	const updateLabelPositions = useCallback(() => {
@@ -89,29 +110,38 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 				return;
 			}
 
-			// 从 Konva 节点获取实际位置和尺寸
-			const x = node.x();
-			const y = node.y();
-			const width = node.width() * node.scaleX();
-			const height = node.height() * node.scaleY();
+			// 从 Konva 节点获取实际位置和尺寸（Stage 坐标系）
+			const stageX = node.x();
+			const stageY = node.y();
+			const stageWidth = node.width() * node.scaleX();
+			const stageHeight = node.height() * node.scaleY();
 			const rotation = node.rotation(); // 度数
 
-			// 获取 offset（如果没有设置，默认为 0, 0，即左上角）
-			const offsetX = node.offsetX() || 0;
-			const offsetY = node.offsetY() || 0;
+			// 将 Stage 坐标转换为画布坐标
+			const { canvasX, canvasY } = stageToCanvasCoords(stageX, stageY);
 
-			// 计算旋转中心点（offset 点）
-			const rotationCenterX = x + offsetX;
-			const rotationCenterY = y + offsetY;
+			// 将 Stage 尺寸转换为画布尺寸
+			const currentScale =
+				isDraggingZoom && zoomLevel > 0 ? tempZoomLevel / zoomLevel : 1;
+			const canvasWidth = stageWidth / currentScale;
+			const canvasHeight = stageHeight / currentScale;
+
+			// 获取 offset（如果没有设置，默认为 0, 0，即左上角）
+			const nodeOffsetX = node.offsetX() || 0;
+			const nodeOffsetY = node.offsetY() || 0;
+
+			// 计算旋转中心点（offset 点）- 使用画布坐标
+			const rotationCenterX = canvasX + nodeOffsetX;
+			const rotationCenterY = canvasY + nodeOffsetY;
 
 			// 计算未旋转时中心点相对于旋转中心的偏移
-			const centerOffsetX = width / 2 - offsetX;
-			const centerOffsetY = height / 2 - offsetY;
+			const centerOffsetX = canvasWidth / 2 - nodeOffsetX;
+			const centerOffsetY = canvasHeight / 2 - nodeOffsetY;
 
 			// 将偏移转换为弧度
 			const rotationRad = (rotation * Math.PI) / 180;
 
-			// 计算旋转后的中心点位置
+			// 计算旋转后的中心点位置（画布坐标系）
 			const cos = Math.cos(rotationRad);
 			const sin = Math.sin(rotationRad);
 			const rotatedCenterX =
@@ -122,14 +152,23 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 			positions[el.props.id] = {
 				x: rotatedCenterX,
 				y: rotatedCenterY,
-				height: height,
-				width: width,
+				height: canvasHeight,
+				width: canvasWidth,
 				rotation: rotation,
 			};
 		});
 
 		setLabelPositions(positions);
-	}, [elements, hoveredId, stageRef, canvasConvertOptions]);
+	}, [
+		elements,
+		hoveredId,
+		stageRef,
+		canvasConvertOptions,
+		stageToCanvasCoords,
+		isDraggingZoom,
+		zoomLevel,
+		tempZoomLevel,
+	]);
 
 	// 初始更新和 hover 变化时更新
 	useEffect(() => {
@@ -268,8 +307,22 @@ const Preview = () => {
 	const transformerRef = useRef<Konva.Transformer>(null);
 	const isSelecting = useRef(false);
 
-	const { pictureWidth, pictureHeight, canvasWidth, canvasHeight } =
-		usePreview();
+	const {
+		pictureWidth,
+		pictureHeight,
+		canvasWidth,
+		canvasHeight,
+		zoomLevel,
+		isDraggingZoom,
+		tempZoomLevel,
+		startZoomDrag,
+		updateZoomDrag,
+		endZoomDrag,
+		zoomTransform,
+		setContainerSize,
+		offsetX,
+		offsetY,
+	} = usePreview();
 
 	const canvasConvertOptions = {
 		picture: {
@@ -295,11 +348,46 @@ const Preview = () => {
 		setHoveredId(id); // 拖拽开始时保持 hover 状态
 	}, []);
 
+	// 将 Stage 坐标转换为画布坐标（考虑 offset 和缩放）
+	const stageToCanvasCoords = useCallback(
+		(stageX: number, stageY: number) => {
+			// Stage 覆盖整个容器，但画布内容在 offsetX, offsetY 位置
+			// 需要考虑当前的缩放比例
+			const currentScale =
+				isDraggingZoom && zoomLevel > 0 ? tempZoomLevel / zoomLevel : 1;
+
+			// 从 Stage 坐标减去 offset，然后除以缩放比例
+			const canvasX = (stageX - offsetX) / currentScale;
+			const canvasY = (stageY - offsetY) / currentScale;
+
+			return { canvasX, canvasY };
+		},
+		[offsetX, offsetY, isDraggingZoom, zoomLevel, tempZoomLevel],
+	);
+
+	// 将画布坐标转换为 Stage 坐标（考虑 offset 和缩放）
+	const canvasToStageCoords = useCallback(
+		(canvasX: number, canvasY: number) => {
+			const currentScale =
+				isDraggingZoom && zoomLevel > 0 ? tempZoomLevel / zoomLevel : 1;
+
+			// 画布坐标乘以缩放比例，然后加上 offset
+			const stageX = canvasX * currentScale + offsetX;
+			const stageY = canvasY * currentScale + offsetY;
+
+			return { stageX, stageY };
+		},
+		[offsetX, offsetY, isDraggingZoom, zoomLevel, tempZoomLevel],
+	);
+
 	const handleDrag = useCallback(
 		(id: string, e: Konva.KonvaEventObject<DragEvent>) => {
 			const node = e.target;
-			const canvasX = node.x();
-			const canvasY = node.y();
+			const stageX = node.x();
+			const stageY = node.y();
+
+			// 将 Stage 坐标转换为画布坐标
+			const { canvasX, canvasY } = stageToCanvasCoords(stageX, stageY);
 
 			// 将 canvas 坐标转换为 picture 坐标
 			const scaleX = canvasWidth / pictureWidth;
@@ -315,7 +403,13 @@ const Preview = () => {
 				),
 			);
 		},
-		[canvasWidth, canvasHeight, pictureWidth, pictureHeight],
+		[
+			canvasWidth,
+			canvasHeight,
+			pictureWidth,
+			pictureHeight,
+			stageToCanvasCoords,
+		],
 	);
 
 	const handleDragEnd = useCallback(
@@ -384,10 +478,20 @@ const Preview = () => {
 				return;
 			}
 
-			const canvasX = node.x();
-			const canvasY = node.y();
-			const canvasWidth_scaled = node.width() * scaleX;
-			const canvasHeight_scaled = node.height() * scaleY;
+			const stageX = node.x();
+			const stageY = node.y();
+			// 缩放后的尺寸（在 Stage 坐标系中）
+			const stageWidth_scaled = node.width() * scaleX;
+			const stageHeight_scaled = node.height() * scaleY;
+
+			// 将 Stage 坐标转换为画布坐标
+			const { canvasX, canvasY } = stageToCanvasCoords(stageX, stageY);
+
+			// 将 Stage 尺寸转换为画布尺寸
+			const currentScale =
+				isDraggingZoom && zoomLevel > 0 ? tempZoomLevel / zoomLevel : 1;
+			const canvasWidth_scaled = stageWidth_scaled / currentScale;
+			const canvasHeight_scaled = stageHeight_scaled / currentScale;
 
 			// 将 canvas 坐标转换为 picture 坐标
 			const scaleX_ratio = canvasWidth / pictureWidth;
@@ -421,7 +525,16 @@ const Preview = () => {
 				),
 			);
 		},
-		[canvasWidth, canvasHeight, pictureWidth, pictureHeight],
+		[
+			canvasWidth,
+			canvasHeight,
+			pictureWidth,
+			pictureHeight,
+			stageToCanvasCoords,
+			isDraggingZoom,
+			zoomLevel,
+			tempZoomLevel,
+		],
 	);
 
 	// 处理 transform 结束事件
@@ -435,10 +548,20 @@ const Preview = () => {
 			node.scaleX(1);
 			node.scaleY(1);
 
-			const canvasX = node.x();
-			const canvasY = node.y();
-			const canvasWidth_scaled = node.width() * scaleX;
-			const canvasHeight_scaled = node.height() * scaleY;
+			const stageX = node.x();
+			const stageY = node.y();
+			// 缩放后的尺寸（在 Stage 坐标系中）
+			const stageWidth_scaled = node.width() * scaleX;
+			const stageHeight_scaled = node.height() * scaleY;
+
+			// 将 Stage 坐标转换为画布坐标
+			const { canvasX, canvasY } = stageToCanvasCoords(stageX, stageY);
+
+			// 将 Stage 尺寸转换为画布尺寸
+			const currentScale =
+				isDraggingZoom && zoomLevel > 0 ? tempZoomLevel / zoomLevel : 1;
+			const canvasWidth_scaled = stageWidth_scaled / currentScale;
+			const canvasHeight_scaled = stageHeight_scaled / currentScale;
 
 			// 将 canvas 坐标转换为 picture 坐标（与 handleDrag 使用相同的转换逻辑）
 			const scaleX_ratio = canvasWidth / pictureWidth;
@@ -448,9 +571,9 @@ const Preview = () => {
 			const pictureWidth_scaled = canvasWidth_scaled / scaleX_ratio;
 			const pictureHeight_scaled = canvasHeight_scaled / scaleY_ratio;
 
-			// 更新节点的 width 和 height
-			node.width(canvasWidth_scaled);
-			node.height(canvasHeight_scaled);
+			// 更新节点的 width 和 height（使用 Stage 坐标系的尺寸）
+			node.width(stageWidth_scaled);
+			node.height(stageHeight_scaled);
 
 			const rotationDegrees = node.rotation(); // Konva 返回的是度数
 			// 将度数转换为弧度保存（parseRotate 会将 "45deg" 转换为弧度）
@@ -471,7 +594,16 @@ const Preview = () => {
 				),
 			);
 		},
-		[canvasWidth, canvasHeight, pictureWidth, pictureHeight],
+		[
+			canvasWidth,
+			canvasHeight,
+			pictureWidth,
+			pictureHeight,
+			stageToCanvasCoords,
+			isDraggingZoom,
+			zoomLevel,
+			tempZoomLevel,
+		],
 	);
 
 	// 处理点击事件，支持选择/取消选择
@@ -527,16 +659,19 @@ const Preview = () => {
 			const pos = e.target.getStage().getPointerPosition();
 			if (!pos) return;
 
+			// 将 Stage 坐标转换为画布坐标用于选择框显示
+			const { canvasX, canvasY } = stageToCanvasCoords(pos.x, pos.y);
+
 			isSelecting.current = true;
 			setSelectionRect({
 				visible: true,
-				x1: pos.x,
-				y1: pos.y,
-				x2: pos.x,
-				y2: pos.y,
+				x1: canvasX,
+				y1: canvasY,
+				x2: canvasX,
+				y2: canvasY,
 			});
 		},
-		[],
+		[stageToCanvasCoords],
 	);
 
 	// 处理鼠标移动，更新选择框
@@ -549,13 +684,16 @@ const Preview = () => {
 			const pos = e.target.getStage()?.getPointerPosition();
 			if (!pos) return;
 
+			// 将 Stage 坐标转换为画布坐标
+			const { canvasX, canvasY } = stageToCanvasCoords(pos.x, pos.y);
+
 			setSelectionRect((prev) => ({
 				...prev,
-				x2: pos.x,
-				y2: pos.y,
+				x2: canvasX,
+				y2: canvasY,
 			}));
 		},
-		[],
+		[stageToCanvasCoords],
 	);
 
 	// 处理鼠标抬起，完成选择框
@@ -611,20 +749,46 @@ const Preview = () => {
 		setSelectedIds(selected);
 	}, [selectionRect, renderElements, canvasConvertOptions]);
 
-	const {
-		zoomLevel,
-		isDraggingZoom,
-		tempZoomLevel,
-		startZoomDrag,
-		updateZoomDrag,
-		endZoomDrag,
-		zoomTransform,
-	} = usePreview();
-
 	const ContextBridge = useContextBridge(TimelineContext);
 
 	const skiaCanvasRef = useRef<CanvasRef>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
+	const [containerDimensions, setContainerDimensions] = useState({
+		width: 0,
+		height: 0,
+	});
+
+	// 监听容器尺寸变化（用于扩大 Konva Stage）
+	useEffect(() => {
+		const container = containerRef.current;
+		if (!container) return;
+
+		const updateDimensions = () => {
+			const rect = container.getBoundingClientRect();
+			if (rect.width > 0 && rect.height > 0) {
+				setContainerDimensions({
+					width: rect.width,
+					height: rect.height,
+				});
+				// 设置容器尺寸（用于居中计算）
+				setContainerSize({
+					width: rect.width,
+					height: rect.height,
+				});
+			}
+		};
+
+		// 初始设置
+		updateDimensions();
+
+		// 监听窗口大小变化
+		const resizeObserver = new ResizeObserver(updateDimensions);
+		resizeObserver.observe(container);
+
+		return () => {
+			resizeObserver.disconnect();
+		};
+	}, [setContainerSize]);
 
 	const skiaCanvas = useMemo(() => {
 		return (
@@ -749,8 +913,15 @@ const Preview = () => {
 		currentTime,
 	]);
 
+	const stageWidth = containerDimensions.width || canvasWidth;
+	const stageHeight = containerDimensions.height || canvasHeight;
+
 	return (
-		<div ref={containerRef} className="w-full h-full overflow-hidden">
+		<div
+			ref={containerRef}
+			className="w-full h-full overflow-hidden"
+			style={{ touchAction: "none", position: "relative" }}
+		>
 			{/* <button onClick={handleDownload}>download image</button>
 			<button onClick={handleDownloadWithoutBackground}>
 				download image without background
@@ -762,6 +933,7 @@ const Preview = () => {
 					height: canvasHeight,
 					transform: zoomTransform,
 					transformOrigin: "top left",
+					willChange: "transform",
 				}}
 			>
 				{/* 下层：Skia Canvas 渲染实际内容 */}
@@ -776,97 +948,6 @@ const Preview = () => {
 					{skiaCanvas}
 				</div>
 
-				{/* 上层：Konva 交互层 */}
-				<Stage
-					ref={stageRef}
-					width={canvasWidth}
-					height={canvasHeight}
-					className="absolute top-0 left-0"
-					onClick={handleStageClick}
-					onMouseDown={handleStageMouseDown}
-					onMouseMove={handleStageMouseMove}
-					onMouseUp={handleStageMouseUp}
-				>
-					<Layer>
-						{renderElements.map((el) => {
-							const { id } = el.props;
-							const isHovered = hoveredId === id;
-							const isDragging = draggingId === id;
-							const isSelected = selectedIds.includes(id);
-
-							const { x, y, width, height, rotate } =
-								converMetaLayoutToCanvasLayout(
-									el.props,
-									canvasConvertOptions.picture,
-									canvasConvertOptions.canvas,
-								);
-
-							// 将弧度转换为度数（Konva 使用度数）
-							const rotationDegrees = (rotate * 180) / Math.PI;
-
-							return (
-								<React.Fragment key={id}>
-									<KonvaRect
-										x={x}
-										y={y}
-										width={width}
-										height={height}
-										fill="transparent"
-										stroke={
-											isSelected
-												? "rgba(255,0,0,1)"
-												: isDragging
-													? "rgba(255,0,0,0.7)"
-													: isHovered
-														? "rgba(0,0,0,0.5)"
-														: "transparent"
-										}
-										strokeWidth={isSelected ? 1 : 1}
-										draggable
-										data-id={id}
-										name={`element-${id}`}
-										rotation={rotationDegrees}
-										onMouseDown={() => handleMouseDown(id)}
-										onMouseUp={handleMouseUp}
-										onDragStart={() => handleDragStart(id)}
-										onDragMove={(e: Konva.KonvaEventObject<DragEvent>) =>
-											handleDrag(id, e)
-										}
-										onDragEnd={(e: Konva.KonvaEventObject<DragEvent>) =>
-											handleDragEnd(id, e)
-										}
-										onTransform={(e: Konva.KonvaEventObject<Event>) =>
-											handleTransform(id, e)
-										}
-										onTransformEnd={(e: Konva.KonvaEventObject<Event>) =>
-											handleTransformEnd(id, e)
-										}
-										onMouseEnter={() => handleMouseEnter(id)}
-										onMouseLeave={handleMouseLeave}
-										cursor={isSelected ? "default" : "move"}
-									/>
-								</React.Fragment>
-							);
-						})}
-						{/* Transformer 用于缩放和旋转 */}
-						<Transformer
-							ref={transformerRef}
-							boundBoxFunc={(oldBox, newBox) => {
-								// 限制最小尺寸
-								if (newBox.width < 5 || newBox.height < 5) {
-									return oldBox;
-								}
-								return newBox;
-							}}
-							anchorFill="black"
-							anchorStroke="rgba(255,0,0,1)"
-							anchorStrokeWidth={1.25}
-							anchorSize={7}
-							borderStroke="rgba(255,0,0,0.7)"
-						/>
-					</Layer>
-				</Stage>
-
 				{/* DOM 文字标签层 */}
 				<LabelLayer
 					elements={renderElements}
@@ -874,8 +955,147 @@ const Preview = () => {
 					selectedIds={selectedIds}
 					stageRef={stageRef}
 					canvasConvertOptions={canvasConvertOptions}
+					offsetX={offsetX}
+					offsetY={offsetY}
+					isDraggingZoom={isDraggingZoom}
+					zoomLevel={zoomLevel}
+					tempZoomLevel={tempZoomLevel}
 				/>
 			</div>
+
+			{/* 上层：Konva 交互层 - 覆盖整个容器 */}
+			<Stage
+				ref={stageRef}
+				width={stageWidth}
+				height={stageHeight}
+				style={{
+					position: "absolute",
+					top: 0,
+					left: 0,
+				}}
+				onClick={handleStageClick}
+				onMouseDown={handleStageMouseDown}
+				onMouseMove={handleStageMouseMove}
+				onMouseUp={handleStageMouseUp}
+			>
+				<Layer>
+					{/* 选择框 */}
+					{selectionRect.visible &&
+						(() => {
+							// 将画布坐标转换为 Stage 坐标
+							const { stageX: x1, stageY: y1 } = canvasToStageCoords(
+								selectionRect.x1,
+								selectionRect.y1,
+							);
+							const { stageX: x2, stageY: y2 } = canvasToStageCoords(
+								selectionRect.x2,
+								selectionRect.y2,
+							);
+							return (
+								<KonvaRect
+									x={Math.min(x1, x2)}
+									y={Math.min(y1, y2)}
+									width={Math.abs(x2 - x1)}
+									height={Math.abs(y2 - y1)}
+									fill="rgba(100, 150, 255, 0.1)"
+									stroke="rgba(100, 150, 255, 0.5)"
+									strokeWidth={1}
+									listening={false}
+								/>
+							);
+						})()}
+					{renderElements.map((el) => {
+						const { id } = el.props;
+						const isHovered = hoveredId === id;
+						const isDragging = draggingId === id;
+						const isSelected = selectedIds.includes(id);
+
+						const {
+							x: canvasX,
+							y: canvasY,
+							width: canvasWidth_el,
+							height: canvasHeight_el,
+							rotate,
+						} = converMetaLayoutToCanvasLayout(
+							el.props,
+							canvasConvertOptions.picture,
+							canvasConvertOptions.canvas,
+						);
+
+						// 将画布坐标转换为 Stage 坐标
+						const { stageX, stageY } = canvasToStageCoords(canvasX, canvasY);
+
+						// 将画布尺寸转换为 Stage 尺寸（需要考虑缩放比例）
+						const currentScale =
+							isDraggingZoom && zoomLevel > 0 ? tempZoomLevel / zoomLevel : 1;
+						const stageWidth = canvasWidth_el * currentScale;
+						const stageHeight = canvasHeight_el * currentScale;
+
+						// 将弧度转换为度数（Konva 使用度数）
+						const rotationDegrees = (rotate * 180) / Math.PI;
+
+						return (
+							<React.Fragment key={id}>
+								<KonvaRect
+									x={stageX}
+									y={stageY}
+									width={stageWidth}
+									height={stageHeight}
+									fill="transparent"
+									stroke={
+										isSelected
+											? "rgba(255,0,0,1)"
+											: isDragging
+												? "rgba(255,0,0,0.7)"
+												: isHovered
+													? "rgba(0,0,0,0.5)"
+													: "transparent"
+									}
+									strokeWidth={isSelected ? 1 : 1}
+									draggable
+									data-id={id}
+									name={`element-${id}`}
+									rotation={rotationDegrees}
+									onMouseDown={() => handleMouseDown(id)}
+									onMouseUp={handleMouseUp}
+									onDragStart={() => handleDragStart(id)}
+									onDragMove={(e: Konva.KonvaEventObject<DragEvent>) =>
+										handleDrag(id, e)
+									}
+									onDragEnd={(e: Konva.KonvaEventObject<DragEvent>) =>
+										handleDragEnd(id, e)
+									}
+									onTransform={(e: Konva.KonvaEventObject<Event>) =>
+										handleTransform(id, e)
+									}
+									onTransformEnd={(e: Konva.KonvaEventObject<Event>) =>
+										handleTransformEnd(id, e)
+									}
+									onMouseEnter={() => handleMouseEnter(id)}
+									onMouseLeave={handleMouseLeave}
+									cursor={isSelected ? "default" : "move"}
+								/>
+							</React.Fragment>
+						);
+					})}
+					{/* Transformer 用于缩放和旋转 */}
+					<Transformer
+						ref={transformerRef}
+						boundBoxFunc={(oldBox, newBox) => {
+							// 限制最小尺寸
+							if (newBox.width < 5 || newBox.height < 5) {
+								return oldBox;
+							}
+							return newBox;
+						}}
+						anchorFill="black"
+						anchorStroke="rgba(255,0,0,1)"
+						anchorStrokeWidth={1.25}
+						anchorSize={7}
+						borderStroke="rgba(255,0,0,0.7)"
+					/>
+				</Layer>
+			</Stage>
 			<input
 				type="range"
 				min={0.1}

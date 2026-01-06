@@ -26,7 +26,8 @@ export const Route = createRootRoute({
 			},
 			{
 				name: "viewport",
-				content: "width=device-width, initial-scale=1",
+				content:
+					"width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no",
 			},
 			{
 				title: "TanStack Start Starter",
@@ -48,8 +49,18 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 		<html lang="en">
 			<head>
 				<HeadContent />
+				<meta
+					name="viewport"
+					content="width=device-width, initial-scale=1, user-scalable=no"
+				/>
 			</head>
-			<body>
+			<body
+				style={{
+					touchAction: "none",
+					userSelect: "none",
+					WebkitUserSelect: "none",
+				}}
+			>
 				<Header />
 				{children}
 				{import.meta.env.DEV && (
