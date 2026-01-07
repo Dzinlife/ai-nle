@@ -20,8 +20,11 @@ import { parseStartEndSchema } from "@/dsl/startEndSchema";
 import { EditorElement } from "@/dsl/types";
 import { renderElementsOffscreenAsImage } from "../utils/offscreen";
 import { usePreview } from "./PreviewProvider";
-import { TimelineStoreContext, useTimelineRef } from "./TimelineContext";
-import { testTimeline } from "./timeline";
+import {
+	TimelineStoreContext,
+	useElementsRef,
+	useTimelineRef,
+} from "./TimelineContext";
 
 /**
  * Compute visible elements based on current time.
@@ -249,30 +252,15 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 	);
 };
 
-// 从 timeline JSX 中解析出初始状态
-function parseTimeline(timelineElement: React.ReactElement): EditorElement[] {
-	const elements: EditorElement[] = [];
-
-	const children = (timelineElement.props as { children?: React.ReactNode })
-		.children;
-
-	React.Children.forEach(children, (child) => {
-		if (React.isValidElement(child)) {
-			elements.push(child as EditorElement);
-		}
-	});
-
-	return elements;
-}
-
 const Preview = () => {
-	// 从 timeline JSX 中提取的初始状态
-	const [elements, setElements] = useState<EditorElement[]>(
-		parseTimeline(testTimeline),
-	);
+	// 使用共享的 elements 状态
+	const { getElements, setElements, subscribeToElements } = useElementsRef();
 
 	// Use ref-based timeline access to avoid re-renders when time changes
 	const { getCurrentTime, subscribeToTime } = useTimelineRef();
+
+	// Use ref to store elements for non-reactive access
+	const elementsRef = useRef<EditorElement[]>(getElements());
 
 	// Use ref to store visible elements for Konva interaction layer
 	// This doesn't trigger re-renders when time changes
@@ -284,7 +272,10 @@ const Preview = () => {
 	// For Konva layer, we need state to trigger re-renders for interaction updates
 	// But this is only updated when elements visibility actually changes
 	const [renderElements, setRenderElements] = useState<EditorElement[]>(() => {
-		const initial = computeVisibleElements(elements, getCurrentTime());
+		const initial = computeVisibleElements(
+			elementsRef.current,
+			getCurrentTime(),
+		);
 		renderElementsRef.current = initial;
 		return initial;
 	});
@@ -939,9 +930,7 @@ const Preview = () => {
 		[ContextBridge, canvasConvertOptions],
 	);
 
-	// Refs for stable access in subscription callback
-	const elementsRef = useRef(elements);
-	elementsRef.current = elements;
+	// elementsRef is already defined above
 
 	// Track if initial render has been done to avoid duplicate renders
 	const initialRenderDoneRef = useRef(false);
@@ -979,30 +968,27 @@ const Preview = () => {
 
 		// Subscribe to time changes
 		return subscribeToTime(renderSkia);
-	}, [getCurrentTime, subscribeToTime]);
+	}, [getCurrentTime, subscribeToTime, buildSkiaChildren]);
 
 	// Re-render Skia when elements change (not time)
-	// Use a separate ref to track if this is the first render
-	const elementsEffectInitRef = useRef(true);
+	// Subscribe to elements changes and re-render when they change
 	useEffect(() => {
-		// Skip the initial run - the subscription effect handles it
-		if (elementsEffectInitRef.current) {
-			elementsEffectInitRef.current = false;
-			return;
-		}
+		return subscribeToElements((newElements) => {
+			elementsRef.current = newElements;
 
-		const root = skiaCanvasRef.current?.getRoot();
-		if (!root) return;
+			const root = skiaCanvasRef.current?.getRoot();
+			if (!root) return;
 
-		const time = currentTimeRef.current;
-		const visibleElements = computeVisibleElements(elements, time);
-		const children = buildSkiaChildren(visibleElements);
-		root.render(children);
+			const time = currentTimeRef.current;
+			const visibleElements = computeVisibleElements(newElements, time);
+			const children = buildSkiaChildren(visibleElements);
+			root.render(children);
 
-		// Update Konva layer
-		renderElementsRef.current = visibleElements;
-		setRenderElements(visibleElements);
-	}, [elements]);
+			// Update Konva layer
+			renderElementsRef.current = visibleElements;
+			setRenderElements(visibleElements);
+		});
+	}, [subscribeToElements, buildSkiaChildren]);
 
 	// Stable Canvas component - only re-creates when size changes
 	// Children are rendered directly via root.render() above

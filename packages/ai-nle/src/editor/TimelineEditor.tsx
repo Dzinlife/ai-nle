@@ -6,34 +6,13 @@ import React, {
 	useRef,
 	useState,
 } from "react";
-import { parseStartEndSchema } from "@/dsl/startEndSchema";
-import { EditorElement } from "@/dsl/types";
-import { useTimeline } from "./TimelineContext";
-import { testTimeline } from "./timeline";
-
-// 从 timeline JSX 中解析出初始状态
-function parseTimeline(timelineElement: React.ReactElement): EditorElement[] {
-	const elements: EditorElement[] = [];
-
-	const children = (timelineElement.props as { children?: React.ReactNode })
-		.children;
-
-	React.Children.forEach(children, (child) => {
-		if (React.isValidElement(child)) {
-			elements.push(child as EditorElement);
-		}
-	});
-
-	return elements;
-}
+import TimeIndicatorCanvas from "@/editor/TimeIndicatorCanvas";
+import { useElements, useTimelineRef } from "./TimelineContext";
+import TimelineElement from "./TimelineElement";
 
 const TimelineEditor = () => {
-	const { currentTime, setCurrentTime } = useTimeline();
-
-	// 从 timeline JSX 中提取的初始状态
-	const [elements, setElements] = useState<EditorElement[]>(
-		parseTimeline(testTimeline),
-	);
+	const { setCurrentTime } = useTimelineRef();
+	const { elements, setElements } = useElements();
 
 	// 滚动位置状态
 	const [scrollLeft, setScrollLeft] = useState(0);
@@ -42,9 +21,31 @@ const TimelineEditor = () => {
 	const touchStartXRef = useRef(0);
 
 	// 左侧列宽度状态
-	const [leftColumnWidth, setLeftColumnWidth] = useState(176); // 默认 44 * 4 = 176px (w-44)
+	const [leftColumnWidth] = useState(176); // 默认 44 * 4 = 176px (w-44)
 
 	const ratio = 50;
+
+	// 更新元素的时间范围（start 和 end）
+	const updateTimeRange = useCallback(
+		(elementId: string, start: number, end: number) => {
+			setElements((prev) =>
+				prev.map((el) => {
+					if (el.props.id === elementId) {
+						return {
+							...el,
+							props: {
+								...el.props,
+								start,
+								end,
+							},
+						};
+					}
+					return el;
+				}),
+			);
+		},
+		[setElements],
+	);
 
 	const handleMouseMove = useCallback(
 		(e: React.MouseEvent<HTMLDivElement>) => {
@@ -161,40 +162,16 @@ const TimelineEditor = () => {
 					height: 60 * elements.length,
 				}}
 			>
-				{elements.map((element, i) => {
-					const { type, props } = element;
-
-					const { start = 0, end = 1 } = props;
-
-					const left = parseStartEndSchema(start) * ratio;
-					const width =
-						(parseStartEndSchema(end) - parseStartEndSchema(start)) * ratio;
-
-					return (
-						<div
-							key={props.id}
-							className="absolute bg-neutral-700 flex rounded-md "
-							style={{
-								left,
-								width,
-								top: i * trackHeight,
-								height: 54,
-							}}
-						>
-							<div className="p-1 size-full">
-								{type.timelineComponent ? (
-									<div className="size-full">
-										<type.timelineComponent key={props.id} {...props} />
-									</div>
-								) : (
-									<div className="text-white rounded w-full">
-										{type.displayName || type.name}
-									</div>
-								)}
-							</div>
-						</div>
-					);
-				})}
+				{elements.map((element, i) => (
+					<TimelineElement
+						key={element.props.id}
+						element={element}
+						index={i}
+						ratio={ratio}
+						trackHeight={trackHeight}
+						updateTimeRange={updateTimeRange}
+					/>
+				))}
 			</div>
 		);
 	}, [elements, scrollLeft, ratio]);
@@ -218,15 +195,11 @@ const TimelineEditor = () => {
 			>
 				{timeStamps}
 				{timelineItems}
-
-				<div
-					className="absolute top-0 left-0 w-full h-full bg-red-500 pointer-events-none"
-					style={{
-						transform: `translateX(${leftColumnWidth + currentTime * ratio - scrollLeft}px)`,
-						width: 1,
-						height: "100%",
-					}}
-				></div>
+				<TimeIndicatorCanvas
+					leftColumnWidth={leftColumnWidth}
+					ratio={ratio}
+					scrollLeft={scrollLeft}
+				/>
 			</div>
 		</div>
 	);

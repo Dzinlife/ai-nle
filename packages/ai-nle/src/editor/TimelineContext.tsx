@@ -2,11 +2,12 @@ import {
 	createContext,
 	useContext,
 	useMemo,
-	useRef,
 	useSyncExternalStore,
 } from "react";
+import { EditorElement } from "@/dsl/types";
 
 type TimeSubscriber = (time: number) => void;
+type ElementsSubscriber = (elements: EditorElement[]) => void;
 
 class TimelineStore {
 	private currentTime = 0;
@@ -40,7 +41,44 @@ class TimelineStore {
 	};
 }
 
+class ElementsStore {
+	private elements: EditorElement[] = [];
+	private listeners = new Set<ElementsSubscriber>();
+
+	constructor(initialElements: EditorElement[] = []) {
+		this.elements = initialElements;
+	}
+
+	setElements = (
+		elements: EditorElement[] | ((prev: EditorElement[]) => EditorElement[]),
+	) => {
+		const newElements =
+			typeof elements === "function" ? elements(this.elements) : elements;
+		if (this.elements !== newElements) {
+			this.elements = newElements;
+			this.listeners.forEach((listener) => listener(newElements));
+		}
+	};
+
+	getElements = () => {
+		return this.elements;
+	};
+
+	subscribe = (callback: ElementsSubscriber) => {
+		this.listeners.add(callback);
+		callback(this.elements);
+		return () => {
+			this.listeners.delete(callback);
+		};
+	};
+
+	getSnapshot = () => {
+		return this.elements;
+	};
+}
+
 export const TimelineStoreContext = createContext<TimelineStore | null>(null);
+export const ElementsStoreContext = createContext<ElementsStore | null>(null);
 
 /**
  * Hook to get timeline state reactively.
@@ -83,6 +121,47 @@ export const useTimelineRef = () => {
 	);
 };
 
+/**
+ * Hook to get elements state reactively.
+ * Triggers re-renders when elements change.
+ */
+export const useElements = () => {
+	const store = useContext(ElementsStoreContext);
+	if (!store) {
+		throw new Error("useElements must be used within a TimelineProvider");
+	}
+
+	const elements = useSyncExternalStore(
+		(onStoreChange) => store.subscribe(() => onStoreChange()),
+		store.getSnapshot,
+	);
+
+	return {
+		elements,
+		setElements: store.setElements,
+	};
+};
+
+/**
+ * Hook to get elements functions without triggering re-renders.
+ * Use this for performance-critical components.
+ */
+export const useElementsRef = () => {
+	const store = useContext(ElementsStoreContext);
+	if (!store) {
+		throw new Error("useElementsRef must be used within a TimelineProvider");
+	}
+
+	return useMemo(
+		() => ({
+			getElements: store.getElements,
+			setElements: store.setElements,
+			subscribeToElements: store.subscribe,
+		}),
+		[store],
+	);
+};
+
 export const TimelineContext = createContext<{
 	currentTime: number;
 	setCurrentTime: (time: number) => void;
@@ -94,18 +173,27 @@ export const TimelineContext = createContext<{
 export const TimelineProvider = ({
 	children,
 	currentTime: initialCurrentTime,
+	elements: initialElements,
 }: {
 	children: React.ReactNode;
 	currentTime?: number;
+	elements?: EditorElement[];
 }) => {
-	const store = useMemo(
+	const timelineStore = useMemo(
 		() => new TimelineStore(initialCurrentTime ?? 0),
 		[initialCurrentTime],
 	);
 
+	const elementsStore = useMemo(
+		() => new ElementsStore(initialElements ?? []),
+		[initialElements],
+	);
+
 	return (
-		<TimelineStoreContext.Provider value={store}>
-			{children}
+		<TimelineStoreContext.Provider value={timelineStore}>
+			<ElementsStoreContext.Provider value={elementsStore}>
+				{children}
+			</ElementsStoreContext.Provider>
 		</TimelineStoreContext.Provider>
 	);
 };

@@ -1,22 +1,19 @@
 import React, { useCallback, useEffect, useRef } from "react";
-import {
-	useTimelineStore,
-	useTimelineSubscription,
-} from "../editor/TimelineContext";
+import { useTimeline } from "@/editor/TimelineContext";
 
-interface CurrentTimeIndicatorProps {
+interface CurrentTimeIndicatorCanvasProps {
 	leftColumnWidth: number;
 	ratio: number;
-	scrollLeftRef: React.MutableRefObject<number>;
+	scrollLeft: number;
 }
 
-const CurrentTimeIndicator: React.FC<CurrentTimeIndicatorProps> = ({
+const CurrentTimeIndicatorCanvas: React.FC<CurrentTimeIndicatorCanvasProps> = ({
 	leftColumnWidth,
 	ratio,
-	scrollLeftRef,
+	scrollLeft,
 }) => {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
-	const store = useTimelineStore();
+	const { currentTime } = useTimeline();
 
 	// 绘制函数
 	const draw = useCallback(() => {
@@ -37,10 +34,6 @@ const CurrentTimeIndicator: React.FC<CurrentTimeIndicatorProps> = ({
 		// 清空画布（使用实际像素尺寸）
 		ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-		// 获取当前时间和滚动位置
-		const currentTime = store.getCurrentTime();
-		const scrollLeft = scrollLeftRef.current;
-
 		// 计算时间线的 x 位置（使用显示坐标）
 		const x = leftColumnWidth + currentTime * ratio - scrollLeft;
 
@@ -51,33 +44,14 @@ const CurrentTimeIndicator: React.FC<CurrentTimeIndicatorProps> = ({
 		ctx.moveTo(x, 0);
 		ctx.lineTo(x, displayHeight);
 		ctx.stroke();
-	}, [leftColumnWidth, ratio, scrollLeftRef, store]);
+	}, [leftColumnWidth, ratio, scrollLeft, currentTime]);
 
-	// 订阅时间变化
-	useTimelineSubscription(draw);
-
-	// 监听滚动位置变化（通过 requestAnimationFrame 定期检查）
+	// 当 currentTime 或 scrollLeft 变化时重新绘制
 	useEffect(() => {
-		let animationFrameId: number;
-		let lastScrollLeft = scrollLeftRef.current;
-
-		const checkScroll = () => {
-			const currentScrollLeft = scrollLeftRef.current;
-			if (currentScrollLeft !== lastScrollLeft) {
-				lastScrollLeft = currentScrollLeft;
-				draw();
-			}
-			animationFrameId = requestAnimationFrame(checkScroll);
-		};
-
-		animationFrameId = requestAnimationFrame(checkScroll);
-
-		return () => {
-			cancelAnimationFrame(animationFrameId);
-		};
+		draw();
 	}, [draw]);
 
-	// 初始化画布大小
+	// 初始化画布大小并监听尺寸变化
 	useEffect(() => {
 		const canvas = canvasRef.current;
 		if (!canvas) return;
@@ -119,4 +93,4 @@ const CurrentTimeIndicator: React.FC<CurrentTimeIndicatorProps> = ({
 	);
 };
 
-export default CurrentTimeIndicator;
+export default CurrentTimeIndicatorCanvas;
