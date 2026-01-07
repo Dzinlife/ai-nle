@@ -1,5 +1,5 @@
 import type { CSSProperties, RefObject } from "react";
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import type {
 	LayoutChangeEvent,
 	ViewComponent,
@@ -70,7 +70,8 @@ const getObserver = () => {
 const useElementLayout = (ref: RefObject<Div>, onLayout: OnLayout) => {
 	const observer = getObserver();
 
-	useLayoutEffect(() => {
+	// DO NOT USE useLayoutEffect HERE, it will cause safari error
+	useEffect(() => {
 		const node = ref.current;
 		if (node !== null) {
 			node[DOM_LAYOUT_HANDLER_NAME] = onLayout;
