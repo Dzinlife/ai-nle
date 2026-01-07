@@ -73,24 +73,24 @@ const Clip: EditorComponent<{
 				const imageBitmap = await createImageBitmap(canvas);
 				const skiaImage = Skia.Image.MakeImageFromNativeBuffer(imageBitmap);
 
-				if (skiaImage) {
-					// 将新图像和对应的 ImageBitmap 加入池中
-					imagePoolRef.current.push({ image: skiaImage, bitmap: imageBitmap });
+				// if (skiaImage) {
+				// 	// 将新图像和对应的 ImageBitmap 加入池中
+				// 	imagePoolRef.current.push({ image: skiaImage, bitmap: imageBitmap });
 
-					// 如果超出池大小，移除旧的并关闭 ImageBitmap
-					while (imagePoolRef.current.length > MAX_POOL_SIZE) {
-						const removed = imagePoolRef.current.shift();
-						if (removed) {
-							// 关闭 ImageBitmap 释放资源
-							removed.bitmap.close();
-						}
-					}
-					setCurrentFrameImage(skiaImage);
-					isReadyRef.current = true;
-				} else {
-					// 如果创建 SkImage 失败，关闭 ImageBitmap
-					imageBitmap.close();
-				}
+				// 	// 如果超出池大小，移除旧的并关闭 ImageBitmap
+				// 	while (imagePoolRef.current.length > MAX_POOL_SIZE) {
+				// 		const removed = imagePoolRef.current.shift();
+				// 		if (removed) {
+				// 			// 关闭 ImageBitmap 释放资源
+				// 			removed.bitmap.close();
+				// 		}
+				// 	}
+				setCurrentFrameImage(skiaImage);
+				isReadyRef.current = true;
+				// } else {
+				// 	// 如果创建 SkImage 失败，关闭 ImageBitmap
+				// 	imageBitmap.close();
+				// }
 			} catch (err) {
 				console.error("更新帧失败:", err);
 			}
@@ -176,17 +176,41 @@ const Clip: EditorComponent<{
 				isSeekingRef.current = false;
 
 				// 处理待处理的 seek
-				const pendingTime = pendingSeekTimeRef.current;
-				if (pendingTime !== null) {
-					pendingSeekTimeRef.current = null;
-					// 使用 setTimeout 避免递归调用栈溢出
-					setTimeout(() => {
-						void seekToTime(pendingTime);
-					}, 0);
-				}
+				// const pendingTime = pendingSeekTimeRef.current;
+				// if (pendingTime !== null) {
+				// 	pendingSeekTimeRef.current = null;
+				// 	// 使用 setTimeout 避免递归调用栈溢出
+				// 	setTimeout(() => {
+				// 		void seekToTime(pendingTime);
+				// 	}, 0);
+				// }
 			}
 		},
 		[updateFrame],
+	);
+
+	// 计算实际要 seek 的视频时间（考虑倒放）
+	const calculateVideoTime = useCallback(
+		(timelineTime: number): number => {
+			// 计算在 clip 中的相对时间
+			const relativeTime = timelineTime - start;
+
+			if (reversed) {
+				// 倒放：从视频末尾开始倒推
+				// 视频时间 = videoDuration - relativeTime
+				const videoDuration = videoDurationRef.current;
+				if (videoDuration == null) {
+					// 如果视频时长还未加载，返回 0
+					return 0;
+				}
+				return Math.max(0, videoDuration - relativeTime);
+			} else {
+				// 正放：从 start 开始
+				// 视频时间 = start + relativeTime
+				return start + relativeTime;
+			}
+		},
+		[start, reversed],
 	);
 
 	// 初始化媒体播放器
@@ -298,12 +322,7 @@ const Clip: EditorComponent<{
 							? currentTimeRef.current
 							: 0;
 					// 计算实际要 seek 的视频时间（考虑倒放）
-					const relativeTime = timelineTime - start;
-					const videoTime = reversed
-						? videoDurationRef.current != null
-							? Math.max(0, videoDurationRef.current - relativeTime)
-							: 0
-						: start + relativeTime;
+					const videoTime = calculateVideoTime(timelineTime);
 					await seekToTime(videoTime);
 					// seekToTime 会调用 updateFrame，updateFrame 会设置 isReadyRef.current = true
 					// 如果是离屏渲染，额外等待一下确保帧已准备好
@@ -353,7 +372,7 @@ const Clip: EditorComponent<{
 					let attempts = 0;
 					const maxAttempts = 100; // 最多等待 2 秒（20ms * 100）
 					while (!isReadyRef.current && attempts < maxAttempts) {
-						await new Promise((resolve) => setTimeout(resolve, 20));
+						await new Promise((resolve) => requestAnimationFrame(resolve));
 						attempts++;
 					}
 				}
@@ -391,30 +410,6 @@ const Clip: EditorComponent<{
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [uri]);
-
-	// 计算实际要 seek 的视频时间（考虑倒放）
-	const calculateVideoTime = useCallback(
-		(timelineTime: number): number => {
-			// 计算在 clip 中的相对时间
-			const relativeTime = timelineTime - start;
-
-			if (reversed) {
-				// 倒放：从视频末尾开始倒推
-				// 视频时间 = videoDuration - relativeTime
-				const videoDuration = videoDurationRef.current;
-				if (videoDuration == null) {
-					// 如果视频时长还未加载，返回 0
-					return 0;
-				}
-				return Math.max(0, videoDuration - relativeTime);
-			} else {
-				// 正放：从 start 开始
-				// 视频时间 = start + relativeTime
-				return start + relativeTime;
-			}
-		},
-		[start, reversed],
-	);
 
 	// 当 currentTime 变化时，更新显示的帧
 	useEffect(() => {
@@ -456,22 +451,22 @@ const Clip: EditorComponent<{
 	}, [currentTime, uri, seekToTime, calculateVideoTime]);
 
 	// 清理
-	useEffect(() => {
-		return () => {
-			if (animationFrameRef.current !== null) {
-				cancelAnimationFrame(animationFrameRef.current);
-			}
-			// 清空图像池并关闭所有 ImageBitmap
-			for (const item of imagePoolRef.current) {
-				try {
-					item.bitmap.close();
-				} catch {
-					// 忽略关闭错误
-				}
-			}
-			imagePoolRef.current = [];
-		};
-	}, []);
+	// useEffect(() => {
+	// 	return () => {
+	// 		if (animationFrameRef.current !== null) {
+	// 			cancelAnimationFrame(animationFrameRef.current);
+	// 		}
+	// 		// 清空图像池并关闭所有 ImageBitmap
+	// 		for (const item of imagePoolRef.current) {
+	// 			try {
+	// 				item.bitmap.close();
+	// 			} catch {
+	// 				// 忽略关闭错误
+	// 			}
+	// 		}
+	// 		imagePoolRef.current = [];
+	// 	};
+	// }, []);
 
 	// 如果没有视频或正在加载，显示占位符
 	if (!uri || isLoading) {
