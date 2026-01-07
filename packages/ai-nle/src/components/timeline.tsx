@@ -2,8 +2,8 @@ import {
 	BackdropZoom,
 	Clip,
 	CloudBackground,
-	Group,
 	Image,
+	Lottie,
 	Timeline,
 } from "@/dsl";
 
@@ -23,14 +23,14 @@ export const testTimeline = (
 			start={0}
 			end={60}
 		/>
-		<Group
+		{/* <Group
 			id="group1"
 			name="group1group1group1group1"
 			width={500}
 			height={500}
 			left={250}
 			top={0}
-		></Group>
+		></Group> */}
 
 		<Image
 			id="image1"
@@ -77,6 +77,23 @@ export const testTimeline = (
 			cornerRadius={16}
 			start={0}
 			end={30}
+		/>
+		{/* Lottie 动画示例 - 替换 uri 为你的 Lottie JSON 文件路径 */}
+		<Lottie
+			id="lottie1"
+			name="Lottie 动画"
+			width={400}
+			height={400}
+			left={600}
+			top={600}
+			uri={
+				// "https://lottie.host/17c092dd-0d99-4860-bd7d-aa399a4b1632/KHnUgPc0xi.json"
+				"https://lottie.host/ef736ee6-697d-4122-a0eb-25d0e4d57118/8o8SbelHRF.lottie"
+			}
+			speed={1.0}
+			loop={true}
+			start={5}
+			end={25}
 		/>
 	</Timeline>
 );

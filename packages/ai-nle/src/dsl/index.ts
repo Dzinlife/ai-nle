@@ -3,5 +3,6 @@ export { default as Clip } from "./Clip";
 export { default as CloudBackground } from "./CloudBackground";
 export { default as Group } from "./Group";
 export { default as Image } from "./Image";
+export { default as Lottie } from "./Lottie";
 export * from "./layout";
 export { default as Timeline } from "./Timeline";
