@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { lazy, Suspense, useMemo } from "react";
 import { LoadSkiaWeb } from "react-skia-lite";
@@ -31,21 +32,23 @@ const LazyLoadComponents = lazy(async () => {
 	await LoadSkiaWeb();
 	const TimelineEditor = (await import("@/editor/TimelineEditor")).default;
 	const Preview = (await import("@/editor/PreviewEditor")).default;
-
+	const queryClient = new QueryClient();
 	return {
 		default: () => (
-			<TimelineProvider elements={parseTimeline(testTimeline)}>
-				<PreviewProvider>
-					<div className="flex flex-col flex-1 min-h-0">
-						<div className="flex-2 min-h-24 bg-neutral-900">
-							<Preview />
+			<QueryClientProvider client={queryClient}>
+				<TimelineProvider elements={parseTimeline(testTimeline)}>
+					<PreviewProvider>
+						<div className="flex flex-col flex-1 min-h-0">
+							<div className="flex-2 min-h-24 bg-neutral-900">
+								<Preview />
+							</div>
+							<div className="flex-1 min-h-16 flex border-t border-neutral-700">
+								<TimelineEditor />
+							</div>
 						</div>
-						<div className="flex-1 min-h-16 flex border-t border-neutral-700">
-							<TimelineEditor />
-						</div>
-					</div>
-				</PreviewProvider>
-			</TimelineProvider>
+					</PreviewProvider>
+				</TimelineProvider>
+			</QueryClientProvider>
 		),
 	};
 });

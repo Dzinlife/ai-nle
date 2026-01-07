@@ -218,13 +218,13 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 			{/* 内容区域 - 可整体拖动 */}
 			<div
 				{...bindBodyDrag()}
-				className="relative p-1 size-full flex flex-col cursor-move"
+				className="relative p-1 size-full flex flex-col cursor-move text-xs"
 				style={{
 					touchAction: "none",
 				}}
 			>
 				{type.timelineComponent ? (
-					<div className="size-full h-8 mt-auto">
+					<div className="size-full h-8 mt-auto text-white">
 						<type.timelineComponent key={props.id} {...props} />
 					</div>
 				) : (

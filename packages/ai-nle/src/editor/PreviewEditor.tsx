@@ -1,5 +1,7 @@
+import { QueryClientContext } from "@tanstack/react-query";
 import Konva from "konva";
 import React, {
+	startTransition,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -19,6 +21,7 @@ import { converMetaLayoutToCanvasLayout } from "@/dsl";
 import { parseStartEndSchema } from "@/dsl/startEndSchema";
 import { EditorElement } from "@/dsl/types";
 import { renderElementsOffscreenAsImage } from "../utils/offscreen";
+import { OffscreenRenderContext } from "./OffscreenRenderContext";
 import { usePreview } from "./PreviewProvider";
 import {
 	TimelineStoreContext,
@@ -91,13 +94,14 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 		>
 	>({});
 
-	const effectiveZoom = pinchState.isPinching
-		? pinchState.currentZoom
-		: zoomLevel;
-
 	// 更新 label 位置的函数
 	const updateLabelPositions = useCallback(() => {
 		const stage = stageRef.current;
+		// 计算有效缩放比例（在回调内部计算，避免依赖问题）
+		const effectiveZoom = pinchState.isPinching
+			? pinchState.currentZoom
+			: zoomLevel;
+
 		const positions: Record<
 			string,
 			{
@@ -191,7 +195,8 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 		selectedIds,
 		stageRef,
 		canvasConvertOptions,
-		effectiveZoom,
+		pinchState,
+		zoomLevel,
 		offsetX,
 		offsetY,
 	]);
@@ -319,16 +324,19 @@ const Preview = () => {
 	// Pinch zoom state - 记录初始双指距离
 	const pinchStartDistanceRef = useRef<number | null>(null);
 
-	const canvasConvertOptions = {
-		picture: {
-			width: pictureWidth,
-			height: pictureHeight,
-		},
-		canvas: {
-			width: canvasWidth,
-			height: canvasHeight,
-		},
-	};
+	const canvasConvertOptions = useMemo(
+		() => ({
+			picture: {
+				width: pictureWidth,
+				height: pictureHeight,
+			},
+			canvas: {
+				width: canvasWidth,
+				height: canvasHeight,
+			},
+		}),
+		[pictureWidth, pictureHeight, canvasWidth, canvasHeight],
+	);
 
 	const handleMouseDown = useCallback((id: string) => {
 		setDraggingId(id);
@@ -702,7 +710,11 @@ const Preview = () => {
 		setSelectedIds(selected);
 	}, [selectionRect, renderElements, canvasConvertOptions]);
 
-	const ContextBridge = useContextBridge(TimelineStoreContext);
+	const ContextBridge = useContextBridge(
+		TimelineStoreContext,
+		OffscreenRenderContext,
+		QueryClientContext,
+	);
 
 	const skiaCanvasRef = useRef<CanvasRef>(null);
 	const containerRef = useRef<HTMLDivElement>(null);

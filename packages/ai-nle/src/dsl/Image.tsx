@@ -29,14 +29,19 @@ const Image: EditorComponent<{ uri?: string }> = ({ uri, __renderLayout }) => {
 };
 
 Image.displayName = "Image";
-Image.timelineComponent = ({ uri }) => {
+Image.timelineComponent = ({ uri, name }) => {
 	return (
-		<div
-			className="rounded h-full bg-contain bg-repeat"
-			style={{
-				backgroundImage: `url(${uri})`,
-			}}
-		/>
+		<div className="absolute inset-0 rounded-md overflow-hidden bg-linear-to-b from-indigo-800 to-indigo-700 border border-indigo-700 p-1">
+			<div className="flex gap-1">
+				<div
+					className="rounded size-4 bg-cover"
+					style={{
+						backgroundImage: `url(${uri})`,
+					}}
+				/>
+				<span>{name || "Image"}</span>
+			</div>
+		</div>
 	);
 };
 
