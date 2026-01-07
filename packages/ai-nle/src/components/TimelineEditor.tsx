@@ -1,4 +1,3 @@
-import { observer } from "mobx-react-lite";
 import React, {
 	startTransition,
 	useCallback,
@@ -199,7 +198,7 @@ const TimelineEditor = () => {
 			</div>
 		);
 	}, [elements, scrollLeft, ratio]);
-	console.log("TimelineEditor", currentTime);
+	// console.log("TimelineEditor", currentTime);
 
 	return (
 		<div className="w-full h-full flex min-h-0 relative bg-neutral-800">
@@ -233,4 +232,4 @@ const TimelineEditor = () => {
 	);
 };
 
-export default observer(TimelineEditor);
+export default TimelineEditor;

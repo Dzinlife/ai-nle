@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { Fill, Group, Rect, Shader, Skia } from "react-skia-lite";
+import { useTimeline } from "@/components/TimelineContext";
 import { parseStartEndSchema } from "./startEndSchema";
 import { EditorComponent } from "./types";
 
@@ -18,10 +19,10 @@ const CloudBackground: EditorComponent<{
 	cloudDensity = 1.0,
 	skyColor = "#87CEEB",
 	cloudColor = "#FFFFFF",
-	__currentTime = 0,
+	__currentTime: currentTime = 0,
 }) => {
-	const currentTime = __currentTime;
-	const { x, y, w: width, h: height } = __renderLayout;
+	// const { currentTime } = useTimeline();
+	const { x, y, w: width, h: height, r: rotate = 0 } = __renderLayout;
 
 	// 解析开始时间
 	const start = parseStartEndSchema(startProp ?? 0);
@@ -168,13 +169,14 @@ vec4 main(vec2 pos) {
 					width={width}
 					height={height}
 					color={skyColor}
+					transform={[{ rotate }]}
 				/>
 			</Group>
 		);
 	}
 
 	return (
-		<Group clip={clipPath}>
+		<Group clip={clipPath} transform={[{ rotate }]} origin={{ x, y }}>
 			<Fill>
 				<Shader
 					source={shaderSource}
@@ -194,4 +196,3 @@ vec4 main(vec2 pos) {
 CloudBackground.displayName = "CloudBackground";
 
 export default CloudBackground;
-

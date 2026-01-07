@@ -943,8 +943,6 @@ const Preview = () => {
 	// Refs for stable access in subscription callback
 	const elementsRef = useRef(elements);
 	elementsRef.current = elements;
-	const buildSkiaChildrenRef = useRef(buildSkiaChildren);
-	buildSkiaChildrenRef.current = buildSkiaChildren;
 
 	// Track if initial render has been done to avoid duplicate renders
 	const initialRenderDoneRef = useRef(false);
@@ -958,7 +956,7 @@ const Preview = () => {
 
 			currentTimeRef.current = time;
 			const visibleElements = computeVisibleElements(elementsRef.current, time);
-			const children = buildSkiaChildrenRef.current(visibleElements, time);
+			const children = buildSkiaChildren(visibleElements, time);
 			root.render(children);
 
 			// Update Konva layer only if visible elements changed
@@ -1001,7 +999,7 @@ const Preview = () => {
 
 		const time = currentTimeRef.current;
 		const visibleElements = computeVisibleElements(elements, time);
-		const children = buildSkiaChildrenRef.current(visibleElements, time);
+		const children = buildSkiaChildren(visibleElements, time);
 		root.render(children);
 
 		// Update Konva layer

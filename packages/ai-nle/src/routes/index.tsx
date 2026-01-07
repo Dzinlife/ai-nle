@@ -8,17 +8,22 @@ export const Route = createFileRoute("/")({
 	component: RouteComponent,
 	ssr: false,
 });
-const LazyPreview = lazy(async () => {
-	await LoadSkiaWeb();
-	return {
-		default: (await import("@/components/Preview")).default,
-	};
-});
 
-const LazyTimelineEditor = lazy(async () => {
+const LazyLoadComponents = lazy(async () => {
 	await LoadSkiaWeb();
+	const TimelineEditor = (await import("@/components/TimelineEditor")).default;
+	const Preview = (await import("@/components/Preview")).default;
 	return {
-		default: (await import("@/components/TimelineEditor")).default,
+		default: () => (
+			<div className="flex flex-col flex-1 min-h-0">
+				<div className="flex-2 min-h-24 bg-neutral-900">
+					<Preview />
+				</div>
+				<div className="flex-1 min-h-16 flex border-t border-neutral-700">
+					<TimelineEditor />
+				</div>
+			</div>
+		),
 	};
 });
 
@@ -28,14 +33,7 @@ function RouteComponent() {
 			<Suspense fallback={<div>Loading CanvasKit...</div>}>
 				<PreviewProvider>
 					<TimelineProvider>
-						<div className="flex flex-col flex-1 min-h-0">
-							<div className="flex-2 min-h-24 bg-neutral-900">
-								<LazyPreview />
-							</div>
-							<div className="flex-1 min-h-16 flex border-t border-neutral-700">
-								<LazyTimelineEditor />
-							</div>
-						</div>
+						<LazyLoadComponents />
 					</TimelineProvider>
 				</PreviewProvider>
 			</Suspense>

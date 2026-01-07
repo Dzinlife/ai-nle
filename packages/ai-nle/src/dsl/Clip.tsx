@@ -8,6 +8,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Group, ImageShader, Rect, type SkImage, Skia } from "react-skia-lite";
 import { useOffscreenRender } from "@/components/OffscreenRenderContext";
+import { useTimeline } from "@/components/TimelineContext";
 import { parseStartEndSchema } from "./startEndSchema";
 import { EditorComponent } from "./types";
 
@@ -21,9 +22,9 @@ const Clip: EditorComponent<{
 	start: startProp,
 	end: _endProp, // 保留以备将来使用，倒放时不再需要
 	__renderLayout,
-	__currentTime = 0,
+	__currentTime: currentTime = 0,
 }) => {
-	const currentTime = __currentTime;
+	// const { currentTime } = useTimeline();
 	const { isOffscreen, registerReadyCallback } = useOffscreenRender();
 
 	const { x, y, w: width, h: height, r: rotate = 0 } = __renderLayout;
