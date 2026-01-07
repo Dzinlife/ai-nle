@@ -1,6 +1,8 @@
 export { default as BackdropZoom } from "./BackdropZoom";
 export { default as Clip } from "./Clip";
 export { default as CloudBackground } from "./CloudBackground";
+export { default as ColorAdjust, createColorAdjustMatrix } from "./ColorAdjust";
+export { default as ColorFilterLayer } from "./ColorFilterLayer";
 export { default as Group } from "./Group";
 export { default as Image } from "./Image";
 export { default as Lottie } from "./Lottie";

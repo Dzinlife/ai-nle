@@ -2,6 +2,7 @@ import {
 	BackdropZoom,
 	Clip,
 	CloudBackground,
+	ColorFilterLayer,
 	Image,
 	Lottie,
 	Timeline,
@@ -59,11 +60,25 @@ export const testTimeline = (
 			name="image2"
 			width={500}
 			height={500}
-			left={1250}
-			top={250}
+			left={0}
+			top={0}
 			uri="/photo.jpeg"
 			start={10}
 			end={20}
+		/>
+		<ColorFilterLayer
+			id="colorFilterLayer1"
+			name="调色滤镜层"
+			width={1920}
+			height={1080}
+			left={0}
+			top={0}
+			hue={30}
+			saturation={0.3}
+			brightness={0.1}
+			contrast={0.2}
+			start={15}
+			end={25}
 		/>
 		<BackdropZoom
 			id="backdropZoom1"
