@@ -20,7 +20,7 @@ import { parseStartEndSchema } from "@/dsl/startEndSchema";
 import { EditorElement } from "@/dsl/types";
 import { renderElementsOffscreenAsImage } from "../utils/offscreen";
 import { usePreview } from "./PreviewProvider";
-import { TimelineContext, useTimelineRef } from "./TimelineContext";
+import { TimelineStoreContext, useTimelineRef } from "./TimelineContext";
 import { testTimeline } from "./timeline";
 
 /**
@@ -711,7 +711,7 @@ const Preview = () => {
 		setSelectedIds(selected);
 	}, [selectionRect, renderElements, canvasConvertOptions]);
 
-	const ContextBridge = useContextBridge(TimelineContext);
+	const ContextBridge = useContextBridge(TimelineStoreContext);
 
 	const skiaCanvasRef = useRef<CanvasRef>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -912,7 +912,7 @@ const Preview = () => {
 
 	// Build Skia children for rendering
 	const buildSkiaChildren = useCallback(
-		(visibleElements: EditorElement[], time: number) => {
+		(visibleElements: EditorElement[]) => {
 			return (
 				<ContextBridge>
 					<Fill color="black" />
@@ -929,7 +929,6 @@ const Preview = () => {
 								<el.type
 									{...el.props}
 									__renderLayout={{ x, y, w: width, h: height, r: rotate }}
-									__currentTime={time}
 								/>
 							</SkiaGroup>
 						);
@@ -951,13 +950,9 @@ const Preview = () => {
 	// This is the core performance optimization: time changes don't trigger Preview re-render
 	useEffect(() => {
 		const renderSkia = (time: number) => {
-			const root = skiaCanvasRef.current?.getRoot();
-			if (!root) return;
-
 			currentTimeRef.current = time;
 			const visibleElements = computeVisibleElements(elementsRef.current, time);
-			const children = buildSkiaChildren(visibleElements, time);
-			root.render(children);
+			const children = buildSkiaChildren(visibleElements);
 
 			// Update Konva layer only if visible elements changed
 			// Compare by length and element references for efficiency
@@ -968,6 +963,8 @@ const Preview = () => {
 			) {
 				renderElementsRef.current = visibleElements;
 				setRenderElements(visibleElements);
+
+				skiaCanvasRef.current?.getRoot()?.render(children);
 			}
 		};
 
@@ -999,7 +996,7 @@ const Preview = () => {
 
 		const time = currentTimeRef.current;
 		const visibleElements = computeVisibleElements(elements, time);
-		const children = buildSkiaChildren(visibleElements, time);
+		const children = buildSkiaChildren(visibleElements);
 		root.render(children);
 
 		// Update Konva layer

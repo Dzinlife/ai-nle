@@ -40,7 +40,7 @@ class TimelineStore {
 	};
 }
 
-const TimelineStoreContext = createContext<TimelineStore | null>(null);
+export const TimelineStoreContext = createContext<TimelineStore | null>(null);
 
 /**
  * Hook to get timeline state reactively.

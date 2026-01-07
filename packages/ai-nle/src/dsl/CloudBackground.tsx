@@ -19,9 +19,8 @@ const CloudBackground: EditorComponent<{
 	cloudDensity = 1.0,
 	skyColor = "#87CEEB",
 	cloudColor = "#FFFFFF",
-	__currentTime: currentTime = 0,
 }) => {
-	// const { currentTime } = useTimeline();
+	const { currentTime } = useTimeline();
 	const { x, y, w: width, h: height, r: rotate = 0 } = __renderLayout;
 
 	// 解析开始时间

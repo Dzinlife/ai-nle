@@ -22,9 +22,9 @@ const Clip: EditorComponent<{
 	start: startProp,
 	end: _endProp, // 保留以备将来使用，倒放时不再需要
 	__renderLayout,
-	__currentTime: currentTime = 0,
+	// __currentTime: currentTime = 0,
 }) => {
-	// const { currentTime } = useTimeline();
+	const { currentTime } = useTimeline();
 	const { isOffscreen, registerReadyCallback } = useOffscreenRender();
 
 	const { x, y, w: width, h: height, r: rotate = 0 } = __renderLayout;
@@ -499,6 +499,7 @@ const Clip: EditorComponent<{
 				y={y}
 				width={width}
 				height={height}
+				color={currentFrameImage ? undefined : "transparent"}
 				transform={[{ rotate }]}
 				origin={{ x, y }}
 			>
