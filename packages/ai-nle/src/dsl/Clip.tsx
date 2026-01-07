@@ -7,8 +7,8 @@ import {
 } from "mediabunny";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Group, ImageShader, Rect, type SkImage, Skia } from "react-skia-lite";
-import { useOffscreenRender } from "@/components/OffscreenRenderContext";
-import { useTimeline } from "@/components/TimelineContext";
+import { useOffscreenRender } from "@/editor/OffscreenRenderContext";
+import { useTimeline } from "@/editor/TimelineContext";
 import { parseStartEndSchema } from "./startEndSchema";
 import { EditorComponent } from "./types";
 

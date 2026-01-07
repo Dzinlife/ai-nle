@@ -8,8 +8,8 @@ import {
 	Skottie,
 	type SkSkottieAnimation,
 } from "react-skia-lite";
-import { useOffscreenRender } from "@/components/OffscreenRenderContext";
-import { useTimeline } from "@/components/TimelineContext";
+import { useOffscreenRender } from "@/editor/OffscreenRenderContext";
+import { useTimeline } from "@/editor/TimelineContext";
 import { parseStartEndSchema } from "./startEndSchema";
 import { EditorComponent } from "./types";
 
@@ -112,6 +112,69 @@ async function loadLottieAnimation(
 			throw new Error(`Failed to load Lottie file: ${response.statusText}`);
 		}
 		json = await response.text();
+
+		// 解析 JSON 以提取 assets 信息
+		try {
+			const lottieData = JSON.parse(json);
+			if (lottieData.assets && Array.isArray(lottieData.assets)) {
+				assets = {};
+				const baseUrl = new URL(uri);
+				const basePath = baseUrl.pathname.substring(
+					0,
+					baseUrl.pathname.lastIndexOf("/") + 1,
+				);
+
+				// 加载所有 assets
+				const assetPromises: Promise<void>[] = [];
+				for (const asset of lottieData.assets) {
+					if (asset.p || asset.u) {
+						// 获取资源路径
+						const assetPath = asset.p || asset.u;
+						if (!assetPath) continue;
+
+						// 如果是相对路径，需要基于 JSON 文件的路径解析
+						let assetUrl: string;
+						if (
+							assetPath.startsWith("http://") ||
+							assetPath.startsWith("https://")
+						) {
+							// 绝对 URL
+							assetUrl = assetPath;
+						} else if (assetPath.startsWith("/")) {
+							// 绝对路径，使用 origin
+							assetUrl = `${baseUrl.origin}${assetPath}`;
+						} else {
+							// 相对路径，基于 JSON 文件的目录
+							assetUrl = `${baseUrl.origin}${basePath}${assetPath}`;
+						}
+
+						// 使用文件名作为 key（与 dotLottie 格式保持一致）
+						const fileName = assetPath.split("/").pop() || assetPath;
+
+						assetPromises.push(
+							(async () => {
+								try {
+									const assetResponse = await fetch(assetUrl);
+									if (assetResponse.ok) {
+										const arrayBuffer = await assetResponse.arrayBuffer();
+										const uint8Array = new Uint8Array(arrayBuffer);
+										if (assets) {
+											assets[fileName] = Skia.Data.fromBytes(uint8Array);
+										}
+									}
+								} catch (err) {
+									console.warn(`Failed to load asset ${assetUrl}:`, err);
+								}
+							})(),
+						);
+					}
+				}
+				await Promise.all(assetPromises);
+			}
+		} catch (err) {
+			// JSON 解析失败不影响主流程，只是无法加载 assets
+			console.warn("Failed to parse Lottie JSON for assets:", err);
+		}
 	}
 
 	// 使用 Skia 创建 Skottie 动画
@@ -275,6 +338,69 @@ const Lottie: EditorComponent<{
 						);
 					}
 					json = await response.text();
+
+					// 解析 JSON 以提取 assets 信息
+					try {
+						const lottieData = JSON.parse(json);
+						if (lottieData.assets && Array.isArray(lottieData.assets)) {
+							assets = {};
+							const baseUrl = new URL(uri);
+							const basePath = baseUrl.pathname.substring(
+								0,
+								baseUrl.pathname.lastIndexOf("/") + 1,
+							);
+
+							// 加载所有 assets
+							const assetPromises: Promise<void>[] = [];
+							for (const asset of lottieData.assets) {
+								if (asset.p || asset.u) {
+									// 获取资源路径
+									const assetPath = asset.p || asset.u;
+									if (!assetPath) continue;
+
+									// 如果是相对路径，需要基于 JSON 文件的路径解析
+									let assetUrl: string;
+									if (
+										assetPath.startsWith("http://") ||
+										assetPath.startsWith("https://")
+									) {
+										// 绝对 URL
+										assetUrl = assetPath;
+									} else if (assetPath.startsWith("/")) {
+										// 绝对路径，使用 origin
+										assetUrl = `${baseUrl.origin}${assetPath}`;
+									} else {
+										// 相对路径，基于 JSON 文件的目录
+										assetUrl = `${baseUrl.origin}${basePath}${assetPath}`;
+									}
+
+									// 使用文件名作为 key（与 dotLottie 格式保持一致）
+									const fileName = assetPath.split("/").pop() || assetPath;
+
+									assetPromises.push(
+										(async () => {
+											try {
+												const assetResponse = await fetch(assetUrl);
+												if (assetResponse.ok) {
+													const arrayBuffer = await assetResponse.arrayBuffer();
+													const uint8Array = new Uint8Array(arrayBuffer);
+													if (assets) {
+														assets[fileName] = Skia.Data.fromBytes(uint8Array);
+													}
+												}
+											} catch (err) {
+												console.warn(`Failed to load asset ${assetUrl}:`, err);
+											}
+										})(),
+									);
+								}
+							}
+							await Promise.all(assetPromises);
+						}
+					} catch (err) {
+						// JSON 解析失败不影响主流程，只是无法加载 assets
+						console.warn("Failed to parse Lottie JSON for assets:", err);
+					}
 				}
 
 				if (cancelled) return;
@@ -385,7 +511,7 @@ const Lottie: EditorComponent<{
 					height={height}
 					transform={[{ rotate: rotate ?? 0 }]}
 					origin={{ x, y }}
-					color={error ? "rgba(255, 0, 0, 0.3)" : "rgba(128, 128, 128, 0.2)"}
+					color={error ? "rgba(255, 0, 0, 0.3)" : "transparent"}
 				/>
 			</Group>
 		);

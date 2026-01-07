@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
 import { LoadSkiaWeb } from "react-skia-lite";
-import PreviewProvider from "@/components/PreviewProvider";
-import { TimelineProvider } from "@/components/TimelineContext";
+import PreviewProvider from "@/editor/PreviewProvider";
+import { TimelineProvider } from "@/editor/TimelineContext";
 
 export const Route = createFileRoute("/")({
 	component: RouteComponent,
@@ -11,8 +11,8 @@ export const Route = createFileRoute("/")({
 
 const LazyLoadComponents = lazy(async () => {
 	await LoadSkiaWeb();
-	const TimelineEditor = (await import("@/components/TimelineEditor")).default;
-	const Preview = (await import("@/components/Preview")).default;
+	const TimelineEditor = (await import("@/editor/TimelineEditor")).default;
+	const Preview = (await import("@/editor/Preview")).default;
 	return {
 		default: () => (
 			<div className="flex flex-col flex-1 min-h-0">

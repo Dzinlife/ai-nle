@@ -88,7 +88,7 @@ export const testTimeline = (
 			top={600}
 			uri={
 				// "https://lottie.host/17c092dd-0d99-4860-bd7d-aa399a4b1632/KHnUgPc0xi.json"
-				"https://lottie.host/ef736ee6-697d-4122-a0eb-25d0e4d57118/8o8SbelHRF.lottie"
+				"https://lottie.host/2eb481e4-0f47-46a0-b670-936cd715c51f/ajTiosbGxW.lottie"
 			}
 			speed={1.0}
 			loop={true}

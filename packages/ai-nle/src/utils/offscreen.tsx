@@ -1,9 +1,9 @@
 import React from "react";
 import type { SkImage, SkPicture, SkRect, SkSize } from "react-skia-lite";
 import { Skia, Group as SkiaGroup, SkiaSGRoot } from "react-skia-lite";
-import type { OffscreenRenderContextValue } from "@/components/OffscreenRenderContext";
-import { OffscreenRenderContext } from "@/components/OffscreenRenderContext";
-import { TimelineContext } from "@/components/TimelineContext";
+import type { OffscreenRenderContextValue } from "@/editor/OffscreenRenderContext";
+import { OffscreenRenderContext } from "@/editor/OffscreenRenderContext";
+import { TimelineContext } from "@/editor/TimelineContext";
 
 /**
  * 离屏渲染部分元素（不包含背景色）
