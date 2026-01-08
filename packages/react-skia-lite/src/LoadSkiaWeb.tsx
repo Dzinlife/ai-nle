@@ -28,4 +28,6 @@ export const LoadSkiaWeb = async (opts?: CanvasKitInitOptions) => {
 	// The CanvasKit API is stored on the global object and used
 	// to create the JsiSKApi in the Skia.web.ts file.
 	global.CanvasKit = CanvasKit;
+
+	return CanvasKit;
 };
