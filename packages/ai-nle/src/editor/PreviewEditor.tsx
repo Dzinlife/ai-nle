@@ -1,7 +1,6 @@
 import { QueryClientContext } from "@tanstack/react-query";
 import Konva from "konva";
 import React, {
-	startTransition,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -23,11 +22,7 @@ import { EditorElement } from "@/dsl/types";
 import { renderElementsOffscreenAsImage } from "../utils/offscreen";
 import { OffscreenRenderContext } from "./OffscreenRenderContext";
 import { usePreview } from "./PreviewProvider";
-import {
-	TimelineStoreContext,
-	useElementsRef,
-	useTimelineRef,
-} from "./TimelineContext";
+import { useTimelineStore } from "./TimelineContext";
 
 /**
  * Compute visible elements based on current time.
@@ -258,32 +253,16 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 };
 
 const Preview = () => {
-	// 使用共享的 elements 状态
-	const { getElements, setElements, subscribeToElements } = useElementsRef();
-
-	// Use ref-based timeline access to avoid re-renders when time changes
-	const { getCurrentTime, subscribeToTime } = useTimelineRef();
-
-	// Use ref to store elements for non-reactive access
-	const elementsRef = useRef<EditorElement[]>(getElements());
-
-	// Use ref to store visible elements for Konva interaction layer
-	// This doesn't trigger re-renders when time changes
 	const renderElementsRef = useRef<EditorElement[]>([]);
 
-	// Store current time in ref for non-reactive access
-	const currentTimeRef = useRef(getCurrentTime());
+	const { getCurrentTime, getElements, setElements } = useMemo(
+		() => useTimelineStore.getState(),
+		[],
+	);
 
 	// For Konva layer, we need state to trigger re-renders for interaction updates
 	// But this is only updated when elements visibility actually changes
-	const [renderElements, setRenderElements] = useState<EditorElement[]>(() => {
-		const initial = computeVisibleElements(
-			elementsRef.current,
-			getCurrentTime(),
-		);
-		renderElementsRef.current = initial;
-		return initial;
-	});
+	const [renderElements, setRenderElements] = useState<EditorElement[]>([]);
 
 	const [hoveredId, setHoveredId] = useState<string | null>(null);
 	const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -711,7 +690,6 @@ const Preview = () => {
 	}, [selectionRect, renderElements, canvasConvertOptions]);
 
 	const ContextBridge = useContextBridge(
-		TimelineStoreContext,
 		OffscreenRenderContext,
 		QueryClientContext,
 	);
@@ -942,21 +920,11 @@ const Preview = () => {
 		[ContextBridge, canvasConvertOptions],
 	);
 
-	// elementsRef is already defined above
-
-	// Track if initial render has been done to avoid duplicate renders
-	const initialRenderDoneRef = useRef(false);
-
-	// Direct Skia rendering via subscription - completely bypasses React re-renders
-	// This is the core performance optimization: time changes don't trigger Preview re-render
 	useEffect(() => {
 		const renderSkia = (time: number) => {
-			currentTimeRef.current = time;
-			const visibleElements = computeVisibleElements(elementsRef.current, time);
+			const visibleElements = computeVisibleElements(getElements(), time);
 			const children = buildSkiaChildren(visibleElements);
 
-			// Update Konva layer only if visible elements changed
-			// Compare by length and element references for efficiency
 			const prevElements = renderElementsRef.current;
 			if (
 				prevElements.length !== visibleElements.length ||
@@ -969,38 +937,30 @@ const Preview = () => {
 			}
 		};
 
-		// Initial render - only do once
-		if (!initialRenderDoneRef.current) {
-			initialRenderDoneRef.current = true;
-			// Delay initial render to ensure Canvas is mounted
-			requestAnimationFrame(() => {
-				renderSkia(getCurrentTime());
-			});
-		}
+		return useTimelineStore.subscribe((state) => state.currentTime, renderSkia);
+	}, [buildSkiaChildren]);
 
-		// Subscribe to time changes
-		return subscribeToTime(renderSkia);
-	}, [getCurrentTime, subscribeToTime, buildSkiaChildren]);
-
-	// Re-render Skia when elements change (not time)
-	// Subscribe to elements changes and re-render when they change
 	useEffect(() => {
-		return subscribeToElements((newElements) => {
-			elementsRef.current = newElements;
+		return useTimelineStore.subscribe(
+			(state) => state.elements,
+			(newElements) => {
+				const root = skiaCanvasRef.current?.getRoot();
+				if (!root) return;
 
-			const root = skiaCanvasRef.current?.getRoot();
-			if (!root) return;
+				const time = getCurrentTime();
+				const visibleElements = computeVisibleElements(newElements, time);
+				const children = buildSkiaChildren(visibleElements);
+				root.render(children);
 
-			const time = currentTimeRef.current;
-			const visibleElements = computeVisibleElements(newElements, time);
-			const children = buildSkiaChildren(visibleElements);
-			root.render(children);
-
-			// Update Konva layer
-			renderElementsRef.current = visibleElements;
-			setRenderElements(visibleElements);
-		});
-	}, [subscribeToElements, buildSkiaChildren]);
+				// Update Konva layer
+				renderElementsRef.current = visibleElements;
+				setRenderElements(visibleElements);
+			},
+			{
+				fireImmediately: true,
+			},
+		);
+	}, [buildSkiaChildren]);
 
 	// Stable Canvas component - only re-creates when size changes
 	// Children are rendered directly via root.render() above
@@ -1074,7 +1034,7 @@ const Preview = () => {
 					width: canvasWidth,
 					height: canvasHeight,
 				},
-				currentTimeRef.current,
+				getCurrentTime(),
 			);
 
 			// 将 SkImage 编码为 PNG（支持透明背景）

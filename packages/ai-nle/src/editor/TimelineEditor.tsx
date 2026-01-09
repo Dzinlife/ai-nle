@@ -7,11 +7,11 @@ import React, {
 	useState,
 } from "react";
 import TimeIndicatorCanvas from "@/editor/TimeIndicatorCanvas";
-import { useElements, useTimelineRef } from "./TimelineContext";
+import { useElements, useTimelineStore } from "./TimelineContext";
 import TimelineElement from "./TimelineElement";
 
 const TimelineEditor = () => {
-	const { setCurrentTime } = useTimelineRef();
+	const setCurrentTime = useTimelineStore((state) => state.setCurrentTime);
 	const { elements, setElements } = useElements();
 
 	// 滚动位置状态

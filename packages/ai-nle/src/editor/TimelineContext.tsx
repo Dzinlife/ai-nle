@@ -1,165 +1,70 @@
-import {
-	createContext,
-	useContext,
-	useMemo,
-	useSyncExternalStore,
-} from "react";
+import { createContext, useEffect } from "react";
+import { create } from "zustand";
+import { subscribeWithSelector } from "zustand/middleware";
 import { EditorElement } from "@/dsl/types";
 
-type TimeSubscriber = (time: number) => void;
-type ElementsSubscriber = (elements: EditorElement[]) => void;
-
-class TimelineStore {
-	private currentTime = 0;
-	private listeners = new Set<TimeSubscriber>();
-
-	constructor(initialTime: number = 0) {
-		this.currentTime = initialTime;
-	}
-
-	setCurrentTime = (time: number) => {
-		if (this.currentTime !== time) {
-			this.currentTime = time;
-			this.listeners.forEach((listener) => listener(time));
-		}
-	};
-
-	getCurrentTime = () => {
-		return this.currentTime;
-	};
-
-	subscribe = (callback: TimeSubscriber) => {
-		this.listeners.add(callback);
-		callback(this.currentTime);
-		return () => {
-			this.listeners.delete(callback);
-		};
-	};
-
-	getSnapshot = () => {
-		return this.currentTime;
-	};
-}
-
-class ElementsStore {
-	private elements: EditorElement[] = [];
-	private listeners = new Set<ElementsSubscriber>();
-
-	constructor(initialElements: EditorElement[] = []) {
-		this.elements = initialElements;
-	}
-
-	setElements = (
+interface TimelineStore {
+	currentTime: number;
+	elements: EditorElement[];
+	setCurrentTime: (time: number) => void;
+	setElements: (
 		elements: EditorElement[] | ((prev: EditorElement[]) => EditorElement[]),
-	) => {
-		const newElements =
-			typeof elements === "function" ? elements(this.elements) : elements;
-		if (this.elements !== newElements) {
-			this.elements = newElements;
-			this.listeners.forEach((listener) => listener(newElements));
-		}
-	};
-
-	getElements = () => {
-		return this.elements;
-	};
-
-	subscribe = (callback: ElementsSubscriber) => {
-		this.listeners.add(callback);
-		callback(this.elements);
-		return () => {
-			this.listeners.delete(callback);
-		};
-	};
-
-	getSnapshot = () => {
-		return this.elements;
-	};
+	) => void;
+	getCurrentTime: () => number;
+	getElements: () => EditorElement[];
 }
 
-export const TimelineStoreContext = createContext<TimelineStore | null>(null);
-export const ElementsStoreContext = createContext<ElementsStore | null>(null);
+export const useTimelineStore = create<TimelineStore>()(
+	subscribeWithSelector((set, get) => ({
+		currentTime: 0,
+		elements: [],
 
-/**
- * Hook to get timeline state reactively.
- * Triggers re-renders when currentTime changes.
- */
+		setCurrentTime: (time: number) => {
+			const currentTime = get().currentTime;
+			if (currentTime !== time) {
+				set({ currentTime: time });
+			}
+		},
+
+		setElements: (
+			elements: EditorElement[] | ((prev: EditorElement[]) => EditorElement[]),
+		) => {
+			const currentElements = get().elements;
+			const newElements =
+				typeof elements === "function" ? elements(currentElements) : elements;
+			if (currentElements !== newElements) {
+				set({ elements: newElements });
+			}
+		},
+
+		getCurrentTime: () => {
+			return get().currentTime;
+		},
+
+		getElements: () => {
+			return get().elements;
+		},
+	})),
+);
+
 export const useTimeline = () => {
-	const store = useContext(TimelineStoreContext);
-	if (!store) {
-		throw new Error("useTimeline must be used within a TimelineProvider");
-	}
-
-	const currentTime = useSyncExternalStore(
-		(onStoreChange) => store.subscribe(() => onStoreChange()),
-		store.getSnapshot,
-	);
+	const currentTime = useTimelineStore((state) => state.currentTime);
+	const setCurrentTime = useTimelineStore((state) => state.setCurrentTime);
 
 	return {
 		currentTime,
-		setCurrentTime: store.setCurrentTime,
+		setCurrentTime,
 	};
 };
 
-/**
- * Hook to get timeline functions without triggering re-renders.
- * Use this for performance-critical components.
- */
-export const useTimelineRef = () => {
-	const store = useContext(TimelineStoreContext);
-	if (!store) {
-		throw new Error("useTimelineRef must be used within a TimelineProvider");
-	}
-
-	return useMemo(
-		() => ({
-			getCurrentTime: store.getCurrentTime,
-			setCurrentTime: store.setCurrentTime,
-			subscribeToTime: store.subscribe,
-		}),
-		[store],
-	);
-};
-
-/**
- * Hook to get elements state reactively.
- * Triggers re-renders when elements change.
- */
 export const useElements = () => {
-	const store = useContext(ElementsStoreContext);
-	if (!store) {
-		throw new Error("useElements must be used within a TimelineProvider");
-	}
-
-	const elements = useSyncExternalStore(
-		(onStoreChange) => store.subscribe(() => onStoreChange()),
-		store.getSnapshot,
-	);
+	const elements = useTimelineStore((state) => state.elements);
+	const setElements = useTimelineStore((state) => state.setElements);
 
 	return {
 		elements,
-		setElements: store.setElements,
+		setElements,
 	};
-};
-
-/**
- * Hook to get elements functions without triggering re-renders.
- * Use this for performance-critical components.
- */
-export const useElementsRef = () => {
-	const store = useContext(ElementsStoreContext);
-	if (!store) {
-		throw new Error("useElementsRef must be used within a TimelineProvider");
-	}
-
-	return useMemo(
-		() => ({
-			getElements: store.getElements,
-			setElements: store.setElements,
-			subscribeToElements: store.subscribe,
-		}),
-		[store],
-	);
 };
 
 export const TimelineContext = createContext<{
@@ -179,21 +84,13 @@ export const TimelineProvider = ({
 	currentTime?: number;
 	elements?: EditorElement[];
 }) => {
-	const timelineStore = useMemo(
-		() => new TimelineStore(initialCurrentTime ?? 0),
-		[initialCurrentTime],
-	);
+	// 初始化 store 状态（仅在挂载时或初始值变化时）
+	useEffect(() => {
+		useTimelineStore.setState({
+			currentTime: initialCurrentTime ?? 0,
+			elements: initialElements,
+		});
+	}, [initialCurrentTime, initialElements]);
 
-	const elementsStore = useMemo(
-		() => new ElementsStore(initialElements ?? []),
-		[initialElements],
-	);
-
-	return (
-		<TimelineStoreContext.Provider value={timelineStore}>
-			<ElementsStoreContext.Provider value={elementsStore}>
-				{children}
-			</ElementsStoreContext.Provider>
-		</TimelineStoreContext.Provider>
-	);
+	return <>{children}</>;
 };
