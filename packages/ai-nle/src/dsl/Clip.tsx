@@ -12,6 +12,33 @@ import { useTimeline } from "@/editor/TimelineContext";
 import { parseStartEndSchema } from "./startEndSchema";
 import { EditorComponent } from "./types";
 
+// 计算实际要 seek 的视频时间（考虑倒放）
+const calculateVideoTime = ({
+	start,
+	timelineTime,
+	videoDuration,
+	reversed,
+}: {
+	start: number;
+	timelineTime: number;
+	videoDuration: number;
+	reversed?: boolean;
+}): number => {
+	// 计算在 clip 中的相对时间
+	const relativeTime = timelineTime - start;
+
+	if (reversed) {
+		// 倒放：从视频末尾开始倒推
+		// 视频时间 = videoDuration - relativeTime
+
+		return Math.max(0, videoDuration - relativeTime);
+	} else {
+		// 正放：从 start 开始
+		// 视频时间 = start + relativeTime
+		return relativeTime;
+	}
+};
+
 const Clip: EditorComponent<{
 	uri?: string;
 	reversed?: boolean;
@@ -52,17 +79,18 @@ const Clip: EditorComponent<{
 	const animationFrameRef = useRef<number | null>(null);
 	const currentTimeRef = useRef(currentTime);
 	const isReadyRef = useRef(false);
-	const videoDurationRef = useRef<number | null>(null);
+	const videoDurationRef = useRef(0);
+	const reversedRef = useRef(reversed ?? false);
 
 	// 强引用：保持最近几帧图像和对应的 ImageBitmap 不被 GC 回收
 	// 这样可以确保在 Skia 绘制时图像仍然有效
 	const imagePoolRef = useRef<{ image: SkImage; bitmap: ImageBitmap }[]>([]);
 	const MAX_POOL_SIZE = 3; // 保留最近 3 帧
 
-	// 保持 currentTimeRef 与 currentTime 同步
 	useEffect(() => {
 		currentTimeRef.current = currentTime;
-	}, [currentTime]);
+		reversedRef.current = reversed ?? false;
+	}, [currentTime, reversed]);
 
 	// 更新当前帧（复制 canvas 内容避免 mediabunny 复用导致的问题）
 	const updateFrame = useCallback(
@@ -189,30 +217,6 @@ const Clip: EditorComponent<{
 		[updateFrame],
 	);
 
-	// 计算实际要 seek 的视频时间（考虑倒放）
-	const calculateVideoTime = useCallback(
-		(timelineTime: number): number => {
-			// 计算在 clip 中的相对时间
-			const relativeTime = timelineTime - start;
-
-			if (reversed) {
-				// 倒放：从视频末尾开始倒推
-				// 视频时间 = videoDuration - relativeTime
-				const videoDuration = videoDurationRef.current;
-				if (videoDuration == null) {
-					// 如果视频时长还未加载，返回 0
-					return 0;
-				}
-				return Math.max(0, videoDuration - relativeTime);
-			} else {
-				// 正放：从 start 开始
-				// 视频时间 = start + relativeTime
-				return start + relativeTime;
-			}
-		},
-		[start, reversed],
-	);
-
 	// 初始化媒体播放器
 	const initMediaPlayer = useCallback(
 		async (resource: string) => {
@@ -317,12 +321,13 @@ const Clip: EditorComponent<{
 
 				// 初始化后，根据当前时间显示帧（使用最新的 currentTime）
 				if (videoSinkRef.current) {
-					const timelineTime =
-						currentTimeRef.current != null && currentTimeRef.current >= 0
-							? currentTimeRef.current
-							: 0;
 					// 计算实际要 seek 的视频时间（考虑倒放）
-					const videoTime = calculateVideoTime(timelineTime);
+					const videoTime = calculateVideoTime({
+						start,
+						timelineTime: currentTimeRef.current,
+						videoDuration: videoDurationRef.current,
+						reversed: reversedRef.current,
+					});
 					await seekToTime(videoTime);
 					// seekToTime 会调用 updateFrame，updateFrame 会设置 isReadyRef.current = true
 					// 如果是离屏渲染，额外等待一下确保帧已准备好
@@ -423,7 +428,12 @@ const Clip: EditorComponent<{
 		}
 
 		// 计算实际要 seek 的视频时间
-		const videoTime = calculateVideoTime(currentTime);
+		const videoTime = calculateVideoTime({
+			start,
+			timelineTime: currentTime,
+			videoDuration: videoDurationRef.current,
+			reversed,
+		});
 
 		// 如果时间变化超过 0.1 秒，才更新帧（避免频繁 seek）
 		if (
@@ -448,7 +458,7 @@ const Clip: EditorComponent<{
 				cancelAnimationFrame(animationFrameRef.current);
 			}
 		};
-	}, [currentTime, uri, seekToTime, calculateVideoTime]);
+	}, [currentTime, uri, seekToTime, calculateVideoTime, reversed]);
 
 	// 清理
 	// useEffect(() => {
@@ -652,21 +662,12 @@ Clip.timelineComponent = ({
 					const relativeTime = i * previewInterval; // 相对于 clip start 的时间
 
 					// 计算视频中的绝对时间（考虑倒放）
-					let absoluteTime: number;
-					if (reversed) {
-						// 倒放：从视频末尾开始倒推
-						// 时间线时间 start 对应视频时间 duration（视频末尾）
-						// 时间线时间 end 对应视频时间 0（视频开头）
-						// relativeTime = 0 时，absoluteTime = duration（视频末尾）
-						// relativeTime = clipDuration 时，absoluteTime = 0（视频开头）
-						absoluteTime = Math.max(
-							0,
-							Math.min(duration - 0.001, duration - relativeTime),
-						);
-					} else {
-						// 正放：从 start 开始
-						absoluteTime = start + relativeTime;
-					}
+					const absoluteTime = calculateVideoTime({
+						start: 0,
+						timelineTime: relativeTime,
+						videoDuration: duration,
+						reversed,
+					});
 
 					let frameCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
 
