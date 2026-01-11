@@ -1,6 +1,6 @@
 import { useDrag } from "@use-gesture/react";
 import React, { useEffect, useRef, useState } from "react";
-import { ClipTimeline } from "@/dsl/Clip/timeline";
+import { componentRegistry } from "@/dsl/model/componentRegistry";
 import { modelRegistry, useModelExists } from "@/dsl/model/registry";
 import { parseStartEndSchema } from "@/dsl/startEndSchema";
 import { EditorElement } from "@/dsl/types";
@@ -276,20 +276,29 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 					touchAction: "none",
 				}}
 			>
-				{/* 使用新的 Model 系统渲染 Clip */}
-				{hasModel && (type.displayName === "Clip" || type.name === "Clip") ? (
-					<div className="size-full h-8 mt-auto text-white">
-						<ClipTimeline id={props.id} start={startTime} end={endTime} />
-					</div>
-				) : type.timelineComponent ? (
-					<div className="size-full h-8 mt-auto text-white">
-						<type.timelineComponent key={props.id} {...props} />
-					</div>
-				) : (
-					<div className="text-white rounded w-full">
-						{type.displayName || type.name}
-					</div>
-				)}
+				{(() => {
+					// 从 registry 获取 Timeline 组件
+					const componentType = type.displayName || type.name || "Unknown";
+					const definition = componentRegistry.get(componentType);
+
+					if (definition?.Timeline) {
+						const TimelineComponent = definition.Timeline;
+						return (
+							<div className="size-full h-8 mt-auto text-white">
+								<TimelineComponent
+									{...props}
+									start={startTime}
+									end={endTime}
+								/>
+							</div>
+						);
+					}
+
+					// Fallback: 仅显示组件名称
+					return (
+						<div className="text-white rounded w-full">{componentType}</div>
+					);
+				})()}
 			</div>
 
 			{/* 右拖拽手柄 */}

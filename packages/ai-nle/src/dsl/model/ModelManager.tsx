@@ -1,23 +1,8 @@
 import { useEffect, useRef } from "react";
 import { useElements } from "@/editor/TimelineContext";
-import { createBackdropZoomModel } from "../BackdropZoom/model";
-import { createClipModel } from "../Clip/model";
-import { createCloudBackgroundModel } from "../CloudBackground/model";
-import { createColorFilterLayerModel } from "../ColorFilterLayer/model";
-import { createImageModel } from "../Image/model";
-import { createLottieModel } from "../Lottie/model";
 import type { EditorElement } from "../types";
+import { componentRegistry } from "./componentRegistry";
 import { modelRegistry } from "./registry";
-
-// 组件类型到 model 创建函数的映射
-const modelFactories: Record<string, (id: string, props: any) => any> = {
-	Clip: createClipModel,
-	Image: createImageModel,
-	CloudBackground: createCloudBackgroundModel,
-	ColorFilterLayer: createColorFilterLayerModel,
-	BackdropZoom: createBackdropZoomModel,
-	Lottie: createLottieModel,
-};
 
 /**
  * ModelManager - 管理所有 DSL 组件的 Model 生命周期
@@ -46,10 +31,10 @@ export const ModelManager: React.FC<{ children: React.ReactNode }> = ({
 				(element.type as any).name ||
 				"Unknown";
 
-			const factory = modelFactories[componentType];
+			const definition = componentRegistry.get(componentType);
 
-			if (factory) {
-				const store = factory(id, element.props);
+			if (definition) {
+				const store = definition.createModel(id, element.props);
 				modelRegistry.register(id, store);
 				store.getState().init();
 			}
@@ -82,11 +67,11 @@ export const ModelManager: React.FC<{ children: React.ReactNode }> = ({
 					`[ModelManager] Creating model for element ${id}, type: ${componentType}`,
 				);
 
-				const factory = modelFactories[componentType];
+				const definition = componentRegistry.get(componentType);
 
-				if (factory) {
+				if (definition) {
 					// 创建 model
-					const store = factory(id, element.props);
+					const store = definition.createModel(id, element.props);
 					modelRegistry.register(id, store);
 
 					// 初始化
@@ -94,7 +79,7 @@ export const ModelManager: React.FC<{ children: React.ReactNode }> = ({
 					console.log(`[ModelManager] Model created and initialized for ${id}`);
 				} else {
 					console.log(
-						`[ModelManager] No factory found for component type: ${componentType}`,
+						`[ModelManager] No definition found for component type: ${componentType}`,
 					);
 				}
 			}
@@ -115,7 +100,8 @@ export const ModelManager: React.FC<{ children: React.ReactNode }> = ({
 			const store = modelRegistry.get(id);
 
 			if (store) {
-				const currentProps = store.getState().props;
+				const state = store.getState();
+				const currentProps = state.props as any;
 				const newProps = element.props;
 
 				// 只同步时间相关的 props（start, end）
@@ -125,7 +111,7 @@ export const ModelManager: React.FC<{ children: React.ReactNode }> = ({
 					currentProps.end !== newProps.end
 				) {
 					// 使用 validate 确保值合法
-					const result = store.getState().validate({
+					const result = state.validate({
 						start: newProps.start,
 						end: newProps.end,
 					});
@@ -134,7 +120,7 @@ export const ModelManager: React.FC<{ children: React.ReactNode }> = ({
 						store.setState((state) => ({
 							...state,
 							props: {
-								...state.props,
+								...(state.props as any),
 								start: newProps.start,
 								end: newProps.end,
 							},
