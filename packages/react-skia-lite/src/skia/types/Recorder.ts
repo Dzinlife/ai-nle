@@ -63,6 +63,7 @@ export interface BaseRecorder {
   drawPaint(): void;
   saveLayer(): void;
   saveBackdropFilter(): void;
+  restoreBackdropFilter(): void;
   drawBox(
     boxProps: AnimatedProps<BoxProps>,
     shadows: {

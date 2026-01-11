@@ -78,6 +78,7 @@ export const testTimeline = (
 			brightness={0.1}
 			contrast={0.2}
 			start={15}
+			feather={40}
 			end={25}
 		/>
 		<BackdropZoom

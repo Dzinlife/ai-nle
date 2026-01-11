@@ -117,6 +117,8 @@ const play = (ctx: DrawingContext, _command: Command) => {
   const command = materializeCommand(_command);
   if (isCommand(command, CommandType.SaveBackdropFilter)) {
     ctx.saveBackdropFilter();
+  } else if (isCommand(command, CommandType.RestoreBackdropFilter)) {
+    ctx.restoreBackdropFilter();
   } else if (isCommand(command, CommandType.SaveLayer)) {
     ctx.materializePaint();
     const paint = ctx.paintDeclarations.pop();

@@ -173,6 +173,10 @@ export class ReanimatedRecorder implements BaseRecorder {
     this.recorder.saveBackdropFilter();
   }
 
+  restoreBackdropFilter(): void {
+    this.recorder.restoreBackdropFilter();
+  }
+
   drawBox(
     boxProps: AnimatedProps<BoxProps>,
     shadows: {

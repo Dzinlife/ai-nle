@@ -64,7 +64,12 @@ export const createDrawingContext = (
         imageFilter = Skia.ImageFilter.MakeColorFilter(cf, null);
       }
     }
+    // saveLayer with backdrop filter - children will be drawn on top
+    // restore will be called by restoreBackdropFilter after children are drawn
     canvas.saveLayer(undefined, null, imageFilter);
+  };
+
+  const restoreBackdropFilter = () => {
     canvas.restore();
   };
 
@@ -132,6 +137,7 @@ export const createDrawingContext = (
     // Public methods
     savePaint,
     saveBackdropFilter,
+    restoreBackdropFilter,
     get paint() {
       return paints[paints.length - 1];
     }, // the "getter" for the current paint

@@ -334,6 +334,10 @@ const visitNode = (recorder: BaseRecorder, node: Node<any>) => {
   drawings.forEach((drawing) => {
     visitNode(recorder, drawing);
   });
+  // Restore backdrop filter after children are drawn
+  if (node.type === NodeType.BackdropFilter) {
+    recorder.restoreBackdropFilter();
+  }
   if (shouldPushPaint) {
     recorder.restorePaint();
   }

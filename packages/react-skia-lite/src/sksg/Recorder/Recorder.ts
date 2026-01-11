@@ -204,6 +204,10 @@ export class Recorder implements BaseRecorder {
     this.add({ type: CommandType.SaveBackdropFilter });
   }
 
+  restoreBackdropFilter() {
+    this.add({ type: CommandType.RestoreBackdropFilter });
+  }
+
   drawBox(
     boxProps: AnimatedProps<BoxProps>,
     shadows: {

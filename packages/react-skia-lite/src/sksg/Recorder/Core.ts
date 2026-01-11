@@ -41,6 +41,7 @@ export enum CommandType {
   ComposePathEffect,
   MaterializePaint,
   SaveBackdropFilter,
+  RestoreBackdropFilter,
   SaveLayer,
   RestorePaintDeclaration,
   // Drawing
