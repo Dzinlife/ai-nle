@@ -45,7 +45,6 @@ export interface CommonMeta {
 
 export interface ComponentProps extends CommonMeta, LayoutMeta, TimelineMeta {
 	__renderLayout: LayoutRendererMeta;
-	__currentTime?: number; // 直接渲染时传入的当前时间
 }
 
 export interface ComponentTimelineProps

@@ -26,18 +26,18 @@ export const ModelManager: React.FC<{ children: React.ReactNode }> = ({
 
 		for (const element of elements) {
 			const id = element.props.id;
-			const componentType =
-				(element.type as any).displayName ||
-				(element.type as any).name ||
-				"Unknown";
+			const definition = componentRegistry.getByComponent(element.type);
 
-			const definition = componentRegistry.get(componentType);
-
-			if (definition) {
-				const store = definition.createModel(id, element.props);
-				modelRegistry.register(id, store);
-				store.getState().init();
+			if (!definition) {
+				console.warn(
+					`[ModelManager] Component not registered for element ${id}`,
+				);
+				continue;
 			}
+
+			const store = definition.createModel(id, element.props);
+			modelRegistry.register(id, store);
+			store.getState().init();
 		}
 
 		prevElementsRef.current = elements;
@@ -57,31 +57,26 @@ export const ModelManager: React.FC<{ children: React.ReactNode }> = ({
 			const id = element.props.id;
 
 			if (!prevIds.has(id) && !modelRegistry.has(id)) {
-				// 获取组件类型名
-				const componentType =
-					(element.type as any).displayName ||
-					(element.type as any).name ||
-					"Unknown";
+				const definition = componentRegistry.getByComponent(element.type);
+
+				if (!definition) {
+					console.warn(
+						`[ModelManager] Component not registered for element ${id}`,
+					);
+					continue;
+				}
 
 				console.log(
-					`[ModelManager] Creating model for element ${id}, type: ${componentType}`,
+					`[ModelManager] Creating model for element ${id}, type: ${definition.type}`,
 				);
 
-				const definition = componentRegistry.get(componentType);
+				// 创建 model
+				const store = definition.createModel(id, element.props);
+				modelRegistry.register(id, store);
 
-				if (definition) {
-					// 创建 model
-					const store = definition.createModel(id, element.props);
-					modelRegistry.register(id, store);
-
-					// 初始化
-					store.getState().init();
-					console.log(`[ModelManager] Model created and initialized for ${id}`);
-				} else {
-					console.log(
-						`[ModelManager] No definition found for component type: ${componentType}`,
-					);
-				}
+				// 初始化
+				store.getState().init();
+				console.log(`[ModelManager] Model created and initialized for ${id}`);
 			}
 		}
 

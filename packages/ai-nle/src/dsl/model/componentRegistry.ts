@@ -4,12 +4,15 @@ import type { ComponentModelStore } from "./types";
 /**
  * 组件定义接口
  */
-export interface DSLComponentDefinition<Props = any> {
+export interface DSLComponentDefinition<Props = any, Internal = any> {
 	// 组件类型名称
 	type: string;
 
 	// Model 工厂函数
-	createModel: (id: string, props: Props) => ComponentModelStore<Props>;
+	createModel: (
+		id: string,
+		props: Props,
+	) => ComponentModelStore<Props, Internal>;
 
 	// 渲染组件（用于 Preview 和导出）
 	Renderer: React.ComponentType<any>;
@@ -32,6 +35,8 @@ export interface DSLComponentDefinition<Props = any> {
  */
 class ComponentRegistryClass {
 	private components = new Map<string, DSLComponentDefinition>();
+	// Renderer -> type 的反向映射
+	private componentToType = new Map<React.ComponentType<any>, string>();
 
 	/**
 	 * 注册组件
@@ -43,6 +48,8 @@ class ComponentRegistryClass {
 			);
 		}
 		this.components.set(definition.type, definition);
+		// 建立 Renderer -> type 的反向映射
+		this.componentToType.set(definition.Renderer, definition.type);
 	}
 
 	/**
@@ -50,6 +57,23 @@ class ComponentRegistryClass {
 	 */
 	get(type: string): DSLComponentDefinition | undefined {
 		return this.components.get(type);
+	}
+
+	/**
+	 * 通过 Renderer 组件获取 type
+	 */
+	getTypeByComponent(component: React.ComponentType<any>): string | undefined {
+		return this.componentToType.get(component);
+	}
+
+	/**
+	 * 通过 Renderer 组件获取完整定义
+	 */
+	getByComponent(
+		component: React.ComponentType<any>,
+	): DSLComponentDefinition | undefined {
+		const type = this.componentToType.get(component);
+		return type ? this.components.get(type) : undefined;
 	}
 
 	/**
@@ -84,9 +108,7 @@ class ComponentRegistryClass {
 	 * 获取所有分类
 	 */
 	getCategories(): string[] {
-		const categories = new Set(
-			this.getAll().map((def) => def.meta.category),
-		);
+		const categories = new Set(this.getAll().map((def) => def.meta.category));
 		return Array.from(categories);
 	}
 }

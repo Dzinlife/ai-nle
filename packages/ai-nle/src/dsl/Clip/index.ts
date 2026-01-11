@@ -4,9 +4,6 @@ import { type ClipProps, createClipModel } from "./model";
 import ClipRenderer from "./renderer";
 import { ClipTimeline } from "./timeline";
 
-export { type ClipInternal, type ClipProps, createClipModel } from "./model";
-export { ClipTimeline } from "./timeline";
-
 // 组件定义
 export const ClipDefinition: DSLComponentDefinition<ClipProps> = {
 	type: "Clip",
@@ -27,8 +24,5 @@ export const ClipDefinition: DSLComponentDefinition<ClipProps> = {
 
 // 注册到全局组件注册表
 componentRegistry.register(ClipDefinition);
-
-// 设置 displayName
-ClipRenderer.displayName = "Clip";
 
 export default ClipRenderer;

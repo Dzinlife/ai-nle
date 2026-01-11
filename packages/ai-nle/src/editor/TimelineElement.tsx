@@ -278,8 +278,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 			>
 				{(() => {
 					// 从 registry 获取 Timeline 组件
-					const componentType = type.displayName || type.name || "Unknown";
-					const definition = componentRegistry.get(componentType);
+					const definition = componentRegistry.getByComponent(type);
 
 					if (definition?.Timeline) {
 						const TimelineComponent = definition.Timeline;
@@ -296,7 +295,9 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 
 					// Fallback: 仅显示组件名称
 					return (
-						<div className="text-white rounded w-full">{componentType}</div>
+						<div className="text-white rounded w-full">
+							{type.displayName || type.name || "Unknown"}
+						</div>
 					);
 				})()}
 			</div>

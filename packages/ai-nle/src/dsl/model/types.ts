@@ -29,20 +29,26 @@ export interface ValidationResult {
 }
 
 // Model State 基础类型
-export interface ComponentModelState<Props = Record<string, unknown>> {
+export interface ComponentModelState<
+	Props = Record<string, unknown>,
+	Internal = Record<string, unknown>,
+> {
 	id: string;
 	type: string;
 	props: Props;
 	constraints: ComponentConstraints;
 	// 内部状态（组件特有的，如解码器实例等）
-	internal: Record<string, unknown>;
+	internal: Internal;
 }
 
 // Model Actions 基础类型
-export interface ComponentModelActions<Props = Record<string, unknown>> {
+export interface ComponentModelActions<
+	Props = Record<string, unknown>,
+	Internal = Record<string, unknown>,
+> {
 	setProps: (partial: Partial<Props>) => ValidationResult;
 	setConstraints: (partial: Partial<ComponentConstraints>) => void;
-	setInternal: (partial: Record<string, unknown>) => void;
+	setInternal: (partial: Partial<Internal>) => void;
 
 	// 验证
 	validate: (newProps: Partial<Props>) => ValidationResult;
@@ -53,18 +59,21 @@ export interface ComponentModelActions<Props = Record<string, unknown>> {
 }
 
 // 完整 Model 类型
-export type ComponentModel<Props = Record<string, unknown>> =
-	ComponentModelState<Props> & ComponentModelActions<Props>;
+export type ComponentModel<
+	Props = Record<string, unknown>,
+	Internal = Record<string, unknown>,
+> = ComponentModelState<Props, Internal> &
+	ComponentModelActions<Props, Internal>;
 
 // Model Store 类型
-export type ComponentModelStore<Props = Record<string, unknown>> = StoreApi<
-	ComponentModel<Props>
->;
+export type ComponentModelStore<
+	Props = Record<string, unknown>,
+	Internal = Record<string, unknown>,
+> = StoreApi<ComponentModel<Props, Internal>>;
 
 // 渲染 Props（传递给 Preview 组件）
 export interface RenderProps {
 	__renderLayout: LayoutRendererMeta;
-	__currentTime: number;
 }
 
 // 时间线 Props（传递给 Timeline 组件）

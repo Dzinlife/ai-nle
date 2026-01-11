@@ -1,5 +1,3 @@
-import { createStore } from "zustand/vanilla";
-import { subscribeWithSelector } from "zustand/middleware";
 import {
 	ALL_FORMATS,
 	CanvasSink,
@@ -7,7 +5,9 @@ import {
 	UrlSource,
 	type WrappedCanvas,
 } from "mediabunny";
-import { Skia, type SkImage } from "react-skia-lite";
+import { type SkImage, Skia } from "react-skia-lite";
+import { subscribeWithSelector } from "zustand/middleware";
+import { createStore } from "zustand/vanilla";
 import type {
 	ComponentModel,
 	ComponentModelStore,
@@ -31,6 +31,8 @@ export interface ClipInternal {
 	isReady: boolean;
 	// 缩略图（用于时间线预览）
 	thumbnailCanvas: HTMLCanvasElement | null;
+	// seek 方法
+	seekToTime: (seconds: number) => Promise<void>;
 }
 
 // 计算实际要 seek 的视频时间（考虑倒放）
@@ -58,7 +60,7 @@ export const calculateVideoTime = ({
 export function createClipModel(
 	id: string,
 	initialProps: ClipProps,
-): ComponentModelStore<ClipProps> {
+): ComponentModelStore<ClipProps, ClipInternal> {
 	// 用于取消异步操作
 	let asyncId = 0;
 	let isSeekingFlag = false;
@@ -66,7 +68,76 @@ export function createClipModel(
 	let videoFrameIterator: AsyncGenerator<WrappedCanvas, void, unknown> | null =
 		null;
 
-	const store = createStore<ComponentModel<ClipProps>>()(
+	// Seek 到指定时间的方法
+	const seekToTime = async (seconds: number): Promise<void> => {
+		const { internal } = store.getState();
+		const { videoSink } = internal;
+
+		if (!videoSink) return;
+
+		// 防止并发 seek
+		if (isSeekingFlag) return;
+		if (lastSeekTime === seconds) return;
+
+		isSeekingFlag = true;
+		asyncId++;
+		const currentAsyncId = asyncId;
+
+		try {
+			// 清理旧的迭代器
+			const oldIterator = videoFrameIterator;
+			videoFrameIterator = null;
+			await oldIterator?.return?.();
+
+			if (currentAsyncId !== asyncId) return;
+
+			// 创建新的迭代器
+			const iterator = videoSink.canvases(seconds);
+			videoFrameIterator = iterator;
+
+			// 获取第一帧
+			const firstFrame = (await iterator.next()).value ?? null;
+
+			if (currentAsyncId !== asyncId) return;
+
+			if (firstFrame) {
+				const canvas = firstFrame.canvas;
+				if (
+					canvas instanceof HTMLCanvasElement ||
+					canvas instanceof OffscreenCanvas
+				) {
+					// 复制 canvas 内容
+					const imageBitmap = await createImageBitmap(canvas);
+					const skiaImage = Skia.Image.MakeImageFromNativeBuffer(imageBitmap);
+
+					if (skiaImage) {
+						store.setState((state) => ({
+							...state,
+							internal: {
+								...state.internal,
+								currentFrame: skiaImage,
+								isReady: true,
+							},
+						}));
+					}
+
+					lastSeekTime = seconds;
+				}
+			}
+
+			// 关闭迭代器
+			await iterator.return?.();
+			if (videoFrameIterator === iterator) {
+				videoFrameIterator = null;
+			}
+		} catch (err) {
+			console.warn("Seek failed:", err);
+		} finally {
+			isSeekingFlag = false;
+		}
+	};
+
+	const store = createStore<ComponentModel<ClipProps, ClipInternal>>()(
 		subscribeWithSelector((set, get) => ({
 			id,
 			type: "Clip",
@@ -83,7 +154,8 @@ export function createClipModel(
 				videoDuration: 0,
 				isReady: false,
 				thumbnailCanvas: null,
-			} as ClipInternal,
+				seekToTime,
+			} satisfies ClipInternal,
 
 			setProps: (partial) => {
 				const result = get().validate(partial);
@@ -219,7 +291,7 @@ export function createClipModel(
 							videoSink,
 							input,
 							videoDuration: duration,
-						} as ClipInternal,
+						},
 					}));
 
 					// 初始化完成后，seek 到初始位置
@@ -231,7 +303,7 @@ export function createClipModel(
 						reversed,
 					});
 
-					await seekToTime(get, set, videoTime);
+					await seekToTime(videoTime);
 				} catch (error) {
 					if (currentAsyncId !== asyncId) return;
 
@@ -262,88 +334,5 @@ export function createClipModel(
 		})),
 	);
 
-	// Seek 到指定时间的辅助函数
-	async function seekToTime(
-		get: () => ComponentModel<ClipProps>,
-		set: (
-			fn: (state: ComponentModel<ClipProps>) => Partial<ComponentModel<ClipProps>>,
-		) => void,
-		seconds: number,
-	): Promise<void> {
-		const internal = get().internal as ClipInternal;
-		const { videoSink } = internal;
-
-		if (!videoSink) return;
-
-		// 防止并发 seek
-		if (isSeekingFlag) return;
-		if (lastSeekTime === seconds) return;
-
-		isSeekingFlag = true;
-		asyncId++;
-		const currentAsyncId = asyncId;
-
-		try {
-			// 清理旧的迭代器
-			const oldIterator = videoFrameIterator;
-			videoFrameIterator = null;
-			await oldIterator?.return?.();
-
-			if (currentAsyncId !== asyncId) return;
-
-			// 创建新的迭代器
-			const iterator = videoSink.canvases(seconds);
-			videoFrameIterator = iterator;
-
-			// 获取第一帧
-			const firstFrame = (await iterator.next()).value ?? null;
-
-			if (currentAsyncId !== asyncId) return;
-
-			if (firstFrame) {
-				const canvas = firstFrame.canvas;
-				if (
-					canvas instanceof HTMLCanvasElement ||
-					canvas instanceof OffscreenCanvas
-				) {
-					// 复制 canvas 内容
-					const imageBitmap = await createImageBitmap(canvas);
-					const skiaImage = Skia.Image.MakeImageFromNativeBuffer(imageBitmap);
-
-					if (skiaImage) {
-						set((state) => ({
-							internal: {
-								...state.internal,
-								currentFrame: skiaImage,
-								isReady: true,
-							} as ClipInternal,
-						}));
-					}
-
-					lastSeekTime = seconds;
-				}
-			}
-
-			// 关闭迭代器
-			await iterator.return?.();
-			if (videoFrameIterator === iterator) {
-				videoFrameIterator = null;
-			}
-		} catch (err) {
-			console.warn("Seek failed:", err);
-		} finally {
-			isSeekingFlag = false;
-		}
-	}
-
-	// 暴露 seekToTime 方法（挂载到 store 上）
-	(store as any).seekToTime = (seconds: number) =>
-		seekToTime(store.getState, store.setState, seconds);
-
 	return store;
 }
-
-// 扩展 store 类型以包含 seekToTime
-export type ClipModelStore = ComponentModelStore<ClipProps> & {
-	seekToTime: (seconds: number) => Promise<void>;
-};

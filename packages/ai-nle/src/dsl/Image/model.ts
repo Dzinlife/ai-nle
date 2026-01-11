@@ -1,7 +1,7 @@
 import type { SkImage } from "react-skia-lite";
 import { Skia } from "react-skia-lite";
-import { createStore } from "zustand/vanilla";
 import { subscribeWithSelector } from "zustand/middleware";
+import { createStore } from "zustand/vanilla";
 import type {
 	ComponentModel,
 	ComponentModelStore,
@@ -18,11 +18,8 @@ export interface ImageProps extends ComponentProps {
 export interface ImageInternal {
 	image: SkImage | null;
 	isReady: boolean;
-}
-
-export type ImageModelStore = ComponentModelStore<ImageProps> & {
 	loadImage: (uri: string) => Promise<void>;
-};
+}
 
 /**
  * 创建 Image Model
@@ -30,8 +27,31 @@ export type ImageModelStore = ComponentModelStore<ImageProps> & {
 export function createImageModel(
 	id: string,
 	initialProps: ImageProps,
-): ImageModelStore {
-	const store = createStore<ComponentModel<ImageProps>>()(
+): ComponentModelStore<ImageProps, ImageInternal> {
+	const loadImage = async (uri: string): Promise<void> => {
+		try {
+			const data = await fetch(uri).then((res) => res.arrayBuffer());
+			const imageData = Skia.Data.fromBytes(new Uint8Array(data));
+			const image = Skia.Image.MakeImageFromEncoded(imageData);
+
+			if (!image) {
+				throw new Error("Failed to decode image");
+			}
+
+			store.setState((state) => ({
+				...state,
+				internal: {
+					...state.internal,
+					image,
+					isReady: true,
+				},
+			}));
+		} catch (err) {
+			throw new Error(`Failed to load image from ${uri}: ${err}`);
+		}
+	};
+
+	const store = createStore<ComponentModel<ImageProps, ImageInternal>>()(
 		subscribeWithSelector((set, get) => ({
 			id,
 			type: "Image",
@@ -44,7 +64,8 @@ export function createImageModel(
 			internal: {
 				image: null,
 				isReady: false,
-			} as ImageInternal,
+				loadImage,
+			} satisfies ImageInternal,
 
 			setProps: (partial) => {
 				const result = get().validate(partial);
@@ -89,7 +110,7 @@ export function createImageModel(
 						constraints: { ...state.constraints, isLoading: true },
 					}));
 
-					await (store as ImageModelStore).loadImage(uri);
+					await loadImage(uri);
 
 					set((state) => ({
 						...state,
@@ -110,41 +131,18 @@ export function createImageModel(
 			},
 
 			dispose: () => {
-				const internal = get().internal as ImageInternal;
 				// SkImage 会被 Skia 自动管理，不需要手动释放
 				set((state) => ({
 					...state,
 					internal: {
+						...state.internal,
 						image: null,
 						isReady: false,
-					} as ImageInternal,
+					},
 				}));
 			},
 		})),
-	) as ImageModelStore;
-
-	// 添加自定义方法
-	store.loadImage = async (uri: string) => {
-		try {
-			const data = await fetch(uri).then((res) => res.arrayBuffer());
-			const imageData = Skia.Data.fromBytes(new Uint8Array(data));
-			const image = Skia.Image.MakeImageFromEncoded(imageData);
-
-			if (!image) {
-				throw new Error("Failed to decode image");
-			}
-
-			store.setState((state) => ({
-				...state,
-				internal: {
-					image,
-					isReady: true,
-				} as ImageInternal,
-			}));
-		} catch (err) {
-			throw new Error(`Failed to load image from ${uri}: ${err}`);
-		}
-	};
+	);
 
 	return store;
 }

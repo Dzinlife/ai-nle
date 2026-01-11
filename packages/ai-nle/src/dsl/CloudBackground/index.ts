@@ -1,18 +1,8 @@
 import type { DSLComponentDefinition } from "../model/componentRegistry";
 import { componentRegistry } from "../model/componentRegistry";
-import {
-	type CloudBackgroundProps,
-	createCloudBackgroundModel,
-} from "./model";
+import { type CloudBackgroundProps, createCloudBackgroundModel } from "./model";
 import CloudBackgroundRenderer from "./renderer";
 import { CloudBackgroundTimeline } from "./timeline";
-
-export {
-	type CloudBackgroundInternal,
-	type CloudBackgroundProps,
-	createCloudBackgroundModel,
-} from "./model";
-export { CloudBackgroundTimeline } from "./timeline";
 
 // 组件定义
 export const CloudBackgroundDefinition: DSLComponentDefinition<CloudBackgroundProps> =
@@ -38,8 +28,5 @@ export const CloudBackgroundDefinition: DSLComponentDefinition<CloudBackgroundPr
 
 // 注册到全局组件注册表
 componentRegistry.register(CloudBackgroundDefinition);
-
-// 设置 displayName
-CloudBackgroundRenderer.displayName = "CloudBackground";
 
 export default CloudBackgroundRenderer;

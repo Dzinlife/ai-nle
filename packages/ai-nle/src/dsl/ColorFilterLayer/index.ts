@@ -34,7 +34,4 @@ export const ColorFilterLayerDefinition: DSLComponentDefinition<ColorFilterLayer
 // 注册到全局组件注册表
 componentRegistry.register(ColorFilterLayerDefinition);
 
-// 设置 displayName
-ColorFilterLayer.displayName = "ColorFilterLayer";
-
 export default ColorFilterLayer;

@@ -28,7 +28,6 @@ export const BackdropZoomDefinition: DSLComponentDefinition<BackdropZoomProps> =
 // 注册到全局组件注册表
 componentRegistry.register(BackdropZoomDefinition);
 
-// 设置 displayName
 BackdropZoom.displayName = "BackdropZoom";
 
 export default BackdropZoom;

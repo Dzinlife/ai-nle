@@ -5,25 +5,17 @@ import { useModelSelector } from "../model/registry";
 import type { ComponentProps } from "../types";
 import {
 	type ClipInternal,
-	type ClipModelStore,
 	type ClipProps,
 	calculateVideoTime,
 } from "./model";
 
 interface ClipRendererProps extends ComponentProps {
 	id: string;
-	store: ClipModelStore;
 }
 
-const ClipRenderer: React.FC<ClipRendererProps> = ({
-	id,
-	store,
-	__renderLayout,
-	__currentTime: propCurrentTime,
-}) => {
+const ClipRenderer: React.FC<ClipRendererProps> = ({ id, __renderLayout }) => {
 	// 从 Timeline context 获取当前时间（如果没有通过 props 传入）
-	const { currentTime: contextCurrentTime } = useTimeline();
-	const __currentTime = propCurrentTime ?? contextCurrentTime;
+	const { currentTime } = useTimeline();
 
 	const { x, y, w: width, h: height, r: rotate = 0 } = __renderLayout;
 
@@ -48,6 +40,10 @@ const ClipRenderer: React.FC<ClipRendererProps> = ({
 		id,
 		(state) => (state.internal as unknown as ClipInternal).videoDuration,
 	);
+	const seekToTime = useModelSelector<
+		ClipProps,
+		ClipInternal["seekToTime"]
+	>(id, (state) => (state.internal as unknown as ClipInternal).seekToTime);
 
 	// 用于节流 seek 的 refs
 	const lastSeekTimeRef = useRef<number | null>(null);
@@ -62,7 +58,7 @@ const ClipRenderer: React.FC<ClipRendererProps> = ({
 		// 计算实际要 seek 的视频时间
 		const videoTime = calculateVideoTime({
 			start: props.start,
-			timelineTime: __currentTime,
+			timelineTime: currentTime,
 			videoDuration,
 			reversed: props.reversed,
 		});
@@ -83,7 +79,7 @@ const ClipRenderer: React.FC<ClipRendererProps> = ({
 		animationFrameRef.current = requestAnimationFrame(() => {
 			animationFrameRef.current = null;
 			lastSeekTimeRef.current = videoTime;
-			store.seekToTime(videoTime);
+			seekToTime(videoTime);
 		});
 
 		return () => {
@@ -92,14 +88,14 @@ const ClipRenderer: React.FC<ClipRendererProps> = ({
 			}
 		};
 	}, [
-		__currentTime,
 		props.uri,
 		props.start,
 		props.reversed,
 		videoDuration,
 		isLoading,
 		hasError,
-		store,
+		currentTime,
+		seekToTime,
 	]);
 
 	// Loading 状态

@@ -27,7 +27,4 @@ export const LottieDefinition: DSLComponentDefinition<LottieProps> = {
 // 注册到全局组件注册表
 componentRegistry.register(LottieDefinition);
 
-// 设置 displayName
-Lottie.displayName = "Lottie";
-
 export default Lottie;

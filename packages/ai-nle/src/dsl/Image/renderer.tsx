@@ -1,16 +1,14 @@
 import { Group, ImageShader, Rect } from "react-skia-lite";
 import { useModelSelector } from "../model/registry";
 import type { ComponentProps } from "../types";
-import type { ImageInternal, ImageModelStore, ImageProps } from "./model";
+import type { ImageInternal, ImageProps } from "./model";
 
 interface ImageRendererProps extends ComponentProps {
 	id: string;
-	store: ImageModelStore;
 }
 
 const ImageRenderer: React.FC<ImageRendererProps> = ({
 	id,
-	store,
 	__renderLayout,
 }) => {
 	const { x, y, w: width, h: height, r: rotate = 0 } = __renderLayout;

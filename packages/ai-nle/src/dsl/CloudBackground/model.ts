@@ -119,7 +119,7 @@ export function createCloudBackgroundModel(
 			internal: {
 				shaderSource: null,
 				isReady: false,
-			} as CloudBackgroundInternal,
+			} satisfies CloudBackgroundInternal,
 
 			setProps: (partial) => {
 				set((state) => ({
@@ -153,7 +153,7 @@ export function createCloudBackgroundModel(
 						internal: {
 							shaderSource,
 							isReady: true,
-						} as CloudBackgroundInternal,
+						} satisfies CloudBackgroundInternal,
 					}));
 				} catch (error) {
 					console.error("Failed to create cloud shader:", error);
@@ -175,7 +175,7 @@ export function createCloudBackgroundModel(
 					internal: {
 						shaderSource: null,
 						isReady: false,
-					} as CloudBackgroundInternal,
+					} satisfies CloudBackgroundInternal,
 				}));
 			},
 		})),

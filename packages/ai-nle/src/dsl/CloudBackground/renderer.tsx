@@ -18,10 +18,8 @@ interface CloudBackgroundRendererProps extends ComponentProps {
 const CloudBackgroundRenderer: React.FC<CloudBackgroundRendererProps> = ({
 	id,
 	__renderLayout,
-	__currentTime: propCurrentTime,
 }) => {
-	const { currentTime: contextCurrentTime } = useTimeline();
-	const __currentTime = propCurrentTime ?? contextCurrentTime;
+	const { currentTime } = useTimeline();
 
 	const { x, y, w: width, h: height, r: rotate = 0 } = __renderLayout;
 
@@ -52,7 +50,7 @@ const CloudBackgroundRenderer: React.FC<CloudBackgroundRendererProps> = ({
 
 	// 解析开始时间
 	const start = parseStartEndSchema(props.start ?? 0);
-	const relativeTime = Math.max(0, __currentTime - start) * speed;
+	const relativeTime = Math.max(0, currentTime - start) * speed;
 
 	// 解析颜色
 	const parseColor = (color: string) => {
