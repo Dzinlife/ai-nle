@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
+import { ModelManager } from "@/dsl/model";
 import { EditorElement } from "@/dsl/types";
 import PreviewEditor from "./PreviewEditor";
 import PreviewProvider from "./PreviewProvider";
@@ -28,16 +29,18 @@ const Editor = () => {
 	return (
 		<QueryClientProvider client={queryClient}>
 			<TimelineProvider elements={parseTimeline(testTimeline)}>
-				<PreviewProvider>
-					<div className="flex flex-col flex-1 min-h-0">
-						<div className="flex-2 min-h-24 bg-neutral-900">
-							<PreviewEditor />
+				<ModelManager>
+					<PreviewProvider>
+						<div className="flex flex-col flex-1 min-h-0">
+							<div className="flex-2 min-h-24 bg-neutral-900">
+								<PreviewEditor />
+							</div>
+							<div className="flex-1 min-h-16 flex border-t border-neutral-700">
+								<TimelineEditor />
+							</div>
 						</div>
-						<div className="flex-1 min-h-16 flex border-t border-neutral-700">
-							<TimelineEditor />
-						</div>
-					</div>
-				</PreviewProvider>
+					</PreviewProvider>
+				</ModelManager>
 			</TimelineProvider>
 		</QueryClientProvider>
 	);

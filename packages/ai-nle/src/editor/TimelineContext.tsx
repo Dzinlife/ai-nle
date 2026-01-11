@@ -1,4 +1,4 @@
-import { createContext, useEffect } from "react";
+import { createContext, useEffect, useLayoutEffect } from "react";
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import { EditorElement } from "@/dsl/types";
@@ -84,13 +84,37 @@ export const TimelineProvider = ({
 	currentTime?: number;
 	elements?: EditorElement[];
 }) => {
-	// 初始化 store 状态（仅在挂载时或初始值变化时）
+	// 在首次渲染前同步设置初始状态
+	// 使用 useLayoutEffect 确保在子组件渲染前执行
+	useLayoutEffect(() => {
+		if (initialElements) {
+			console.log(
+				`[TimelineProvider] Setting initial elements:`,
+				initialElements.length,
+			);
+			useTimelineStore.setState({
+				currentTime: initialCurrentTime ?? 0,
+				elements: initialElements,
+			});
+		}
+	}, []);
+
+	// 后续更新
 	useEffect(() => {
-		useTimelineStore.setState({
-			currentTime: initialCurrentTime ?? 0,
-			elements: initialElements,
-		});
-	}, [initialCurrentTime, initialElements]);
+		if (initialElements) {
+			useTimelineStore.setState({
+				elements: initialElements,
+			});
+		}
+	}, [initialElements]);
+
+	useEffect(() => {
+		if (initialCurrentTime !== undefined) {
+			useTimelineStore.setState({
+				currentTime: initialCurrentTime,
+			});
+		}
+	}, [initialCurrentTime]);
 
 	return <>{children}</>;
 };

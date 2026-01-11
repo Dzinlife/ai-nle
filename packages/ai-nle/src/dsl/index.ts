@@ -1,5 +1,12 @@
-export { default as BackdropZoom } from "./BackdropZoom";
+// Model system
+export * from "./model";
+export * from "./Clip";
+
+// New components with Model system
 export { default as Clip } from "./Clip";
+
+// Legacy components (temporarily kept for compatibility)
+export { default as BackdropZoom } from "./BackdropZoom";
 export { default as CloudBackground } from "./CloudBackground";
 export { default as ColorAdjust, createColorAdjustMatrix } from "./ColorAdjust";
 export { default as ColorFilterLayer } from "./ColorFilterLayer";

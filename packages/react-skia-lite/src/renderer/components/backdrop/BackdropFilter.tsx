@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import React from "react";
 
 import type { GroupProps } from "../../../dom/types";
 import type { SkiaProps } from "../../processors/Animations/Animations";

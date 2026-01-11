@@ -1,5 +1,7 @@
 import { useDrag } from "@use-gesture/react";
 import React, { useEffect, useRef, useState } from "react";
+import { ClipTimeline } from "@/dsl/Clip/timeline";
+import { modelRegistry, useModelExists } from "@/dsl/model/registry";
 import { parseStartEndSchema } from "@/dsl/startEndSchema";
 import { EditorElement } from "@/dsl/types";
 
@@ -30,6 +32,44 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 
 	const baseStartTime = parseStartEndSchema(start);
 	const baseEndTime = parseStartEndSchema(end);
+
+	// 获取 model 约束（如果存在）
+	const hasModel = useModelExists(props.id);
+	const [maxDuration, setMaxDuration] = useState<number | undefined>(undefined);
+
+	// 订阅 constraints 变化
+	useEffect(() => {
+		if (!hasModel) {
+			setMaxDuration(undefined);
+			return;
+		}
+
+		const store = modelRegistry.get(props.id);
+		if (!store) {
+			setMaxDuration(undefined);
+			return;
+		}
+
+		// 立即设置当前值
+		const currentMaxDuration = store.getState().constraints.maxDuration;
+		console.log(
+			`[TimelineElement] ${props.id} initial maxDuration:`,
+			currentMaxDuration,
+		);
+		setMaxDuration(currentMaxDuration);
+
+		// 订阅后续变化
+		const unsubscribe = store.subscribe((state) => {
+			const newMaxDuration = state.constraints.maxDuration;
+			console.log(
+				`[TimelineElement] ${props.id} constraints updated, maxDuration:`,
+				newMaxDuration,
+			);
+			setMaxDuration(newMaxDuration);
+		});
+
+		return unsubscribe;
+	}, [hasModel, props.id]);
 
 	// 本地状态用于拖拽时的临时显示
 	const [localStartTime, setLocalStartTime] = useState<number | null>(null);
@@ -77,13 +117,19 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 			// mx 是相对于拖动开始时的移动距离（像素），每次拖动开始时自动重置为 0
 			// 需要转换为时间单位
 			const deltaTime = mx / ratio;
-			const newStart = Math.max(
+			let newStart = Math.max(
 				0,
 				Math.min(
 					initialStartRef.current + deltaTime,
 					initialEndRef.current - 0.1,
 				),
 			);
+
+			// 如果有最大时长约束，限制 start 不能让 duration 超过 maxDuration
+			if (maxDuration !== undefined) {
+				const minStart = initialEndRef.current - maxDuration;
+				newStart = Math.max(newStart, minStart);
+			}
 
 			if (last) {
 				// 拖拽结束时，更新全局状态（只改变 start，end 保持不变）
@@ -120,15 +166,28 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				// 这样即使有本地状态，也能正确计算偏移，避免闭包问题
 				initialStartRef.current = currentStartTimeRef.current;
 				initialEndRef.current = currentEndTimeRef.current;
+				console.log(
+					`[TimelineElement] Right drag start for ${props.id}, maxDuration:`,
+					maxDuration,
+				);
 			}
 
 			// 计算新的 end 时间
 			// mx 是相对于拖动开始时的移动距离（像素），每次拖动开始时自动重置为 0
 			const deltaTime = mx / ratio;
-			const newEnd = Math.max(
+			let newEnd = Math.max(
 				initialStartRef.current + 0.1,
 				initialEndRef.current + deltaTime,
 			);
+
+			// 如果有最大时长约束，限制 end 不超过 start + maxDuration
+			if (maxDuration !== undefined) {
+				const maxEnd = initialStartRef.current + maxDuration;
+				console.log(
+					`[TimelineElement] Applying maxDuration constraint: maxEnd=${maxEnd}, newEnd=${newEnd}`,
+				);
+				newEnd = Math.min(newEnd, maxEnd);
+			}
 
 			if (last) {
 				// 拖拽结束时，更新全局状态
@@ -192,11 +251,20 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 		},
 	);
 
+	// 检查是否达到最大时长
+	const currentDuration = endTime - startTime;
+	const isAtMaxDuration =
+		maxDuration !== undefined && Math.abs(currentDuration - maxDuration) < 0.01;
+
 	return (
 		<div
 			ref={containerRef}
 			key={props.id}
-			className="absolute bg-neutral-700 flex rounded-md group"
+			className={`absolute flex rounded-md group ${
+				isAtMaxDuration
+					? "bg-amber-700 ring-1 ring-amber-500"
+					: "bg-neutral-700"
+			}`}
 			style={{
 				left,
 				width,
@@ -223,7 +291,12 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 					touchAction: "none",
 				}}
 			>
-				{type.timelineComponent ? (
+				{/* 使用新的 Model 系统渲染 Clip */}
+				{hasModel && (type.displayName === "Clip" || type.name === "Clip") ? (
+					<div className="size-full h-8 mt-auto text-white">
+						<ClipTimeline id={props.id} start={startTime} end={endTime} />
+					</div>
+				) : type.timelineComponent ? (
 					<div className="size-full h-8 mt-auto text-white">
 						<type.timelineComponent key={props.id} {...props} />
 					</div>
