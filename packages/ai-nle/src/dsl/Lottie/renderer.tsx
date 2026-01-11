@@ -12,8 +12,8 @@ import {
 import { LottieIcon } from "@/components/icons";
 import { useOffscreenRender } from "@/editor/OffscreenRenderContext";
 import { useTimeline } from "@/editor/TimelineContext";
-import { parseStartEndSchema } from "./startEndSchema";
-import { EditorComponent } from "./types";
+import { parseStartEndSchema } from "../startEndSchema";
+import type { EditorComponent } from "../types";
 
 // 加载 Lottie 动画的辅助函数（用于 timelineComponent）
 async function loadLottieAnimation(

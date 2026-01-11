@@ -88,10 +88,6 @@ export const TimelineProvider = ({
 	// 使用 useLayoutEffect 确保在子组件渲染前执行
 	useLayoutEffect(() => {
 		if (initialElements) {
-			console.log(
-				`[TimelineProvider] Setting initial elements:`,
-				initialElements.length,
-			);
 			useTimelineStore.setState({
 				currentTime: initialCurrentTime ?? 0,
 				elements: initialElements,

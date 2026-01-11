@@ -15,8 +15,6 @@ export const ClipTimeline: React.FC<ClipTimelineProps> = ({
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const isGeneratingRef = useRef(false);
 
-	console.log(`[ClipTimeline] Rendering for id: ${id}`);
-
 	// 订阅 model 状态
 	const uri = useModelSelector<ClipProps, string | undefined>(
 		id,
@@ -44,8 +42,6 @@ export const ClipTimeline: React.FC<ClipTimelineProps> = ({
 		id,
 		(state) => (state.internal as unknown as ClipInternal).videoDuration,
 	);
-
-	console.log(`[ClipTimeline] ${id} - videoSink:`, !!videoSink, "videoDuration:", videoDuration);
 
 	const clipDurationRef = useRef(end - start);
 	clipDurationRef.current = end - start;

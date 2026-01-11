@@ -52,19 +52,11 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 
 		// 立即设置当前值
 		const currentMaxDuration = store.getState().constraints.maxDuration;
-		console.log(
-			`[TimelineElement] ${props.id} initial maxDuration:`,
-			currentMaxDuration,
-		);
 		setMaxDuration(currentMaxDuration);
 
 		// 订阅后续变化
 		const unsubscribe = store.subscribe((state) => {
 			const newMaxDuration = state.constraints.maxDuration;
-			console.log(
-				`[TimelineElement] ${props.id} constraints updated, maxDuration:`,
-				newMaxDuration,
-			);
 			setMaxDuration(newMaxDuration);
 		});
 
@@ -166,10 +158,6 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				// 这样即使有本地状态，也能正确计算偏移，避免闭包问题
 				initialStartRef.current = currentStartTimeRef.current;
 				initialEndRef.current = currentEndTimeRef.current;
-				console.log(
-					`[TimelineElement] Right drag start for ${props.id}, maxDuration:`,
-					maxDuration,
-				);
 			}
 
 			// 计算新的 end 时间
@@ -183,9 +171,6 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 			// 如果有最大时长约束，限制 end 不超过 start + maxDuration
 			if (maxDuration !== undefined) {
 				const maxEnd = initialStartRef.current + maxDuration;
-				console.log(
-					`[TimelineElement] Applying maxDuration constraint: maxEnd=${maxEnd}, newEnd=${newEnd}`,
-				);
 				newEnd = Math.min(newEnd, maxEnd);
 			}
 

@@ -1,16 +1,22 @@
 import { useEffect, useRef } from "react";
 import { useElements } from "@/editor/TimelineContext";
+import { createBackdropZoomModel } from "../BackdropZoom/model";
 import { createClipModel } from "../Clip/model";
+import { createCloudBackgroundModel } from "../CloudBackground/model";
+import { createColorFilterLayerModel } from "../ColorFilterLayer/model";
+import { createImageModel } from "../Image/model";
+import { createLottieModel } from "../Lottie/model";
 import type { EditorElement } from "../types";
 import { modelRegistry } from "./registry";
 
 // 组件类型到 model 创建函数的映射
-const modelFactories: Record<
-	string,
-	(id: string, props: any) => ReturnType<typeof createClipModel>
-> = {
+const modelFactories: Record<string, (id: string, props: any) => any> = {
 	Clip: createClipModel,
-	// 其他组件的 model 工厂函数将在这里添加
+	Image: createImageModel,
+	CloudBackground: createCloudBackgroundModel,
+	ColorFilterLayer: createColorFilterLayerModel,
+	BackdropZoom: createBackdropZoomModel,
+	Lottie: createLottieModel,
 };
 
 /**
@@ -29,17 +35,8 @@ export const ModelManager: React.FC<{ children: React.ReactNode }> = ({
 	const prevElementsRef = useRef<EditorElement[]>([]);
 	const initializedRef = useRef(false);
 
-	console.log(`[ModelManager] Render - elements count: ${elements.length}`);
-	elements.forEach((e) => {
-		console.log(
-			`[ModelManager] Element: ${e.props.id}, type:`,
-			(e.type as any).displayName || (e.type as any).name,
-		);
-	});
-
 	// 首次渲染时直接初始化所有 model
 	if (!initializedRef.current && elements.length > 0) {
-		console.log(`[ModelManager] First render - initializing models`);
 		initializedRef.current = true;
 
 		for (const element of elements) {
@@ -49,21 +46,12 @@ export const ModelManager: React.FC<{ children: React.ReactNode }> = ({
 				(element.type as any).name ||
 				"Unknown";
 
-			console.log(
-				`[ModelManager] Creating model for element ${id}, type: ${componentType}`,
-			);
-
 			const factory = modelFactories[componentType];
 
 			if (factory) {
 				const store = factory(id, element.props);
 				modelRegistry.register(id, store);
 				store.getState().init();
-				console.log(`[ModelManager] Model created and initialized for ${id}`);
-			} else {
-				console.log(
-					`[ModelManager] No factory found for component type: ${componentType}`,
-				);
 			}
 		}
 
@@ -71,10 +59,6 @@ export const ModelManager: React.FC<{ children: React.ReactNode }> = ({
 	}
 
 	useEffect(() => {
-		console.log(
-			`[ModelManager] useEffect triggered - elements count: ${elements.length}`,
-		);
-
 		// 跳过首次渲染（已在上面处理）
 		if (!initializedRef.current) {
 			return;

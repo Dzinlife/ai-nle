@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { BackdropFilter, Group, ImageFilter, Skia } from "react-skia-lite";
-import { EditorComponent } from "./types";
+import { EditorComponent } from "../types";
 
 const BackdropZoom: EditorComponent<{
 	zoom: number;

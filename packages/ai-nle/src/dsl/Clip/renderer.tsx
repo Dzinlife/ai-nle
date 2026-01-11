@@ -15,7 +15,7 @@ interface ClipRendererProps extends ComponentProps {
 	store: ClipModelStore;
 }
 
-export const ClipRenderer: React.FC<ClipRendererProps> = ({
+const ClipRenderer: React.FC<ClipRendererProps> = ({
 	id,
 	store,
 	__renderLayout,
@@ -146,3 +146,5 @@ export const ClipRenderer: React.FC<ClipRendererProps> = ({
 		</Group>
 	);
 };
+
+export default ClipRenderer;
