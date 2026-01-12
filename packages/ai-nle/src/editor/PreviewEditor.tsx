@@ -12,7 +12,6 @@ import {
 	Canvas,
 	CanvasRef,
 	Fill,
-	ImageFormat,
 	Group as SkiaGroup,
 	useContextBridge,
 } from "react-skia-lite";
@@ -22,8 +21,6 @@ import {
 } from "@/dsl/layout";
 import { componentRegistry } from "@/dsl/model/componentRegistry";
 import { TimelineElement } from "@/dsl/types";
-import { renderElementsOffscreenAsImage } from "../utils/offscreen";
-import { OffscreenRenderContext } from "./OffscreenRenderContext";
 import { usePreview } from "./PreviewProvider";
 import { useTimelineStore } from "./TimelineContext";
 
@@ -300,6 +297,8 @@ const Preview = () => {
 		panOffset,
 		setPanOffset,
 		resetPanOffset,
+		// Canvas ref
+		setCanvasRef,
 	} = usePreview();
 
 	// Pinch zoom state - 记录初始双指距离
@@ -728,10 +727,7 @@ const Preview = () => {
 		setSelectedIds(selected);
 	}, [selectionRect, renderElements, canvasConvertOptions]);
 
-	const ContextBridge = useContextBridge(
-		OffscreenRenderContext,
-		QueryClientContext,
-	);
+	const ContextBridge = useContextBridge(QueryClientContext);
 
 	const skiaCanvasRef = useRef<CanvasRef>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -739,6 +735,12 @@ const Preview = () => {
 		width: 0,
 		height: 0,
 	});
+
+	// Sync canvas ref to context for export functionality
+	useEffect(() => {
+		setCanvasRef(skiaCanvasRef.current);
+		return () => setCanvasRef(null);
+	}, [setCanvasRef]);
 
 	// 监听容器尺寸变化（用于扩大 Konva Stage）
 	useEffect(() => {
@@ -1038,100 +1040,6 @@ const Preview = () => {
 			/>
 		);
 	}, [canvasWidth, canvasHeight]);
-
-	const handleDownload = useCallback(() => {
-		const image = skiaCanvasRef.current?.makeImageSnapshot();
-		if (!image) {
-			console.error("Failed to create image snapshot");
-			return;
-		}
-
-		try {
-			// 将 SkImage 编码为 JPEG
-			const buffer = image.encodeToBytes(ImageFormat.JPEG, 90);
-
-			// 创建新的 Uint8Array 副本以确保使用 ArrayBuffer（而非 SharedArrayBuffer）
-			const arrayBuffer = new Uint8Array(buffer).buffer;
-			const blob = new Blob([arrayBuffer], { type: "image/jpeg" });
-
-			// 创建下载链接
-			const link = document.createElement("a");
-			const url = URL.createObjectURL(blob);
-			link.href = url;
-			link.download = `canvas-${Date.now()}.jpeg`;
-			document.body.appendChild(link);
-			link.click();
-			document.body.removeChild(link);
-			// 清理对象 URL 以释放内存
-			URL.revokeObjectURL(url);
-		} catch (error) {
-			console.error("Failed to download image:", error);
-		}
-	}, []);
-
-	const handleDownloadWithoutBackground = useCallback(async () => {
-		try {
-			// 准备要渲染的元素（不包含 Fill 背景色）
-			const elementsToRender = renderElements.map((el) => {
-				const renderLayout = transformMetaToRenderLayout(
-					el.transform,
-					canvasConvertOptions.picture,
-					canvasConvertOptions.canvas,
-				);
-
-				// 获取组件定义
-				const componentDef = componentRegistry.get(el.type);
-				if (!componentDef) {
-					console.warn(`Component type "${el.type}" not registered`);
-					return null;
-				}
-
-				const Renderer = componentDef.Renderer;
-
-				return (
-					<SkiaGroup key={el.id}>
-						<Renderer id={el.id} __renderLayout={renderLayout} {...el.props} />
-					</SkiaGroup>
-				);
-			});
-
-			// 离屏渲染为 Image（不包含背景色），使用当前时间点
-			const image = await renderElementsOffscreenAsImage(
-				elementsToRender.filter((el) => el !== null),
-				{
-					width: canvasWidth,
-					height: canvasHeight,
-				},
-				getCurrentTime(),
-			);
-
-			// 将 SkImage 编码为 PNG（支持透明背景）
-			const buffer = image.encodeToBytes(ImageFormat.PNG, 100);
-
-			// 创建新的 Uint8Array 副本以确保使用 ArrayBuffer（而非 SharedArrayBuffer）
-			const arrayBuffer = new Uint8Array(buffer).buffer;
-			const blob = new Blob([arrayBuffer], { type: "image/png" });
-
-			// 创建下载链接
-			const link = document.createElement("a");
-			const url = URL.createObjectURL(blob);
-			link.href = url;
-			link.download = `canvas-no-background-${Date.now()}.png`;
-			document.body.appendChild(link);
-			link.click();
-			document.body.removeChild(link);
-			// 清理对象 URL 以释放内存
-			URL.revokeObjectURL(url);
-		} catch (error) {
-			console.error("Failed to download image without background:", error);
-		}
-	}, [
-		renderElements,
-		canvasConvertOptions,
-		canvasWidth,
-		canvasHeight,
-		renderElementsOffscreenAsImage,
-	]);
 
 	const stageWidth = containerDimensions.width || canvasWidth;
 	const stageHeight = containerDimensions.height || canvasHeight;

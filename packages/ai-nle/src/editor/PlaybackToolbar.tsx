@@ -1,4 +1,6 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { exportCanvasAsImage } from "@/dsl/export";
+import { usePreview } from "./PreviewProvider";
 import { useCurrentTime, usePlaybackControl } from "./TimelineContext";
 
 // 格式化时间为 MM:SS:mmm（输入单位为秒）
@@ -13,6 +15,8 @@ const formatTime = (seconds: number) => {
 const PlaybackToolbar = () => {
 	const { currentTime } = useCurrentTime();
 	const { isPlaying, togglePlay } = usePlaybackControl();
+	const { canvasRef } = usePreview();
+	const [isExporting, setIsExporting] = useState(false);
 
 	// 全局空格键播放/暂停
 	useEffect(() => {
@@ -34,6 +38,20 @@ const PlaybackToolbar = () => {
 		return () => window.removeEventListener("keydown", handleKeyDown);
 	}, [togglePlay]);
 
+	const handleExport = useCallback(async () => {
+		if (isExporting) return;
+
+		setIsExporting(true);
+		try {
+			await exportCanvasAsImage(canvasRef.current, {
+				format: "png",
+				waitForReady: true,
+			});
+		} finally {
+			setIsExporting(false);
+		}
+	}, [canvasRef, isExporting]);
+
 	return (
 		<div className="flex items-center gap-3 px-4 py-2 bg-neutral-800 border-t border-b border-neutral-700">
 			<button
@@ -45,6 +63,14 @@ const PlaybackToolbar = () => {
 			<span className="font-mono text-sm text-neutral-300">
 				{formatTime(currentTime)}
 			</span>
+			<div className="flex-1" />
+			<button
+				onClick={handleExport}
+				disabled={isExporting}
+				className="px-3 py-1 text-sm rounded bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-600 disabled:cursor-not-allowed text-white"
+			>
+				{isExporting ? "Exporting..." : "Export"}
+			</button>
 		</div>
 	);
 };

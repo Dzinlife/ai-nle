@@ -56,6 +56,9 @@ export interface ComponentModelActions<
 	// 生命周期
 	init: () => Promise<void> | void;
 	dispose: () => void;
+
+	// 资源就绪接口（用于离屏渲染等场景）
+	waitForReady?: () => Promise<void>;
 }
 
 // 完整 Model 类型

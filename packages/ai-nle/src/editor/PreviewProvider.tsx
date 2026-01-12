@@ -3,8 +3,10 @@ import {
 	useCallback,
 	useContext,
 	useMemo,
+	useRef,
 	useState,
 } from "react";
+import type { CanvasRef } from "react-skia-lite";
 
 interface PinchState {
 	isPinching: boolean;
@@ -41,6 +43,9 @@ const PreviewContext = createContext({
 	panOffset: { x: 0, y: 0 },
 	setPanOffset: (offset: { x: number; y: number }) => {},
 	resetPanOffset: () => {},
+	// Canvas ref
+	canvasRef: { current: null } as React.RefObject<CanvasRef | null>,
+	setCanvasRef: (ref: CanvasRef | null) => {},
 });
 
 const PreviewProvider = ({ children }: { children: React.ReactNode }) => {
@@ -48,6 +53,12 @@ const PreviewProvider = ({ children }: { children: React.ReactNode }) => {
 		width: 1920,
 		height: 1080,
 	});
+
+	// Canvas ref for export functionality
+	const canvasRefHolder = useRef<CanvasRef | null>(null);
+	const setCanvasRef = useCallback((ref: CanvasRef | null) => {
+		canvasRefHolder.current = ref;
+	}, []);
 
 	// canvas 尺寸保持与 picture 相同，不随 zoom 改变
 	// 所有缩放都通过 CSS transform 实现
@@ -296,6 +307,9 @@ const PreviewProvider = ({ children }: { children: React.ReactNode }) => {
 			panOffset,
 			setPanOffset,
 			resetPanOffset,
+			// Canvas ref
+			canvasRef: canvasRefHolder,
+			setCanvasRef,
 		};
 	}, [
 		pictureSize,
@@ -314,6 +328,7 @@ const PreviewProvider = ({ children }: { children: React.ReactNode }) => {
 		panOffset,
 		setPanOffset,
 		resetPanOffset,
+		setCanvasRef,
 	]);
 
 	return (

@@ -141,6 +141,26 @@ export function createImageModel(
 					},
 				}));
 			},
+
+			waitForReady: () => {
+				return new Promise<void>((resolve) => {
+					const { internal } = get();
+					if (internal.isReady) {
+						resolve();
+						return;
+					}
+					// 订阅状态变化
+					const unsubscribe = store.subscribe(
+						(state) => state.internal.isReady,
+						(isReady) => {
+							if (isReady) {
+								unsubscribe();
+								resolve();
+							}
+						},
+					);
+				});
+			},
 		})),
 	);
 
