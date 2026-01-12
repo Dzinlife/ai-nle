@@ -5,14 +5,17 @@ import {
 	usePreviewTime,
 	useTimelineStore,
 } from "@/editor/TimelineContext";
+import { cn } from "@/lib/utils";
 
 interface CurrentTimeIndicatorCanvasProps {
+	className?: string;
 	leftColumnWidth: number;
 	ratio: number;
 	scrollLeft: number;
 }
 
 const CurrentTimeIndicatorCanvas: React.FC<CurrentTimeIndicatorCanvasProps> = ({
+	className,
 	leftColumnWidth,
 	ratio,
 	scrollLeft,
@@ -62,7 +65,15 @@ const CurrentTimeIndicatorCanvas: React.FC<CurrentTimeIndicatorCanvasProps> = ({
 			ctx.stroke();
 			ctx.setLineDash([]); // 重置为实线
 		}
-	}, [leftColumnWidth, ratio, scrollLeft, currentTime, previewTime, isPlaying, isDragging]);
+	}, [
+		leftColumnWidth,
+		ratio,
+		scrollLeft,
+		currentTime,
+		previewTime,
+		isPlaying,
+		isDragging,
+	]);
 
 	// 当 currentTime、previewTime 或 scrollLeft 变化时重新绘制
 	useEffect(() => {
@@ -105,7 +116,10 @@ const CurrentTimeIndicatorCanvas: React.FC<CurrentTimeIndicatorCanvasProps> = ({
 	return (
 		<canvas
 			ref={canvasRef}
-			className="absolute top-0 left-0 w-full h-full pointer-events-none"
+			className={cn(
+				"absolute top-0 left-0 w-full h-full pointer-events-none",
+				className,
+			)}
 			style={{ zIndex: 15 }}
 		/>
 	);

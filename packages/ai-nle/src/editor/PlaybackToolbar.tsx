@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { exportCanvasAsImage } from "@/dsl/export";
+import { cn } from "@/lib/utils";
 import { usePreview } from "./PreviewProvider";
 import { useCurrentTime, usePlaybackControl } from "./TimelineContext";
 
@@ -12,7 +13,7 @@ const formatTime = (seconds: number) => {
 	return `${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}:${milliseconds.toString().padStart(3, "0")}`;
 };
 
-const PlaybackToolbar = () => {
+const PlaybackToolbar: React.FC<{ className?: string }> = ({ className }) => {
 	const { currentTime } = useCurrentTime();
 	const { isPlaying, togglePlay } = usePlaybackControl();
 	const { canvasRef } = usePreview();
@@ -53,7 +54,7 @@ const PlaybackToolbar = () => {
 	}, [canvasRef, isExporting]);
 
 	return (
-		<div className="flex items-center gap-3 px-4 py-2 bg-neutral-800 border-t border-b border-neutral-700">
+		<div className={cn("flex items-center gap-3 px-4", className)}>
 			<button
 				onClick={togglePlay}
 				className="w-8 h-8 flex items-center justify-center rounded bg-neutral-700 hover:bg-neutral-600 text-white"

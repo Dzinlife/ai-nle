@@ -6,7 +6,9 @@ import React, {
 	useRef,
 	useState,
 } from "react";
+import { ProgressiveBlur } from "@/components/ui/progressive-blur";
 import TimeIndicatorCanvas from "@/editor/TimeIndicatorCanvas";
+import PlaybackToolbar from "./PlaybackToolbar";
 import {
 	useElements,
 	usePlaybackControl,
@@ -28,7 +30,7 @@ const TimelineEditor = () => {
 	const touchStartXRef = useRef(0);
 
 	// 左侧列宽度状态
-	const [leftColumnWidth] = useState(176); // 默认 44 * 4 = 176px (w-44)
+	const [leftColumnWidth] = useState(200); // 默认 44 * 4 = 176px (w-44)
 
 	const ratio = 50;
 
@@ -159,20 +161,28 @@ const TimelineEditor = () => {
 	const timeStamps = useMemo(() => {
 		return (
 			<div
-				className="flex sticky top-0 z-10 bg-neutral-800/60 backdrop-blur-2xl"
+				className="pointer-events-none sticky top-0 left-0 z-50 bg-neutral-800/70 border border-white/10 rounded-full mx-4 backdrop-blur-2xl border-r overflow-hidden"
 				style={{
-					transform: `translateX(-${scrollLeft}px)`,
+					paddingLeft: leftColumnWidth - 34,
+					// 	transform: `translateX(-${scrollLeft}px)`,
 				}}
 			>
-				{Array.from({ length: 100 }).map((_, index) => (
+				<div className="overflow-hidden border-l border-white/10 pl-4">
 					<div
-						key={index}
-						className="flex items-center justify-center h-6 -translate-x-1/2 text-xs text-white shrink-0"
-						style={{ left: index * ratio, width: ratio }}
+						className="flex"
+						style={{ transform: `translateX(-${scrollLeft}px)` }}
 					>
-						{index}
+						{Array.from({ length: 100 }).map((_, index) => (
+							<div
+								key={index}
+								className="flex items-center justify-center h-6 -translate-x-1/2 text-xs text-white shrink-0"
+								style={{ left: index * ratio, width: ratio }}
+							>
+								{index}
+							</div>
+						))}
 					</div>
-				))}
+				</div>
 			</div>
 		);
 	}, [scrollLeft, ratio]);
@@ -180,7 +190,7 @@ const TimelineEditor = () => {
 	const timelineItems = useMemo(() => {
 		return (
 			<div
-				className="relative pb-10 mt-1.5 box-content"
+				className="relative mt-1.5"
 				style={{
 					transform: `translateX(-${scrollLeft}px)`,
 					height: 60 * elements.length,
@@ -202,30 +212,41 @@ const TimelineEditor = () => {
 	// console.log("TimelineEditor", currentTime);
 
 	return (
-		<div className="w-full h-full flex min-h-0 relative bg-neutral-800">
-			{/* 左侧列，绝对定位覆盖在时间线上方 */}
-			<div
-				className="absolute top-0 left-0 h-full bg-neutral-800/80 text-white z-20 backdrop-blur-2xl border-r border-neutral-700"
-				style={{ width: leftColumnWidth }}
-			>
-				left column
-			</div>
-			<TimeIndicatorCanvas
-				leftColumnWidth={leftColumnWidth}
-				ratio={ratio}
-				scrollLeft={scrollLeft}
+		<div className="relative bg-neutral-800 h-full flex flex-col min-h-0 w-full overflow-hidden">
+			<div className="pointer-events-none absolute top-0 left-0 w-full h-19 z-50 bg-linear-to-b from-neutral-800 via-neutral-800 via-70% to-transparent"></div>
+			<ProgressiveBlur
+				position="top"
+				className="absolute top-0 w-full h-20 z-50 "
+				blurLevels={[0.5, 4, 16, 16, 16, 16, 16, 16]}
 			/>
-			{/* 时间线容器，占满整个屏幕，左侧留出 padding 给 left column */}
-			<div
-				ref={containerRef}
-				className="relative w-full h-full overflow-y-auto overflow-x-hidden"
-				style={{ paddingLeft: leftColumnWidth }}
-				onMouseMove={handleMouseMove}
-				onMouseLeave={handleMouseLeave}
-				onClick={handleClick}
-			>
-				{timeStamps}
-				{timelineItems}
+			<PlaybackToolbar className="h-12 z-50" />
+			{timeStamps}
+			<div className="relative w-full flex-1 min-h-0 flex -mt-18">
+				{/* 左侧列，绝对定位覆盖在时间线上方 */}
+				<div
+					className="pt-12 text-white z-10 pr-4 "
+					style={{ width: leftColumnWidth }}
+				>
+					{/* left column */}
+					<div className="bg-neutral-800/80 h-full backdrop-blur-2xl border border-white/10"></div>
+				</div>
+				<TimeIndicatorCanvas
+					className="top-12"
+					leftColumnWidth={leftColumnWidth}
+					ratio={ratio}
+					scrollLeft={scrollLeft}
+				/>
+				{/* 时间线容器，占满整个屏幕，左侧留出 padding 给 left column */}
+				<div
+					ref={containerRef}
+					className="relative pt-19 w-full overflow-y-auto overflow-x-hidden h-full pb-16"
+					style={{ paddingLeft: leftColumnWidth, marginLeft: -leftColumnWidth }}
+					onMouseMove={handleMouseMove}
+					onMouseLeave={handleMouseLeave}
+					onClick={handleClick}
+				>
+					{timelineItems}
+				</div>
 			</div>
 		</div>
 	);

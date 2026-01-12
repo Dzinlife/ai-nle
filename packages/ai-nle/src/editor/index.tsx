@@ -56,7 +56,6 @@ const Editor = () => {
 							<div className="flex-2 min-h-24 bg-neutral-900">
 								<PreviewEditor />
 							</div>
-							<PlaybackToolbar />
 							<div className="flex-1 min-h-16 flex border-t border-neutral-700">
 								<TimelineEditor />
 							</div>
