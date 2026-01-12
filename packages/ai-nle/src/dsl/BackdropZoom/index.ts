@@ -18,16 +18,10 @@ export const BackdropZoomDefinition: DSLComponentDefinition<BackdropZoomProps> =
 			name: "Backdrop Zoom",
 			category: "effect",
 			description: "Zoom effect for backdrop elements",
-			defaultProps: {
-				start: 0,
-				end: 5,
-			},
 		},
 	};
 
 // 注册到全局组件注册表
 componentRegistry.register(BackdropZoomDefinition);
-
-BackdropZoom.displayName = "BackdropZoom";
 
 export default BackdropZoom;

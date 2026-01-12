@@ -30,11 +30,11 @@ const TimelineEditor = () => {
 		(elementId: string, start: number, end: number) => {
 			setElements((prev) =>
 				prev.map((el) => {
-					if (el.props.id === elementId) {
+					if (el.id === elementId) {
 						return {
 							...el,
-							props: {
-								...el.props,
+							timeline: {
+								...el.timeline,
 								start,
 								end,
 							},
@@ -164,7 +164,7 @@ const TimelineEditor = () => {
 			>
 				{elements.map((element, i) => (
 					<TimelineElement
-						key={element.props.id}
+						key={element.id}
 						element={element}
 						index={i}
 						ratio={ratio}

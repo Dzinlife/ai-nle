@@ -1,0 +1,174 @@
+{
+	"version": "1.0",
+	"canvas": {
+		"width": 1920,
+		"height": 1080
+	},
+	"elements": [
+		{
+			"id": "cloudBackground1",
+			"type": "CloudBackground",
+			"name": "云彩背景",
+			"transform": {
+				"centerX": 960,
+				"centerY": 540,
+				"width": 1920,
+				"height": 1080,
+				"rotation": 0
+			},
+			"timeline": {
+				"start": 0,
+				"end": 60
+			},
+			"render": {
+				"zIndex": 0
+			},
+			"props": {
+				"speed": 0.5,
+				"cloudDensity": 1.2,
+				"skyColor": "#87CEEB",
+				"cloudColor": "#FFFFFF"
+			}
+		},
+		{
+			"id": "clip1",
+			"type": "Clip",
+			"name": "clip1",
+			"transform": {
+				"centerX": 600,
+				"centerY": 600,
+				"width": 700,
+				"height": 700,
+				"rotation": 0
+			},
+			"timeline": {
+				"start": 0,
+				"end": 10
+			},
+			"render": {
+				"zIndex": 1
+			},
+			"props": {
+				"uri": "/intro.mp4"
+			}
+		},
+		{
+			"id": "backdropZoom1",
+			"type": "BackdropZoom",
+			"name": "backdropZoom1",
+			"transform": {
+				"centerX": 350,
+				"centerY": 400,
+				"width": 300,
+				"height": 300,
+				"rotation": 0
+			},
+			"timeline": {
+				"start": 0,
+				"end": 30
+			},
+			"render": {
+				"zIndex": 2
+			},
+			"props": {
+				"zoom": 1.5,
+				"shape": "circle",
+				"cornerRadius": 16
+			}
+		},
+		{
+			"id": "lottie1",
+			"type": "Lottie",
+			"name": "Lottie 动画",
+			"transform": {
+				"centerX": 800,
+				"centerY": 800,
+				"width": 400,
+				"height": 400,
+				"rotation": 0
+			},
+			"timeline": {
+				"start": 5,
+				"end": 25
+			},
+			"render": {
+				"zIndex": 3
+			},
+			"props": {
+				"uri": "https://lottie.host/2eb481e4-0f47-46a0-b670-936cd715c51f/ajTiosbGxW.lottie",
+				"speed": 1.0,
+				"loop": true
+			}
+		},
+		{
+			"id": "image2",
+			"type": "Image",
+			"name": "image2",
+			"transform": {
+				"centerX": 250,
+				"centerY": 250,
+				"width": 500,
+				"height": 500,
+				"rotation": 0
+			},
+			"timeline": {
+				"start": 10,
+				"end": 20
+			},
+			"render": {
+				"zIndex": 4
+			},
+			"props": {
+				"uri": "/photo.jpeg"
+			}
+		},
+		{
+			"id": "colorFilterLayer1",
+			"type": "ColorFilterLayer",
+			"name": "调色滤镜层",
+			"transform": {
+				"centerX": 960,
+				"centerY": 540,
+				"width": 1920,
+				"height": 1080,
+				"rotation": 0
+			},
+			"timeline": {
+				"start": 15,
+				"end": 25
+			},
+			"render": {
+				"zIndex": 5
+			},
+			"props": {
+				"hue": 30,
+				"saturation": 0.3,
+				"brightness": 0.1,
+				"contrast": 0.2,
+				"feather": 40
+			}
+		},
+		{
+			"id": "image1",
+			"type": "Image",
+			"name": "image1",
+			"transform": {
+				"centerX": 1400,
+				"centerY": 300,
+				"width": 500,
+				"height": 500,
+				"rotation": 0
+			},
+			"timeline": {
+				"start": 20,
+				"end": 30
+			},
+			"render": {
+				"zIndex": 6
+			},
+			"props": {
+				"uri": "/logo512.png"
+			}
+		}
+	]
+}

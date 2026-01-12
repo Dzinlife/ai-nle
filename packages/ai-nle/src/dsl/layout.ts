@@ -412,3 +412,65 @@ export const converMetaLayoutToCanvasLayout = (
 		rotate: parseRotate(rotate),
 	};
 };
+
+/**
+ * 将 TransformMeta（中心坐标系统）转换为 RenderLayout
+ * 这是新架构的核心转换函数
+ * @param transform 中心坐标系的变换属性
+ * @param picture 影片尺寸（原始坐标系）
+ * @param canvas 画布尺寸（目标坐标系）
+ * @returns RenderLayout 用于渲染的布局信息
+ */
+export const transformMetaToRenderLayout = (
+	transform: import("./types").TransformMeta,
+	picture: {
+		width: number;
+		height: number;
+	},
+	canvas: {
+		width: number;
+		height: number;
+	},
+	pixelRatio = 1,
+): import("./types").RenderLayout => {
+	const { centerX, centerY, width, height, rotation } = transform;
+
+	// 计算缩放比例（从 picture 到 canvas）
+	const scaleX = (canvas.width / picture.width) * pixelRatio;
+	const scaleY = (canvas.height / picture.height) * pixelRatio;
+
+	// 将中心坐标和尺寸从 picture 坐标系转换到 canvas 坐标系
+	const canvasCenterX = centerX * scaleX;
+	const canvasCenterY = centerY * scaleY;
+	const canvasWidth = width * scaleX;
+	const canvasHeight = height * scaleY;
+
+	return {
+		cx: canvasCenterX,
+		cy: canvasCenterY,
+		w: canvasWidth,
+		h: canvasHeight,
+		rotation,
+	};
+};
+
+/**
+ * 将 RenderLayout（中心坐标）转换为左上角坐标
+ * 用于 Konva 等使用左上角坐标的库
+ */
+export const renderLayoutToTopLeft = (layout: import("./types").RenderLayout): {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+	rotation: number;
+} => {
+	const { cx, cy, w, h, rotation } = layout;
+	return {
+		x: cx - w / 2,
+		y: cy - h / 2,
+		width: w,
+		height: h,
+		rotation,
+	};
+};

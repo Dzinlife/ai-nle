@@ -2,11 +2,10 @@ import { useDrag } from "@use-gesture/react";
 import React, { useEffect, useRef, useState } from "react";
 import { componentRegistry } from "@/dsl/model/componentRegistry";
 import { modelRegistry, useModelExists } from "@/dsl/model/registry";
-import { parseStartEndSchema } from "@/dsl/startEndSchema";
-import { EditorElement } from "@/dsl/types";
+import { TimelineElement as TimelineElementType } from "@/dsl/types";
 
 interface TimelineElementProps {
-	element: EditorElement;
+	element: TimelineElementType;
 	index: number;
 	ratio: number;
 	trackHeight: number;
@@ -20,7 +19,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	trackHeight,
 	updateTimeRange,
 }) => {
-	const { type, props } = element;
+	const { id, type, timeline, props } = element;
 	const containerRef = useRef<HTMLDivElement>(null);
 	const initialStartRef = useRef<number>(0);
 	const initialEndRef = useRef<number>(0);
@@ -28,13 +27,13 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	const currentStartTimeRef = useRef<number>(0);
 	const currentEndTimeRef = useRef<number>(0);
 
-	const { start = 0, end = 1 } = props;
+	const { start, end } = timeline;
 
-	const baseStartTime = parseStartEndSchema(start);
-	const baseEndTime = parseStartEndSchema(end);
+	const baseStartTime = start;
+	const baseEndTime = end;
 
 	// 获取 model 约束（如果存在）
-	const hasModel = useModelExists(props.id);
+	const hasModel = useModelExists(id);
 	const [maxDuration, setMaxDuration] = useState<number | undefined>(undefined);
 
 	// 订阅 constraints 变化
@@ -44,7 +43,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 			return;
 		}
 
-		const store = modelRegistry.get(props.id);
+		const store = modelRegistry.get(id);
 		if (!store) {
 			setMaxDuration(undefined);
 			return;
@@ -61,7 +60,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 		});
 
 		return unsubscribe;
-	}, [hasModel, props.id]);
+	}, [hasModel, id]);
 
 	// 本地状态用于拖拽时的临时显示
 	const [localStartTime, setLocalStartTime] = useState<number | null>(null);
@@ -128,7 +127,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				isDraggingRef.current = false;
 				// 只有在真正有移动时才更新（防止点击误触发）
 				if (Math.abs(mx) > 0) {
-					updateTimeRange(props.id, newStart, initialEndRef.current);
+					updateTimeRange(id, newStart, initialEndRef.current);
 				}
 				// 不立即清除本地状态，让 useEffect 在全局状态更新后自动清除
 				// 这样可以确保在全局状态更新完成之前，本地状态保持最新值
@@ -179,7 +178,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				isDraggingRef.current = false;
 				// 只有在真正有移动时才更新（防止点击误触发）
 				if (Math.abs(mx) > 0) {
-					updateTimeRange(props.id, initialStartRef.current, newEnd);
+					updateTimeRange(id, initialStartRef.current, newEnd);
 				}
 				// 不立即清除本地状态，让 useEffect 在全局状态更新后自动清除
 				// 这样可以确保在全局状态更新完成之前，本地状态保持最新值
@@ -221,7 +220,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				isDraggingRef.current = false;
 				// 只有在真正有移动时才更新（防止点击误触发）
 				if (Math.abs(mx) > 0) {
-					updateTimeRange(props.id, newStart, newEnd);
+					updateTimeRange(id, newStart, newEnd);
 				}
 				// 不立即清除本地状态，让 useEffect 在全局状态更新后自动清除
 			} else {
@@ -244,7 +243,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	return (
 		<div
 			ref={containerRef}
-			key={props.id}
+			key={id}
 			className={`absolute flex rounded-md group ${
 				isAtMaxDuration
 					? "bg-amber-700 ring-1 ring-amber-500"
@@ -278,13 +277,14 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 			>
 				{(() => {
 					// 从 registry 获取 Timeline 组件
-					const definition = componentRegistry.getByComponent(type);
+					const definition = componentRegistry.get(type);
 
 					if (definition?.Timeline) {
 						const TimelineComponent = definition.Timeline;
 						return (
 							<div className="size-full h-8 mt-auto text-white">
 								<TimelineComponent
+									id={id}
 									{...props}
 									start={startTime}
 									end={endTime}
@@ -296,7 +296,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 					// Fallback: 仅显示组件名称
 					return (
 						<div className="text-white rounded w-full">
-							{type.displayName || type.name || "Unknown"}
+							{element.name || type}
 						</div>
 					);
 				})()}

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef } from "react";
-import { useTimeline } from "@/editor/TimelineContext";
+import { useCurrentTime } from "@/editor/TimelineContext";
 
 interface CurrentTimeIndicatorCanvasProps {
 	leftColumnWidth: number;
@@ -13,7 +13,7 @@ const CurrentTimeIndicatorCanvas: React.FC<CurrentTimeIndicatorCanvasProps> = ({
 	scrollLeft,
 }) => {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
-	const { currentTime } = useTimeline();
+	const { currentTime } = useCurrentTime();
 
 	// 绘制函数
 	const draw = useCallback(() => {

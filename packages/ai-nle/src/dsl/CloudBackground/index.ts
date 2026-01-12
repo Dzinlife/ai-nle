@@ -20,8 +20,6 @@ export const CloudBackgroundDefinition: DSLComponentDefinition<CloudBackgroundPr
 				cloudDensity: 1.0,
 				skyColor: "#87CEEB",
 				cloudColor: "#FFFFFF",
-				start: 0,
-				end: 10,
 			},
 		},
 	};

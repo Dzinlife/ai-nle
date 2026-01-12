@@ -17,10 +17,6 @@ export const ImageDefinition: DSLComponentDefinition<ImageProps> = {
 		name: "Image",
 		category: "media",
 		description: "Static image component",
-		defaultProps: {
-			start: 0,
-			end: 5,
-		},
 	},
 };
 

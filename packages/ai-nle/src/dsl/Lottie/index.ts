@@ -17,10 +17,6 @@ export const LottieDefinition: DSLComponentDefinition<LottieProps> = {
 		name: "Lottie Animation",
 		category: "animation",
 		description: "Lottie animation playback",
-		defaultProps: {
-			start: 0,
-			end: 5,
-		},
 	},
 };
 

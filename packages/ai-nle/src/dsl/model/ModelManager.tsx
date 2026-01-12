@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useElements } from "@/editor/TimelineContext";
-import type { EditorElement } from "../types";
+import type { TimelineElement } from "../types";
 import { componentRegistry } from "./componentRegistry";
 import { modelRegistry } from "./registry";
 
@@ -17,7 +17,7 @@ export const ModelManager: React.FC<{ children: React.ReactNode }> = ({
 	children,
 }) => {
 	const { elements } = useElements();
-	const prevElementsRef = useRef<EditorElement[]>([]);
+	const prevElementsRef = useRef<TimelineElement[]>([]);
 	const initializedRef = useRef(false);
 
 	// 首次渲染时直接初始化所有 model
@@ -25,12 +25,12 @@ export const ModelManager: React.FC<{ children: React.ReactNode }> = ({
 		initializedRef.current = true;
 
 		for (const element of elements) {
-			const id = element.props.id;
-			const definition = componentRegistry.getByComponent(element.type);
+			const id = element.id;
+			const definition = componentRegistry.get(element.type);
 
 			if (!definition) {
 				console.warn(
-					`[ModelManager] Component not registered for element ${id}`,
+					`[ModelManager] Component not registered for element ${id}, type: ${element.type}`,
 				);
 				continue;
 			}
@@ -49,19 +49,19 @@ export const ModelManager: React.FC<{ children: React.ReactNode }> = ({
 			return;
 		}
 
-		const prevIds = new Set(prevElementsRef.current.map((e) => e.props.id));
-		const currIds = new Set(elements.map((e) => e.props.id));
+		const prevIds = new Set(prevElementsRef.current.map((e) => e.id));
+		const currIds = new Set(elements.map((e) => e.id));
 
 		// 新增的元素：创建 model
 		for (const element of elements) {
-			const id = element.props.id;
+			const id = element.id;
 
 			if (!prevIds.has(id) && !modelRegistry.has(id)) {
-				const definition = componentRegistry.getByComponent(element.type);
+				const definition = componentRegistry.get(element.type);
 
 				if (!definition) {
 					console.warn(
-						`[ModelManager] Component not registered for element ${id}`,
+						`[ModelManager] Component not registered for element ${id}, type: ${element.type}`,
 					);
 					continue;
 				}
@@ -82,7 +82,7 @@ export const ModelManager: React.FC<{ children: React.ReactNode }> = ({
 
 		// 删除的元素：销毁 model
 		for (const element of prevElementsRef.current) {
-			const id = element.props.id;
+			const id = element.id;
 
 			if (!currIds.has(id)) {
 				modelRegistry.unregister(id);
@@ -91,7 +91,7 @@ export const ModelManager: React.FC<{ children: React.ReactNode }> = ({
 
 		// 更新现有 model 的 props（处理外部编辑场景）
 		for (const element of elements) {
-			const id = element.props.id;
+			const id = element.id;
 			const store = modelRegistry.get(id);
 
 			if (store) {
@@ -99,25 +99,21 @@ export const ModelManager: React.FC<{ children: React.ReactNode }> = ({
 				const currentProps = state.props as any;
 				const newProps = element.props;
 
-				// 只同步时间相关的 props（start, end）
-				// 避免完全覆盖导致的问题
-				if (
-					currentProps.start !== newProps.start ||
-					currentProps.end !== newProps.end
-				) {
+				// 检查 props 是否有变化（简单的浅比较）
+				const propsChanged = Object.keys(newProps).some(
+					(key) => currentProps[key] !== newProps[key],
+				);
+
+				if (propsChanged) {
 					// 使用 validate 确保值合法
-					const result = state.validate({
-						start: newProps.start,
-						end: newProps.end,
-					});
+					const result = state.validate(newProps);
 
 					if (result.valid) {
 						store.setState((state) => ({
 							...state,
 							props: {
 								...(state.props as any),
-								start: newProps.start,
-								end: newProps.end,
+								...newProps,
 							},
 						}));
 					}

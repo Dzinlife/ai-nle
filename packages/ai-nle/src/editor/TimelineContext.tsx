@@ -1,23 +1,29 @@
 import { createContext, useEffect, useLayoutEffect } from "react";
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
-import { EditorElement } from "@/dsl/types";
+import { TimelineElement } from "@/dsl/types";
 
 interface TimelineStore {
 	currentTime: number;
-	elements: EditorElement[];
+	elements: TimelineElement[];
+	canvasSize: { width: number; height: number };
 	setCurrentTime: (time: number) => void;
 	setElements: (
-		elements: EditorElement[] | ((prev: EditorElement[]) => EditorElement[]),
+		elements:
+			| TimelineElement[]
+			| ((prev: TimelineElement[]) => TimelineElement[]),
 	) => void;
+	setCanvasSize: (size: { width: number; height: number }) => void;
 	getCurrentTime: () => number;
-	getElements: () => EditorElement[];
+	getElements: () => TimelineElement[];
+	getCanvasSize: () => { width: number; height: number };
 }
 
 export const useTimelineStore = create<TimelineStore>()(
 	subscribeWithSelector((set, get) => ({
 		currentTime: 0,
 		elements: [],
+		canvasSize: { width: 1920, height: 1080 },
 
 		setCurrentTime: (time: number) => {
 			const currentTime = get().currentTime;
@@ -27,7 +33,9 @@ export const useTimelineStore = create<TimelineStore>()(
 		},
 
 		setElements: (
-			elements: EditorElement[] | ((prev: EditorElement[]) => EditorElement[]),
+			elements:
+				| TimelineElement[]
+				| ((prev: TimelineElement[]) => TimelineElement[]),
 		) => {
 			const currentElements = get().elements;
 			const newElements =
@@ -37,6 +45,10 @@ export const useTimelineStore = create<TimelineStore>()(
 			}
 		},
 
+		setCanvasSize: (size: { width: number; height: number }) => {
+			set({ canvasSize: size });
+		},
+
 		getCurrentTime: () => {
 			return get().currentTime;
 		},
@@ -44,10 +56,14 @@ export const useTimelineStore = create<TimelineStore>()(
 		getElements: () => {
 			return get().elements;
 		},
+
+		getCanvasSize: () => {
+			return get().canvasSize;
+		},
 	})),
 );
 
-export const useTimeline = () => {
+export const useCurrentTime = () => {
 	const currentTime = useTimelineStore((state) => state.currentTime);
 	const setCurrentTime = useTimelineStore((state) => state.setCurrentTime);
 
@@ -79,10 +95,12 @@ export const TimelineProvider = ({
 	children,
 	currentTime: initialCurrentTime,
 	elements: initialElements,
+	canvasSize: initialCanvasSize,
 }: {
 	children: React.ReactNode;
 	currentTime?: number;
-	elements?: EditorElement[];
+	elements?: TimelineElement[];
+	canvasSize?: { width: number; height: number };
 }) => {
 	// 在首次渲染前同步设置初始状态
 	// 使用 useLayoutEffect 确保在子组件渲染前执行
@@ -91,6 +109,7 @@ export const TimelineProvider = ({
 			useTimelineStore.setState({
 				currentTime: initialCurrentTime ?? 0,
 				elements: initialElements,
+				canvasSize: initialCanvasSize ?? { width: 1920, height: 1080 },
 			});
 		}
 	}, []);
@@ -111,6 +130,14 @@ export const TimelineProvider = ({
 			});
 		}
 	}, [initialCurrentTime]);
+
+	useEffect(() => {
+		if (initialCanvasSize !== undefined) {
+			useTimelineStore.setState({
+				canvasSize: initialCanvasSize,
+			});
+		}
+	}, [initialCanvasSize]);
 
 	return <>{children}</>;
 };

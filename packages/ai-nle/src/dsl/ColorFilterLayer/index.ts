@@ -24,10 +24,6 @@ export const ColorFilterLayerDefinition: DSLComponentDefinition<ColorFilterLayer
 			name: "Color Filter",
 			category: "effect",
 			description: "Color adjustment and filter effects",
-			defaultProps: {
-				start: 0,
-				end: 5,
-			},
 		},
 	};
 

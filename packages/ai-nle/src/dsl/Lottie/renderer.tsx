@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import JSZip from "jszip";
-import { startTransition, useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
 	Group,
 	Rect,
@@ -11,9 +11,8 @@ import {
 } from "react-skia-lite";
 import { LottieIcon } from "@/components/icons";
 import { useOffscreenRender } from "@/editor/OffscreenRenderContext";
-import { useTimeline } from "@/editor/TimelineContext";
-import { parseStartEndSchema } from "../startEndSchema";
-import type { EditorComponent } from "../types";
+import { useCurrentTime, useTimelineStore } from "@/editor/TimelineContext";
+import type { ComponentProps } from "../types";
 
 // 加载 Lottie 动画的辅助函数（用于 timelineComponent）
 async function loadLottieAnimation(
@@ -188,26 +187,32 @@ async function loadLottieAnimation(
 	return skottieAnimation;
 }
 
-const Lottie: EditorComponent<{
+interface LottieRendererProps extends ComponentProps {
+	id: string;
 	uri?: string;
-	speed?: number; // 播放速度倍数，默认 1.0
-	loop?: boolean; // 是否循环播放，默认 true
-}> = ({
+	speed?: number;
+	loop?: boolean;
+}
+
+const Lottie: React.FC<LottieRendererProps> = ({
+	id,
 	uri,
 	speed = 1.0,
 	loop = true,
-	start: startProp,
-	end: endProp,
 	__renderLayout,
 }) => {
-	const { currentTime } = useTimeline();
+	const { currentTime } = useCurrentTime();
 	const { registerReadyCallback } = useOffscreenRender();
 
-	const { x, y, w: width, h: height, r: rotate = 0 } = __renderLayout;
+	// 直接从 TimelineStore 读取元素的 timeline 数据
+	const timeline = useTimelineStore(
+		(state) => state.elements.find((el) => el.id === id)?.timeline,
+	);
 
-	// 解析 start 和 end 时间
-	const start = parseStartEndSchema(startProp ?? 0);
-	const end = parseStartEndSchema(endProp ?? Infinity);
+	// 将中心坐标转换为左上角坐标
+	const { cx, cy, w: width, h: height, rotation: rotate = 0 } = __renderLayout;
+	const x = cx - width / 2;
+	const y = cy - height / 2;
 
 	const animationRef = useRef<SkSkottieAnimation | null | undefined>(null);
 	const isReadyRef = useRef(false);
@@ -275,9 +280,11 @@ const Lottie: EditorComponent<{
 
 	// 计算当前帧数
 	const getCurrentFrame = useCallback(() => {
-		if (!animation) return 0;
+		if (!animation || !timeline) return 0;
 
 		// 计算相对于组件开始时间的当前时间
+		const start = timeline.start;
+		const end = timeline.end;
 		const relativeTime = Math.max(0, currentTime - start);
 		const componentDuration = end - start;
 		const totalFrames = animation.duration() * animation.fps();
@@ -303,12 +310,15 @@ const Lottie: EditorComponent<{
 		} else {
 			return Math.min(Math.floor(frame), totalFrames - 1);
 		}
-	}, [animation, currentTime, start, end, speed, loop]);
+	}, [animation, currentTime, timeline, speed, loop]);
 
 	const currentFrame = animation ? getCurrentFrame() : 0;
 
 	// 如果不在可见时间范围内，不渲染
-	if (currentTime < start || currentTime > end) {
+	if (
+		timeline &&
+		(currentTime < timeline.start || currentTime > timeline.end)
+	) {
 		return null;
 	}
 
@@ -367,249 +377,6 @@ const Lottie: EditorComponent<{
 				</Group>
 			</Rect>
 		</Group>
-	);
-};
-
-Lottie.displayName = "Lottie";
-Lottie.timelineComponent = ({
-	uri,
-	start: startProp,
-	end: endProp,
-	name,
-	speed = 1.0,
-	loop = true,
-}) => {
-	const canvasRef = useRef<HTMLCanvasElement>(null);
-	const isGeneratingRef = useRef(false);
-
-	const start = parseStartEndSchema(startProp ?? 0);
-	const end = parseStartEndSchema(endProp ?? Infinity);
-	const componentDuration = end - start;
-
-	// 使用 useQuery 管理 Lottie 动画加载，复用已加载的动画
-	const { data: animation } = useQuery({
-		queryKey: ["lottie-animation", uri],
-		queryFn: () => {
-			if (!uri) return null;
-
-			return loadLottieAnimation(uri);
-		},
-		enabled: !!uri,
-		staleTime: Infinity, // 动画资源不会过期，避免重复加载
-		gcTime: Infinity, // 永远不清理缓存，避免重复解析
-	});
-
-	// 生成预览图
-	// const generateThumbnails = useCallback(
-	// 	async (lottieAnimation: SkSkottieAnimation | null | undefined) => {
-	// 		if (!canvasRef.current || !lottieAnimation || isGeneratingRef.current) {
-	// 			return;
-	// 		}
-
-	// 		isGeneratingRef.current = true;
-	// 		const canvas = canvasRef.current;
-	// 		const ctx = canvas.getContext("2d");
-	// 		if (!ctx) {
-	// 			isGeneratingRef.current = false;
-	// 			return;
-	// 		}
-
-	// 		try {
-	// 			// 获取动画信息
-	// 			const animationSize = lottieAnimation.size();
-	// 			const animationWidth = animationSize.width;
-	// 			const animationHeight = animationSize.height;
-	// 			const animationDuration = lottieAnimation.duration();
-	// 			const animationFps = lottieAnimation.fps();
-	// 			const totalFrames = animationDuration * animationFps;
-
-	// 			// 设置 canvas 尺寸
-	// 			const canvasWidth = canvas.offsetWidth;
-	// 			const canvasHeight = canvas.offsetHeight;
-	// 			canvas.width = canvasWidth;
-	// 			canvas.height = canvasHeight;
-
-	// 			// 根据 componentDuration 和 canvas 宽度，计算能放多少个预览图
-	// 			// 使用一个合理的预览图宽度估算（基于动画宽高比，但最终会裁切填满）
-	// 			const estimatedAspectRatio = animationWidth / animationHeight;
-	// 			const estimatedThumbnailWidth = canvasHeight * estimatedAspectRatio;
-	// 			const numThumbnails = Math.max(
-	// 				1,
-	// 				Math.ceil(canvasWidth / estimatedThumbnailWidth),
-	// 			);
-
-	// 			// 始终使用 componentDuration 来计算提取间隔
-	// 			const previewInterval = componentDuration / numThumbnails;
-
-	// 			// 计算每个预览图的实际宽度（填满整个 canvas 宽度）
-	// 			const thumbnailWidth = canvasWidth / numThumbnails;
-	// 			const thumbnailHeight = canvasHeight;
-
-	// 			// 清空 canvas（保持透明背景）
-	// 			ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-
-	// 			// 创建离屏 Surface 用于渲染动画帧
-	// 			const surface = Skia.Surface.MakeOffscreen(
-	// 				animationWidth,
-	// 				animationHeight,
-	// 			);
-	// 			if (!surface) {
-	// 				throw new Error("Failed to create offscreen surface");
-	// 			}
-
-	// 			// 按间隔提取帧并绘制
-	// 			for (let i = 0; i < numThumbnails; i++) {
-	// 				const relativeTime = i * previewInterval; // 相对于组件 start 的时间
-
-	// 				// 计算动画中的帧数（考虑 speed 和 loop）
-	// 				let frame: number;
-	// 				if (loop) {
-	// 					// 循环播放：取模
-	// 					const frameTime =
-	// 						(relativeTime * animationFps * speed) % totalFrames;
-	// 					frame = Math.floor(frameTime);
-	// 				} else {
-	// 					// 不循环：限制在最后一帧
-	// 					const frameTime = relativeTime * animationFps * speed;
-	// 					frame = Math.min(Math.floor(frameTime), totalFrames - 1);
-	// 				}
-
-	// 				// 确保帧数在有效范围内
-	// 				frame = Math.max(0, Math.min(frame, totalFrames - 1));
-
-	// 				try {
-	// 					// 渲染动画帧到离屏 Surface
-	// 					const skiaCanvas = surface.getCanvas();
-	// 					skiaCanvas.clear(Float32Array.of(0, 0, 0, 0));
-	// 					lottieAnimation.seekFrame(frame);
-	// 					lottieAnimation.render(skiaCanvas);
-	// 					surface.flush();
-
-	// 					// 获取渲染后的图像
-	// 					const skImage = surface.makeImageSnapshot();
-	// 					if (!skImage) {
-	// 						continue;
-	// 					}
-
-	// 					// 读取像素数据
-	// 					const imageInfo = skImage.getImageInfo();
-	// 					const pixels = skImage.readPixels();
-	// 					if (!pixels) {
-	// 						continue;
-	// 					}
-
-	// 					// 创建 ImageData 并绘制到 canvas
-	// 					const imageData = new ImageData(
-	// 						new Uint8ClampedArray(pixels),
-	// 						imageInfo.width,
-	// 						imageInfo.height,
-	// 					);
-
-	// 					// 创建临时 canvas 来绘制图像
-	// 					const tempCanvas = document.createElement("canvas");
-	// 					tempCanvas.width = imageInfo.width;
-	// 					tempCanvas.height = imageInfo.height;
-	// 					const tempCtx = tempCanvas.getContext("2d");
-	// 					if (!tempCtx) {
-	// 						continue;
-	// 					}
-	// 					tempCtx.putImageData(imageData, 0, 0);
-
-	// 					// 计算绘制位置
-	// 					const x = i * thumbnailWidth;
-
-	// 					// 基于高度缩放，确保高度完全适应（不裁切上下）
-	// 					const scale = thumbnailHeight / tempCanvas.height;
-
-	// 					// 计算缩放后的宽度
-	// 					const scaledWidth = tempCanvas.width * scale;
-
-	// 					// 如果缩放后的宽度大于目标宽度，需要裁切左右
-	// 					if (scaledWidth > thumbnailWidth) {
-	// 						// 计算需要裁切的左右部分（居中裁切）
-	// 						const sourceWidth = thumbnailWidth / scale;
-	// 						const sourceX = (tempCanvas.width - sourceWidth) / 2;
-
-	// 						// 绘制帧到 canvas（只裁切左右，保持完整高度）
-	// 						ctx.drawImage(
-	// 							tempCanvas,
-	// 							sourceX,
-	// 							0, // 不裁切上下，从顶部开始
-	// 							sourceWidth,
-	// 							tempCanvas.height, // 完整高度
-	// 							x,
-	// 							0,
-	// 							thumbnailWidth,
-	// 							thumbnailHeight,
-	// 						);
-	// 					} else {
-	// 						// 如果缩放后的宽度小于等于目标宽度，居中显示
-	// 						const offsetX = (thumbnailWidth - scaledWidth) / 2;
-	// 						ctx.drawImage(
-	// 							tempCanvas,
-	// 							0,
-	// 							0,
-	// 							tempCanvas.width,
-	// 							tempCanvas.height,
-	// 							x + offsetX,
-	// 							0,
-	// 							scaledWidth,
-	// 							thumbnailHeight,
-	// 						);
-	// 					}
-	// 				} catch (err) {
-	// 					console.warn(`提取帧 ${frame} 失败:`, err);
-	// 				}
-	// 			}
-
-	// 			// 清理 Surface
-	// 			surface.dispose();
-	// 		} catch (err) {
-	// 			console.error("生成预览图失败:", err);
-	// 			// 绘制错误提示
-	// 			if (ctx) {
-	// 				ctx.fillStyle = "#fee2e2";
-	// 				ctx.fillRect(0, 0, canvas.width, canvas.height);
-	// 				ctx.fillStyle = "#dc2626";
-	// 				ctx.font = "12px sans-serif";
-	// 				ctx.textAlign = "center";
-	// 				ctx.fillText(
-	// 					"Lottie Thumbnails Generation Failed",
-	// 					canvas.width / 2,
-	// 					canvas.height / 2,
-	// 				);
-	// 			}
-	// 		} finally {
-	// 			isGeneratingRef.current = false;
-	// 		}
-	// 	},
-	// 	[start, end, componentDuration, speed, loop],
-	// );
-
-	// 当动画加载完成时，生成预览图
-	// useEffect(() => {
-	// 	if (!animation) {
-	// 		return;
-	// 	}
-
-	// 	startTransition(() => {
-	// 		generateThumbnails(animation);
-	// 	});
-
-	// 	return () => {
-	// 		// 清理资源
-	// 		isGeneratingRef.current = false;
-	// 	};
-	// }, [animation, generateThumbnails]);
-
-	return (
-		<div className="absolute inset-0 rounded-md overflow-hidden bg-linear-to-b from-teal-800 to-teal-700 border border-teal-700 p-1">
-			{/* <canvas ref={canvasRef} className="size-full" /> */}
-			<div className="flex items-center gap-1">
-				<LottieIcon className="size-4 rounded" />
-				<span>{name || "Lottie"}</span>
-			</div>
-		</div>
 	);
 };
 

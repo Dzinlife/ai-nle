@@ -1,30 +1,94 @@
-export interface LayoutMeta {
-	// 尺寸
-	width?: number | "auto" | string; // 可为数值或百分比
-	height?: number | "auto" | string;
+// ============================================================================
+// 新架构：分离的属性系统
+// ============================================================================
 
-	// 边距约束
+/**
+ * 空间变换属性 (中心坐标系统)
+ * 独立于组件 props，描述元素的空间位置和变换
+ */
+export interface TransformMeta {
+	centerX: number; // 中心点 X 坐标
+	centerY: number; // 中心点 Y 坐标
+	width: number; // 宽度（像素）
+	height: number; // 高度（像素）
+	rotation: number; // 旋转角度（弧度）
+}
+
+/**
+ * 时间线属性
+ * 独立于组件 props，描述元素的时间范围
+ */
+export interface TimelineMeta {
+	start: number; // 开始时间（秒）
+	end: number; // 结束时间（秒）
+}
+
+/**
+ * 渲染属性
+ * 控制元素的渲染行为
+ */
+export interface RenderMeta {
+	zIndex?: number; // Z 序
+	visible?: boolean; // 可见性
+	opacity?: number; // 透明度 (0-1)
+}
+
+/**
+ * 渲染布局（传递给渲染器的布局信息）
+ * 使用中心坐标系统
+ */
+export interface RenderLayout {
+	cx: number; // 中心点 X
+	cy: number; // 中心点 Y
+	w: number; // 宽度
+	h: number; // 高度
+	rotation: number; // 旋转（弧度）
+}
+
+/**
+ * 时间线元素（纯数据结构）
+ * 不再是 React.ReactElement，而是纯 JSON 可序列化的数据对象
+ */
+export interface TimelineElement<Props = Record<string, any>> {
+	id: string; // 唯一标识符
+	type: string; // 组件类型 ("Image" | "Clip" | "Lottie" | ...)
+	name: string; // 显示名称
+
+	transform: TransformMeta; // 空间属性
+	timeline: TimelineMeta; // 时间属性
+	render: RenderMeta; // 渲染属性
+
+	props: Props; // 组件特定属性（仅业务逻辑）
+}
+
+// ============================================================================
+// 向后兼容：旧的接口保留用于渐进式迁移
+// ============================================================================
+
+/**
+ * @deprecated 使用 TransformMeta 替代
+ * 保留用于渐进式迁移
+ */
+export interface LayoutMeta {
+	width?: number | "auto" | string;
+	height?: number | "auto" | string;
 	left?: number | string;
 	right?: number | string;
 	top?: number | string;
 	bottom?: number | string;
-
-	// 约束模式（Figma 同款）
 	constraints?: {
 		horizontal: "LEFT" | "RIGHT" | "CENTER" | "LEFT_RIGHT" | "SCALE";
 		vertical: "TOP" | "BOTTOM" | "CENTER" | "TOP_BOTTOM" | "SCALE";
 	};
-
-	rotate?: string; // 度数 eg: "45deg"
-
-	// 锚点（旋转或scale变换参考点）
+	rotate?: string;
 	anchor?: "top-left" | "center" | "bottom-right";
-
-	// Z序和可见性
 	zIndex?: number;
 	visible?: boolean;
 }
 
+/**
+ * @deprecated 使用 RenderLayout 替代
+ */
 export interface LayoutRendererMeta {
 	x: number;
 	y: number;
@@ -33,30 +97,39 @@ export interface LayoutRendererMeta {
 	r?: number;
 }
 
-export interface TimelineMeta {
-	start: number | string;
-	end: number | string;
-}
-
-export interface CommonMeta {
+/**
+ * 组件 Props 基础接口
+ * 仅包含渲染所需的基本信息
+ */
+export interface ComponentProps {
 	id: string;
 	name: string;
+	__renderLayout: RenderLayout; // 渲染布局（由编辑器注入）
+	__timeline?: TimelineMeta; // 时间线属性（由编辑器注入，可选）
 }
 
-export interface ComponentProps extends CommonMeta, LayoutMeta, TimelineMeta {
-	__renderLayout: LayoutRendererMeta;
+/**
+ * 时间线组件 Props
+ */
+export interface ComponentTimelineProps {
+	id: string;
+	name: string;
+	transform: TransformMeta;
+	timeline: TimelineMeta;
+	render: RenderMeta;
 }
 
-export interface ComponentTimelineProps
-	extends CommonMeta,
-		LayoutMeta,
-		TimelineMeta {}
-
+/**
+ * @deprecated 旧的 EditorElement，使用 TimelineElement 替代
+ */
 export interface EditorElement
-	extends React.ReactElement<CommonMeta & LayoutMeta & TimelineMeta> {
+	extends React.ReactElement<any> {
 	type: EditorComponent;
 }
 
+/**
+ * 组件定义类型
+ */
 export type EditorComponent<T extends Record<string, any> = {}> =
 	React.ComponentType<T & ComponentProps> & {
 		timelineComponent?: React.ComponentType<T & ComponentTimelineProps>;

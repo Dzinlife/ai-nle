@@ -16,9 +16,12 @@ import {
 	Group as SkiaGroup,
 	useContextBridge,
 } from "react-skia-lite";
-import { converMetaLayoutToCanvasLayout } from "@/dsl";
-import { parseStartEndSchema } from "@/dsl/startEndSchema";
-import { EditorElement } from "@/dsl/types";
+import {
+	renderLayoutToTopLeft,
+	transformMetaToRenderLayout,
+} from "@/dsl/layout";
+import { componentRegistry } from "@/dsl/model/componentRegistry";
+import { TimelineElement } from "@/dsl/types";
 import { renderElementsOffscreenAsImage } from "../utils/offscreen";
 import { OffscreenRenderContext } from "./OffscreenRenderContext";
 import { usePreview } from "./PreviewProvider";
@@ -29,14 +32,12 @@ import { useTimelineStore } from "./TimelineContext";
  * This is a pure function that doesn't trigger React re-renders.
  */
 function computeVisibleElements(
-	elements: EditorElement[],
+	elements: TimelineElement[],
 	currentTime: number,
-): EditorElement[] {
+): TimelineElement[] {
 	return elements.filter((el) => {
-		const { start = 0, end = Infinity } = el.props;
-		const visible =
-			currentTime >= parseStartEndSchema(start) &&
-			currentTime < parseStartEndSchema(end);
+		const { start = 0, end = Infinity } = el.timeline;
+		const visible = currentTime >= start && currentTime < end;
 		return visible;
 	});
 }
@@ -51,7 +52,7 @@ interface PinchState {
 
 // LabelLayer 组件：从 Konva 节点获取实际位置来显示 label
 interface LabelLayerProps {
-	elements: EditorElement[];
+	elements: TimelineElement[];
 	selectedIds: string[];
 	stageRef: React.RefObject<Konva.Stage | null>;
 	canvasConvertOptions: {
@@ -112,25 +113,26 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 
 		elements.forEach((el) => {
 			if (!selectedIds.length) return;
-			if (!selectedIds.includes(el.props.id)) return;
+			if (!selectedIds.includes(el.id)) return;
 
-			const node = stage?.findOne(`.element-${el.props.id}`) as
+			const node = stage?.findOne(`.element-${el.id}`) as
 				| Konva.Node
 				| undefined;
 
 			if (!node) {
-				// 如果找不到节点，使用 layout 计算的位置并转换到屏幕坐标
-				const { x, y, width, height } = converMetaLayoutToCanvasLayout(
-					el.props,
+				// 如果找不到节点，使用 transform 计算的位置并转换到屏幕坐标
+				const renderLayout = transformMetaToRenderLayout(
+					el.transform,
 					canvasConvertOptions.picture,
 					canvasConvertOptions.canvas,
 				);
+				const { x, y, width, height } = renderLayoutToTopLeft(renderLayout);
 				const screenX = x * effectiveZoom + offsetX;
 				const screenY = y * effectiveZoom + offsetY;
 				const screenWidth = width * effectiveZoom;
 				const screenHeight = height * effectiveZoom;
 
-				positions[el.props.id] = {
+				positions[el.id] = {
 					screenX: screenX + screenWidth / 2,
 					screenY: screenY + screenHeight / 2,
 					screenWidth,
@@ -173,7 +175,7 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 			const rotatedCenterY =
 				rotationCenterY + centerOffsetX * sin + centerOffsetY * cos;
 
-			positions[el.props.id] = {
+			positions[el.id] = {
 				screenX: rotatedCenterX,
 				screenY: rotatedCenterY,
 				screenWidth: stageWidth,
@@ -212,7 +214,7 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 			}}
 		>
 			{elements.map((el) => {
-				const position = labelPositions[el.props.id];
+				const position = labelPositions[el.id];
 				if (!position) return null;
 
 				// 使用屏幕尺寸计算 translateY
@@ -235,7 +237,7 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 
 				return (
 					<div
-						key={el.props.id}
+						key={el.id}
 						className="absolute text-red-500 bg-black/80 border border-red-500/70 max-w-32 truncate font-medium backdrop-blur-sm backdrop-saturate-150 px-3 py-1 -top-8 rounded-full text-xs whitespace-nowrap pointer-events-none"
 						style={{
 							left: position.screenX,
@@ -253,7 +255,7 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 };
 
 const Preview = () => {
-	const renderElementsRef = useRef<EditorElement[]>([]);
+	const renderElementsRef = useRef<TimelineElement[]>([]);
 
 	const { getCurrentTime, getElements, setElements } = useMemo(
 		() => useTimelineStore.getState(),
@@ -262,7 +264,7 @@ const Preview = () => {
 
 	// For Konva layer, we need state to trigger re-renders for interaction updates
 	// But this is only updated when elements visibility actually changes
-	const [renderElements, setRenderElements] = useState<EditorElement[]>([]);
+	const [renderElements, setRenderElements] = useState<TimelineElement[]>([]);
 
 	const [hoveredId, setHoveredId] = useState<string | null>(null);
 	const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -376,13 +378,27 @@ const Preview = () => {
 			// 由于 canvas = picture 尺寸，canvas 坐标即 picture 坐标
 			const { canvasX, canvasY } = stageToCanvasCoords(stageX, stageY);
 
-			setElements((prev) =>
-				prev.map((el) =>
-					el.props.id === id
-						? { ...el, props: { ...el.props, left: canvasX, top: canvasY } }
-						: el,
-				),
-			);
+			// 直接使用 setState 确保更新被触发
+			const currentElements = useTimelineStore.getState().elements;
+			const newElements = currentElements.map((el) => {
+				// 使用 el.id 而不是 el.props.id
+				if (el.id !== id) return el;
+
+				// 更新 transform（使用中心坐标系统）
+				const updatedTransform = {
+					...el.transform,
+					centerX: canvasX + el.transform.width / 2,
+					centerY: canvasY + el.transform.height / 2,
+				};
+
+				return {
+					...el,
+					transform: updatedTransform,
+					props: { ...el.props, left: canvasX, top: canvasY },
+				};
+			});
+
+			useTimelineStore.setState({ elements: newElements });
 		},
 		[stageToCanvasCoords],
 	);
@@ -413,7 +429,7 @@ const Preview = () => {
 	// 当 renderElements 变化时，清理已消失元素的选中状态
 	useEffect(() => {
 		setSelectedIds((prevSelectedIds) => {
-			const renderElementIds = new Set(renderElements.map((el) => el.props.id));
+			const renderElementIds = new Set(renderElements.map((el) => el.id));
 			const validSelectedIds = prevSelectedIds.filter((id) =>
 				renderElementIds.has(id),
 			);
@@ -472,24 +488,38 @@ const Preview = () => {
 			// 只更新元素状态，不修改节点（让 Transformer 继续工作）
 			const rotationDegrees = node.rotation();
 			const rotationRadians = (rotationDegrees * Math.PI) / 180;
-			setElements((prev) =>
-				prev.map((el) =>
-					el.props.id === id
-						? {
-								...el,
-								props: {
-									...el.props,
-									left: canvasX,
-									top: canvasY,
-									width: pictureWidth_scaled,
-									height: pictureHeight_scaled,
-									rotate: `${rotationDegrees}deg`,
-									rotation: rotationRadians,
-								},
-							}
-						: el,
-				),
-			);
+
+			// 直接使用 setState 确保更新被触发
+			const currentElements = useTimelineStore.getState().elements;
+			const newElements = currentElements.map((el) => {
+				// 使用 el.id 而不是 el.props.id
+				if (el.id !== id) return el;
+
+				// 更新 transform（使用中心坐标系统）
+				const updatedTransform = {
+					centerX: canvasX + pictureWidth_scaled / 2,
+					centerY: canvasY + pictureHeight_scaled / 2,
+					width: pictureWidth_scaled,
+					height: pictureHeight_scaled,
+					rotation: rotationRadians,
+				};
+
+				return {
+					...el,
+					transform: updatedTransform,
+					props: {
+						...el.props,
+						left: canvasX,
+						top: canvasY,
+						width: pictureWidth_scaled,
+						height: pictureHeight_scaled,
+						rotate: `${rotationDegrees}deg`,
+						rotation: rotationRadians,
+					},
+				};
+			});
+
+			useTimelineStore.setState({ elements: newElements });
 		},
 		[stageToCanvasCoords, zoomLevel, pinchState],
 	);
@@ -527,21 +557,29 @@ const Preview = () => {
 
 			const rotationDegrees = node.rotation();
 			const rotationRadians = (rotationDegrees * Math.PI) / 180;
-			setElements((prev) =>
-				prev.map((el) =>
-					el.props.id === id
-						? {
-								...el,
-								left: canvasX,
-								top: canvasY,
-								width: pictureWidth_scaled,
-								height: pictureHeight_scaled,
-								rotate: `${rotationDegrees}deg`,
-								rotation: rotationRadians,
-							}
-						: el,
-				),
-			);
+
+			// 直接使用 setState 确保更新被触发
+			const currentElements = useTimelineStore.getState().elements;
+			const newElements = currentElements.map((el) => {
+				// 使用 el.id 而不是 el.props.id
+				if (el.id !== id) return el;
+
+				// 更新 transform（使用中心坐标系统）
+				const updatedTransform = {
+					centerX: canvasX + pictureWidth_scaled / 2,
+					centerY: canvasY + pictureHeight_scaled / 2,
+					width: pictureWidth_scaled,
+					height: pictureHeight_scaled,
+					rotation: rotationRadians,
+				};
+
+				return {
+					...el,
+					transform: updatedTransform,
+				};
+			});
+
+			useTimelineStore.setState({ elements: newElements });
 		},
 		[stageToCanvasCoords, zoomLevel, pinchState],
 	);
@@ -662,11 +700,12 @@ const Preview = () => {
 
 		const selected: string[] = [];
 		renderElements.forEach((el) => {
-			const { x, y, width, height } = converMetaLayoutToCanvasLayout(
-				el.props,
+			const renderLayout = transformMetaToRenderLayout(
+				el.transform,
 				canvasConvertOptions.picture,
 				canvasConvertOptions.canvas,
 			);
+			const { x, y, width, height } = renderLayoutToTopLeft(renderLayout);
 
 			const elBox = {
 				x,
@@ -682,7 +721,7 @@ const Preview = () => {
 				selBox.y < elBox.y + elBox.height &&
 				selBox.y + selBox.height > elBox.y
 			) {
-				selected.push(el.props.id);
+				selected.push(el.id);
 			}
 		});
 
@@ -893,23 +932,38 @@ const Preview = () => {
 
 	// Build Skia children for rendering
 	const buildSkiaChildren = useCallback(
-		(visibleElements: EditorElement[]) => {
+		(visibleElements: TimelineElement[]) => {
 			return (
 				<ContextBridge>
 					<Fill color="black" />
 					{visibleElements.map((el) => {
-						const { x, y, width, height, rotate } =
-							converMetaLayoutToCanvasLayout(
-								el.props,
-								canvasConvertOptions.picture,
-								canvasConvertOptions.canvas,
+						const renderLayout = transformMetaToRenderLayout(
+							el.transform,
+							canvasConvertOptions.picture,
+							canvasConvertOptions.canvas,
+						);
+
+						// 获取组件定义
+						const componentDef = componentRegistry.get(el.type);
+						if (!componentDef) {
+							console.warn(
+								`[PreviewEditor] Component type "${el.type}" not registered`,
 							);
+							console.warn(
+								`[PreviewEditor] Available types:`,
+								componentRegistry.getTypes(),
+							);
+							return null;
+						}
+
+						const Renderer = componentDef.Renderer;
 
 						return (
-							<SkiaGroup key={el.props.id}>
-								<el.type
+							<SkiaGroup key={el.id}>
+								<Renderer
+									id={el.id}
+									__renderLayout={renderLayout}
 									{...el.props}
-									__renderLayout={{ x, y, w: width, h: height, r: rotate }}
 								/>
 							</SkiaGroup>
 						);
@@ -1011,25 +1065,31 @@ const Preview = () => {
 		try {
 			// 准备要渲染的元素（不包含 Fill 背景色）
 			const elementsToRender = renderElements.map((el) => {
-				const { x, y, width, height, rotate } = converMetaLayoutToCanvasLayout(
-					el.props,
+				const renderLayout = transformMetaToRenderLayout(
+					el.transform,
 					canvasConvertOptions.picture,
 					canvasConvertOptions.canvas,
 				);
 
+				// 获取组件定义
+				const componentDef = componentRegistry.get(el.type);
+				if (!componentDef) {
+					console.warn(`Component type "${el.type}" not registered`);
+					return null;
+				}
+
+				const Renderer = componentDef.Renderer;
+
 				return (
-					<SkiaGroup key={el.props.id}>
-						<el.type
-							{...el.props}
-							__renderLayout={{ x, y, w: width, h: height, r: rotate }}
-						/>
+					<SkiaGroup key={el.id}>
+						<Renderer id={el.id} __renderLayout={renderLayout} {...el.props} />
 					</SkiaGroup>
 				);
 			});
 
 			// 离屏渲染为 Image（不包含背景色），使用当前时间点
 			const image = await renderElementsOffscreenAsImage(
-				elementsToRender,
+				elementsToRender.filter((el) => el !== null),
 				{
 					width: canvasWidth,
 					height: canvasHeight,
@@ -1135,48 +1195,24 @@ const Preview = () => {
 				onTouchEnd={handleTouchEnd}
 			>
 				<Layer>
-					{/* 选择框 */}
-					{selectionRect.visible &&
-						(() => {
-							// 将画布坐标转换为 Stage 坐标
-							const { stageX: x1, stageY: y1 } = canvasToStageCoords(
-								selectionRect.x1,
-								selectionRect.y1,
-							);
-							const { stageX: x2, stageY: y2 } = canvasToStageCoords(
-								selectionRect.x2,
-								selectionRect.y2,
-							);
-							return (
-								<KonvaRect
-									x={Math.min(x1, x2)}
-									y={Math.min(y1, y2)}
-									width={Math.abs(x2 - x1)}
-									height={Math.abs(y2 - y1)}
-									fill="rgba(100, 150, 255, 0.1)"
-									stroke="rgba(100, 150, 255, 0.5)"
-									strokeWidth={1}
-									listening={false}
-								/>
-							);
-						})()}
 					{renderElements.map((el) => {
-						const { id } = el.props;
+						const { id } = el;
 						const isHovered = hoveredId === id;
 						const isDragging = draggingId === id;
 						const isSelected = selectedIds.includes(id);
 
+						const renderLayout = transformMetaToRenderLayout(
+							el.transform,
+							canvasConvertOptions.picture,
+							canvasConvertOptions.canvas,
+						);
 						const {
 							x: canvasX,
 							y: canvasY,
 							width: canvasWidth_el,
 							height: canvasHeight_el,
-							rotate,
-						} = converMetaLayoutToCanvasLayout(
-							el.props,
-							canvasConvertOptions.picture,
-							canvasConvertOptions.canvas,
-						);
+							rotation: rotate,
+						} = renderLayoutToTopLeft(renderLayout);
 
 						// 将画布坐标转换为 Stage 坐标
 						const { stageX, stageY } = canvasToStageCoords(canvasX, canvasY);
@@ -1203,9 +1239,9 @@ const Preview = () => {
 										isSelected
 											? "rgba(255,0,0,1)"
 											: isDragging
-												? "rgba(255,0,0,0.7)"
+												? "rgba(255,0,0,0.8)"
 												: isHovered
-													? "rgba(0,0,0,0.5)"
+													? "rgba(255,0,0,0.6)"
 													: "transparent"
 									}
 									strokeWidth={isSelected ? 1 : 1}

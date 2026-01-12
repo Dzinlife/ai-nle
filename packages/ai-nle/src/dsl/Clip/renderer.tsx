@@ -1,23 +1,27 @@
 import { useEffect, useRef } from "react";
 import { Group, ImageShader, Rect } from "react-skia-lite";
-import { useTimeline } from "@/editor/TimelineContext";
+import { useCurrentTime, useTimelineStore } from "@/editor/TimelineContext";
 import { useModelSelector } from "../model/registry";
 import type { ComponentProps } from "../types";
-import {
-	type ClipInternal,
-	type ClipProps,
-	calculateVideoTime,
-} from "./model";
+import { type ClipInternal, type ClipProps, calculateVideoTime } from "./model";
 
 interface ClipRendererProps extends ComponentProps {
 	id: string;
 }
 
 const ClipRenderer: React.FC<ClipRendererProps> = ({ id, __renderLayout }) => {
-	// 从 Timeline context 获取当前时间（如果没有通过 props 传入）
-	const { currentTime } = useTimeline();
+	// 从 Timeline context 获取当前时间
+	const { currentTime } = useCurrentTime();
 
-	const { x, y, w: width, h: height, r: rotate = 0 } = __renderLayout;
+	// 直接从 TimelineStore 读取元素的 timeline 数据
+	const timeline = useTimelineStore(
+		(state) => state.elements.find((el) => el.id === id)?.timeline,
+	);
+
+	// 将中心坐标转换为左上角坐标
+	const { cx, cy, w: width, h: height, rotation: rotate = 0 } = __renderLayout;
+	const x = cx - width / 2;
+	const y = cy - height / 2;
 
 	// 订阅需要的状态
 	const isLoading = useModelSelector<ClipProps, boolean>(
@@ -40,10 +44,10 @@ const ClipRenderer: React.FC<ClipRendererProps> = ({ id, __renderLayout }) => {
 		id,
 		(state) => (state.internal as unknown as ClipInternal).videoDuration,
 	);
-	const seekToTime = useModelSelector<
-		ClipProps,
-		ClipInternal["seekToTime"]
-	>(id, (state) => (state.internal as unknown as ClipInternal).seekToTime);
+	const seekToTime = useModelSelector<ClipProps, ClipInternal["seekToTime"]>(
+		id,
+		(state) => (state.internal as unknown as ClipInternal).seekToTime,
+	);
 
 	// 用于节流 seek 的 refs
 	const lastSeekTimeRef = useRef<number | null>(null);
@@ -51,13 +55,22 @@ const ClipRenderer: React.FC<ClipRendererProps> = ({ id, __renderLayout }) => {
 
 	// 当 currentTime 变化时，更新显示的帧
 	useEffect(() => {
-		if (isLoading || hasError || !props.uri || videoDuration <= 0) {
+		if (
+			isLoading ||
+			hasError ||
+			!props.uri ||
+			videoDuration <= 0 ||
+			!timeline
+		) {
 			return;
 		}
 
+		// 从 timeline 读取 start
+		const start = timeline.start;
+
 		// 计算实际要 seek 的视频时间
 		const videoTime = calculateVideoTime({
-			start: props.start,
+			start,
 			timelineTime: currentTime,
 			videoDuration,
 			reversed: props.reversed,
@@ -89,8 +102,8 @@ const ClipRenderer: React.FC<ClipRendererProps> = ({ id, __renderLayout }) => {
 		};
 	}, [
 		props.uri,
-		props.start,
 		props.reversed,
+		timeline,
 		videoDuration,
 		isLoading,
 		hasError,

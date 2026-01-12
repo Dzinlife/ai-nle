@@ -11,7 +11,10 @@ const ImageRenderer: React.FC<ImageRendererProps> = ({
 	id,
 	__renderLayout,
 }) => {
-	const { x, y, w: width, h: height, r: rotate = 0 } = __renderLayout;
+	// 将中心坐标转换为左上角坐标
+	const { cx, cy, w: width, h: height, rotation: rotate = 0 } = __renderLayout;
+	const x = cx - width / 2;
+	const y = cy - height / 2;
 
 	// 订阅需要的状态
 	const isLoading = useModelSelector<ImageProps, boolean>(

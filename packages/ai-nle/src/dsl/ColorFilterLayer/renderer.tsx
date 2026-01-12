@@ -11,7 +11,7 @@ import {
 	Path,
 	Skia,
 } from "react-skia-lite";
-import { EditorComponent } from "./types";
+import { ComponentProps } from "../types";
 
 // 生成颜色调整矩阵
 const createColorAdjustMatrix = (
@@ -188,7 +188,8 @@ const createColorAdjustMatrix = (
 	return matrix;
 };
 
-const ColorFilterLayer: EditorComponent<{
+interface ColorFilterLayerRendererProps extends ComponentProps {
+	id: string;
 	hue?: number; // 色调调整，范围通常为 -180 到 180
 	saturation?: number; // 饱和度调整，范围通常为 -1 到 1
 	brightness?: number; // 亮度调整，范围通常为 -1 到 1
@@ -196,7 +197,9 @@ const ColorFilterLayer: EditorComponent<{
 	shape?: "circle" | "rect";
 	cornerRadius?: number;
 	feather?: number; // 羽化半径，单位：像素
-}> = ({
+}
+
+const ColorFilterLayer: React.FC<ColorFilterLayerRendererProps> = ({
 	hue = 0,
 	saturation = 0,
 	brightness = 0,
@@ -206,7 +209,10 @@ const ColorFilterLayer: EditorComponent<{
 	cornerRadius = 0,
 	feather = 0,
 }) => {
-	const { x, y, w: width, h: height } = __renderLayout;
+	// 从中心坐标转换为左上角坐标
+	const { cx, cy, w: width, h: height, rotation: rotate = 0 } = __renderLayout;
+	const x = cx - width / 2;
+	const y = cy - height / 2;
 
 	// 计算颜色矩阵
 	const colorMatrix = useMemo(
@@ -224,11 +230,12 @@ const ColorFilterLayer: EditorComponent<{
 		return Skia.ImageFilter.MakeColorFilter(colorFilter, null);
 	}, [colorFilter]);
 
-	// 创建裁剪路径
+	// 创建裁剪路径（使用左上角坐标系统）
 	const clipPath = useMemo(() => {
 		const path = Skia.Path.Make();
 		if (shape === "circle") {
 			const radius = Math.min(width, height) / 2;
+			// 圆心在左上角坐标系统中的位置
 			path.addCircle(x + width / 2, y + height / 2, radius);
 		} else {
 			path.addRRect({
@@ -257,56 +264,28 @@ const ColorFilterLayer: EditorComponent<{
 	// 如果没有羽化，直接使用 clip 裁剪
 	if (feather <= 0) {
 		return (
-			<BackdropFilter
-				filter={<ImageFilter filter={imageFilter} />}
-				clip={clipPath}
-			/>
+			<Group clip={clipPath} transform={[{ rotate }]} origin={{ x, y }}>
+				<BackdropFilter filter={<ImageFilter filter={imageFilter} />} />
+			</Group>
 		);
 	}
 
 	// BackdropFilter 在外层直接执行（读取原始画布）
 	// 然后用 dstIn 混合绘制羽化 mask，直接作用于画布
 	return (
-		<BackdropFilter filter={<ImageFilter filter={imageFilter} />}>
-			<Group
-				layer={
-					<Paint blendMode="dstIn">
-						<Blur blur={feather} />
-					</Paint>
-				}
-			>
-				<Path path={clipPath} />
-			</Group>
-		</BackdropFilter>
-	);
-};
-
-ColorFilterLayer.displayName = "ColorFilterLayer";
-ColorFilterLayer.timelineComponent = ({
-	name,
-	hue = 0,
-	saturation = 0,
-	brightness = 0,
-	contrast = 0,
-}) => {
-	return (
-		<div className="absolute inset-0 rounded-md overflow-hidden bg-linear-to-b from-purple-800 to-purple-700 border border-purple-700 p-1">
-			<div className="flex gap-1 items-center">
-				<span className="text-xs">🎨</span>
-				<span>{name || "ColorFilterLayer"}</span>
-				{(hue !== 0 ||
-					saturation !== 0 ||
-					brightness !== 0 ||
-					contrast !== 0) && (
-					<span className="text-xs opacity-70">
-						{hue !== 0 && `H:${hue.toFixed(0)}`}
-						{saturation !== 0 && ` S:${(saturation * 100).toFixed(0)}%`}
-						{brightness !== 0 && ` B:${(brightness * 100).toFixed(0)}%`}
-						{contrast !== 0 && ` C:${(contrast * 100).toFixed(0)}%`}
-					</span>
-				)}
-			</div>
-		</div>
+		<Group transform={[{ rotate }]} origin={{ x, y }}>
+			<BackdropFilter filter={<ImageFilter filter={imageFilter} />}>
+				<Group
+					layer={
+						<Paint blendMode="dstIn">
+							<Blur blur={feather} />
+						</Paint>
+					}
+				>
+					<Path path={clipPath} />
+				</Group>
+			</BackdropFilter>
+		</Group>
 	);
 };
 

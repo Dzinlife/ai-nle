@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Fill, Group, Rect, Shader, Skia } from "react-skia-lite";
-import { useTimeline } from "@/editor/TimelineContext";
+import { useCurrentTime, useTimelineStore } from "@/editor/TimelineContext";
 import { useModelSelector } from "../model/registry";
 import { parseStartEndSchema } from "../startEndSchema";
 import type { ComponentProps } from "../types";
@@ -19,9 +19,16 @@ const CloudBackgroundRenderer: React.FC<CloudBackgroundRendererProps> = ({
 	id,
 	__renderLayout,
 }) => {
-	const { currentTime } = useTimeline();
+	const { currentTime } = useCurrentTime();
 
-	const { x, y, w: width, h: height, r: rotate = 0 } = __renderLayout;
+	// 直接从 TimelineStore 读取元素的 timeline 数据
+	const timeline = useTimelineStore(
+		(state) => state.elements.find((el) => el.id === id)?.timeline,
+	);
+
+	const { cx, cy, w: width, h: height, rotation: rotate = 0 } = __renderLayout;
+	const x = cx - width / 2;
+	const y = cy - height / 2;
 
 	// 订阅状态
 	const props = useModelSelector<CloudBackgroundProps, CloudBackgroundProps>(
@@ -48,8 +55,8 @@ const CloudBackgroundRenderer: React.FC<CloudBackgroundRendererProps> = ({
 		cloudColor = "#FFFFFF",
 	} = props;
 
-	// 解析开始时间
-	const start = parseStartEndSchema(props.start ?? 0);
+	// 解析开始时间（从 __timeline 获取）
+	const start = parseStartEndSchema(timeline?.start ?? 0);
 	const relativeTime = Math.max(0, currentTime - start) * speed;
 
 	// 解析颜色
