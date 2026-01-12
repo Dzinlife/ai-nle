@@ -1,5 +1,9 @@
 import React, { useCallback, useEffect, useRef } from "react";
-import { useCurrentTime } from "@/editor/TimelineContext";
+import {
+	usePlaybackControl,
+	usePreviewTime,
+	useTimelineStore,
+} from "@/editor/TimelineContext";
 
 interface CurrentTimeIndicatorCanvasProps {
 	leftColumnWidth: number;
@@ -13,7 +17,10 @@ const CurrentTimeIndicatorCanvas: React.FC<CurrentTimeIndicatorCanvasProps> = ({
 	scrollLeft,
 }) => {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
-	const { currentTime } = useCurrentTime();
+	// 直接从 store 获取固定时间，不受 previewTime 影响
+	const currentTime = useTimelineStore((state) => state.currentTime);
+	const { previewTime } = usePreviewTime();
+	const { isPlaying } = usePlaybackControl();
 
 	// 绘制函数
 	const draw = useCallback(() => {
@@ -27,26 +34,35 @@ const CurrentTimeIndicatorCanvas: React.FC<CurrentTimeIndicatorCanvasProps> = ({
 		const rect = canvas.parentElement?.getBoundingClientRect();
 		if (!rect) return;
 
-		const dpr = window.devicePixelRatio || 1;
-		const displayWidth = rect.width;
 		const displayHeight = rect.height;
 
 		// 清空画布（使用实际像素尺寸）
 		ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-		// 计算时间线的 x 位置（使用显示坐标）
-		const x = leftColumnWidth + currentTime * ratio - scrollLeft;
-
-		// 绘制红色竖线（使用显示坐标，context 已经 scale 过了）
+		// 绘制红色竖线 - 固定时间（currentTime）
+		const currentX = leftColumnWidth + currentTime * ratio - scrollLeft;
 		ctx.strokeStyle = "#ef4444"; // red-500
 		ctx.lineWidth = 1;
 		ctx.beginPath();
-		ctx.moveTo(x, 0);
-		ctx.lineTo(x, displayHeight);
+		ctx.moveTo(currentX, 0);
+		ctx.lineTo(currentX, displayHeight);
 		ctx.stroke();
-	}, [leftColumnWidth, ratio, scrollLeft, currentTime]);
 
-	// 当 currentTime 或 scrollLeft 变化时重新绘制
+		// 绘制蓝色竖线 - 预览时间（previewTime，如果存在且非播放状态）
+		if (previewTime !== null && !isPlaying) {
+			const previewX = leftColumnWidth + previewTime * ratio - scrollLeft;
+			ctx.strokeStyle = "#3b82f6"; // blue-500
+			ctx.lineWidth = 1;
+			ctx.setLineDash([4, 4]); // 虚线
+			ctx.beginPath();
+			ctx.moveTo(previewX, 0);
+			ctx.lineTo(previewX, displayHeight);
+			ctx.stroke();
+			ctx.setLineDash([]); // 重置为实线
+		}
+	}, [leftColumnWidth, ratio, scrollLeft, currentTime, previewTime, isPlaying]);
+
+	// 当 currentTime、previewTime 或 scrollLeft 变化时重新绘制
 	useEffect(() => {
 		draw();
 	}, [draw]);

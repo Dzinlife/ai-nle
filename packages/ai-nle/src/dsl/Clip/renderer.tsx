@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Group, ImageShader, Rect } from "react-skia-lite";
-import { useCurrentTime, useTimelineStore } from "@/editor/TimelineContext";
+import { usePlaybackControl, useTimelineStore } from "@/editor/TimelineContext";
 import { useModelSelector } from "../model/registry";
 import type { ComponentProps } from "../types";
 import { type ClipInternal, type ClipProps, calculateVideoTime } from "./model";
@@ -10,8 +10,14 @@ interface ClipRendererProps extends ComponentProps {
 }
 
 const ClipRenderer: React.FC<ClipRendererProps> = ({ id, __renderLayout }) => {
-	// 从 Timeline context 获取当前时间
-	const { currentTime } = useCurrentTime();
+	// 播放时使用真正的 currentTime，非播放时使用 previewTime ?? currentTime
+	const currentTime = useTimelineStore((state) => {
+		if (state.isPlaying) {
+			return state.currentTime;
+		}
+		return state.previewTime ?? state.currentTime;
+	});
+	const { isPlaying } = usePlaybackControl();
 
 	// 直接从 TimelineStore 读取元素的 timeline 数据
 	const timeline = useTimelineStore(
@@ -48,12 +54,25 @@ const ClipRenderer: React.FC<ClipRendererProps> = ({ id, __renderLayout }) => {
 		id,
 		(state) => (state.internal as unknown as ClipInternal).seekToTime,
 	);
+	const startPlayback = useModelSelector<
+		ClipProps,
+		ClipInternal["startPlayback"]
+	>(id, (state) => (state.internal as unknown as ClipInternal).startPlayback);
+	const getNextFrame = useModelSelector<
+		ClipProps,
+		ClipInternal["getNextFrame"]
+	>(id, (state) => (state.internal as unknown as ClipInternal).getNextFrame);
+	const stopPlayback = useModelSelector<
+		ClipProps,
+		ClipInternal["stopPlayback"]
+	>(id, (state) => (state.internal as unknown as ClipInternal).stopPlayback);
 
-	// 用于节流 seek 的 refs
-	const lastSeekTimeRef = useRef<number | null>(null);
-	const animationFrameRef = useRef<number | null>(null);
+	// 跟踪播放状态
+	const wasPlayingRef = useRef(false);
+	const lastVideoTimeRef = useRef<number | null>(null);
+	const lastPlaybackTimeRef = useRef<number | null>(null); // 追踪播放时的时间
 
-	// 当 currentTime 变化时，更新显示的帧
+	// 处理播放状态变化
 	useEffect(() => {
 		if (
 			isLoading ||
@@ -65,7 +84,6 @@ const ClipRenderer: React.FC<ClipRendererProps> = ({ id, __renderLayout }) => {
 			return;
 		}
 
-		// 从 timeline 读取 start
 		const start = timeline.start;
 
 		// 计算实际要 seek 的视频时间
@@ -76,30 +94,47 @@ const ClipRenderer: React.FC<ClipRendererProps> = ({ id, __renderLayout }) => {
 			reversed: props.reversed,
 		});
 
-		// 如果时间变化太小，跳过（避免频繁 seek）
-		if (
-			lastSeekTimeRef.current !== null &&
-			Math.abs(lastSeekTimeRef.current - videoTime) < 0.1
-		) {
+		// 播放状态变化：从暂停到播放
+		if (isPlaying && !wasPlayingRef.current) {
+			wasPlayingRef.current = true;
+			lastPlaybackTimeRef.current = videoTime;
+			startPlayback(videoTime);
 			return;
 		}
 
-		// 使用 requestAnimationFrame 节流
-		if (animationFrameRef.current !== null) {
-			cancelAnimationFrame(animationFrameRef.current);
+		// 播放状态变化：从播放到暂停
+		if (!isPlaying && wasPlayingRef.current) {
+			wasPlayingRef.current = false;
+			lastPlaybackTimeRef.current = null;
+			stopPlayback();
+			return;
 		}
 
-		animationFrameRef.current = requestAnimationFrame(() => {
-			animationFrameRef.current = null;
-			lastSeekTimeRef.current = videoTime;
-			seekToTime(videoTime);
-		});
-
-		return () => {
-			if (animationFrameRef.current !== null) {
-				cancelAnimationFrame(animationFrameRef.current);
+		// 播放中：检测是否需要重新 seek（时间跳跃）
+		if (isPlaying) {
+			const lastTime = lastPlaybackTimeRef.current;
+			// 如果时间向后跳跃（seek 到更早的位置），需要重新启动播放
+			if (lastTime !== null && videoTime < lastTime - 0.1) {
+				// 重新启动播放
+				stopPlayback();
+				startPlayback(videoTime);
+			} else {
+				getNextFrame(videoTime);
 			}
-		};
+			lastPlaybackTimeRef.current = videoTime;
+			return;
+		}
+
+		// 非播放状态：使用 seek（拖动时间轴）
+		if (
+			lastVideoTimeRef.current !== null &&
+			Math.abs(lastVideoTimeRef.current - videoTime) < 0.05
+		) {
+			return; // 时间变化太小，跳过
+		}
+
+		lastVideoTimeRef.current = videoTime;
+		seekToTime(videoTime);
 	}, [
 		props.uri,
 		props.reversed,
@@ -108,8 +143,19 @@ const ClipRenderer: React.FC<ClipRendererProps> = ({ id, __renderLayout }) => {
 		isLoading,
 		hasError,
 		currentTime,
+		isPlaying,
 		seekToTime,
+		startPlayback,
+		getNextFrame,
+		stopPlayback,
 	]);
+
+	// 组件卸载时停止播放
+	useEffect(() => {
+		return () => {
+			stopPlayback();
+		};
+	}, [stopPlayback]);
 
 	// Loading 状态
 	if (isLoading) {

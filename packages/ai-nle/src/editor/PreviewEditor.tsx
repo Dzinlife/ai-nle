@@ -257,7 +257,7 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 const Preview = () => {
 	const renderElementsRef = useRef<TimelineElement[]>([]);
 
-	const { getCurrentTime, getElements, setElements } = useMemo(
+	const { getCurrentTime, getDisplayTime, getElements, setElements } = useMemo(
 		() => useTimelineStore.getState(),
 		[],
 	);
@@ -975,8 +975,10 @@ const Preview = () => {
 	);
 
 	useEffect(() => {
-		const renderSkia = (time: number) => {
-			const visibleElements = computeVisibleElements(getElements(), time);
+		const renderSkia = () => {
+			const state = useTimelineStore.getState();
+			const displayTime = state.previewTime ?? state.currentTime;
+			const visibleElements = computeVisibleElements(getElements(), displayTime);
 			const children = buildSkiaChildren(visibleElements);
 
 			const prevElements = renderElementsRef.current;
@@ -991,7 +993,13 @@ const Preview = () => {
 			}
 		};
 
-		return useTimelineStore.subscribe((state) => state.currentTime, renderSkia);
+		// 同时监听 currentTime 和 previewTime
+		const unsub1 = useTimelineStore.subscribe((state) => state.currentTime, renderSkia);
+		const unsub2 = useTimelineStore.subscribe((state) => state.previewTime, renderSkia);
+		return () => {
+			unsub1();
+			unsub2();
+		};
 	}, [buildSkiaChildren]);
 
 	useEffect(() => {
@@ -1001,7 +1009,7 @@ const Preview = () => {
 				const root = skiaCanvasRef.current?.getRoot();
 				if (!root) return;
 
-				const time = getCurrentTime();
+				const time = getDisplayTime();
 				const visibleElements = computeVisibleElements(newElements, time);
 				const children = buildSkiaChildren(visibleElements);
 				root.render(children);

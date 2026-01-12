@@ -7,11 +7,18 @@ import React, {
 	useState,
 } from "react";
 import TimeIndicatorCanvas from "@/editor/TimeIndicatorCanvas";
-import { useElements, useTimelineStore } from "./TimelineContext";
+import {
+	useElements,
+	usePlaybackControl,
+	usePreviewTime,
+	useTimelineStore,
+} from "./TimelineContext";
 import TimelineElement from "./TimelineElement";
 
 const TimelineEditor = () => {
 	const setCurrentTime = useTimelineStore((state) => state.setCurrentTime);
+	const { setPreviewTime } = usePreviewTime();
+	const { isPlaying } = usePlaybackControl();
 	const { elements, setElements } = useElements();
 
 	// 滚动位置状态
@@ -47,17 +54,34 @@ const TimelineEditor = () => {
 		[setElements],
 	);
 
+	// hover 时设置预览时间（临时）
 	const handleMouseMove = useCallback(
 		(e: React.MouseEvent<HTMLDivElement>) => {
+			if (isPlaying) return;
 			const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
-			// 减去 leftColumnWidth 的 offset，得到相对于时间线内容区域的坐标
-			const time = (x - leftColumnWidth + scrollLeft) / ratio;
+			const time = Math.max(0, (x - leftColumnWidth + scrollLeft) / ratio);
 			startTransition(() => {
-				setCurrentTime(time);
+				setPreviewTime(time);
 			});
 		},
-		[ratio, scrollLeft, leftColumnWidth],
+		[ratio, scrollLeft, leftColumnWidth, isPlaying, setPreviewTime],
 	);
+
+	// 点击时设置固定时间
+	const handleClick = useCallback(
+		(e: React.MouseEvent<HTMLDivElement>) => {
+			const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
+			const time = Math.max(0, (x - leftColumnWidth + scrollLeft) / ratio);
+			setCurrentTime(time);
+			setPreviewTime(null); // 清除预览时间
+		},
+		[ratio, scrollLeft, leftColumnWidth, setCurrentTime, setPreviewTime],
+	);
+
+	// 鼠标离开时清除预览时间，回到固定时间
+	const handleMouseLeave = useCallback(() => {
+		setPreviewTime(null);
+	}, [setPreviewTime]);
 
 	// 同步 scrollLeft 到 ref
 	useEffect(() => {
@@ -186,20 +210,22 @@ const TimelineEditor = () => {
 			>
 				left column
 			</div>
+			<TimeIndicatorCanvas
+				leftColumnWidth={leftColumnWidth}
+				ratio={ratio}
+				scrollLeft={scrollLeft}
+			/>
 			{/* 时间线容器，占满整个屏幕，左侧留出 padding 给 left column */}
 			<div
 				ref={containerRef}
 				className="relative w-full h-full overflow-y-auto"
 				style={{ paddingLeft: leftColumnWidth }}
 				onMouseMove={handleMouseMove}
+				onMouseLeave={handleMouseLeave}
+				onClick={handleClick}
 			>
 				{timeStamps}
 				{timelineItems}
-				<TimeIndicatorCanvas
-					leftColumnWidth={leftColumnWidth}
-					ratio={ratio}
-					scrollLeft={scrollLeft}
-				/>
 			</div>
 		</div>
 	);

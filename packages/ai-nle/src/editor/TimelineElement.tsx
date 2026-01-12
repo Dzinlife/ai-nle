@@ -255,6 +255,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				top: index * trackHeight,
 				height: 54,
 			}}
+			onClick={(e) => e.stopPropagation()}
 		>
 			{/* 左拖拽手柄 */}
 			<div

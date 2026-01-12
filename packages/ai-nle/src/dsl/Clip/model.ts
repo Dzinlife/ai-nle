@@ -31,8 +31,16 @@ export interface ClipInternal {
 	isReady: boolean;
 	// 缩略图（用于时间线预览）
 	thumbnailCanvas: HTMLCanvasElement | null;
-	// seek 方法
+	// 帧缓存
+	frameCache: Map<number, SkImage>;
+	// seek 方法（用于拖动/跳转）
 	seekToTime: (seconds: number) => Promise<void>;
+	// 开始流式播放
+	startPlayback: (startTime: number) => Promise<void>;
+	// 获取下一帧（流式播放时调用）
+	getNextFrame: (targetTime: number) => Promise<void>;
+	// 停止流式播放
+	stopPlayback: () => void;
 }
 
 // 计算实际要 seek 的视频时间（考虑倒放）
@@ -68,35 +76,213 @@ export function createClipModel(
 	let videoFrameIterator: AsyncGenerator<WrappedCanvas, void, unknown> | null =
 		null;
 
-	// Seek 到指定时间的方法
+	// 流式播放状态
+	let isPlaybackActive = false;
+	let nextFrame: WrappedCanvas | null = null;
+
+	// 帧缓存配置
+	const MAX_CACHE_SIZE = 50;
+	const FRAME_INTERVAL = 0.1; // 缓存精度：0.1秒
+
+	// 帧缓存
+	const frameCache = new Map<number, SkImage>();
+	const cacheAccessOrder: number[] = []; // LRU 顺序
+
+	// 将时间戳对齐到缓存精度
+	const alignTime = (time: number): number => {
+		return Math.round(time / FRAME_INTERVAL) * FRAME_INTERVAL;
+	};
+
+	// 更新 LRU 顺序
+	const updateCacheAccess = (key: number) => {
+		const index = cacheAccessOrder.indexOf(key);
+		if (index > -1) {
+			cacheAccessOrder.splice(index, 1);
+		}
+		cacheAccessOrder.push(key);
+	};
+
+	// 清理过期缓存
+	const cleanupCache = () => {
+		while (frameCache.size > MAX_CACHE_SIZE && cacheAccessOrder.length > 0) {
+			const oldestKey = cacheAccessOrder.shift();
+			if (oldestKey !== undefined) {
+				frameCache.delete(oldestKey);
+			}
+		}
+	};
+
+	// 将 canvas 转换为 SkImage
+	const canvasToSkImage = async (
+		canvas: HTMLCanvasElement | OffscreenCanvas,
+	): Promise<SkImage | null> => {
+		try {
+			const imageBitmap = await createImageBitmap(canvas);
+			return Skia.Image.MakeImageFromNativeBuffer(imageBitmap);
+		} catch (err) {
+			console.warn("Canvas to SkImage failed:", err);
+			return null;
+		}
+	};
+
+	// 更新当前帧
+	const updateCurrentFrame = (skiaImage: SkImage, timestamp?: number) => {
+		// 存入缓存
+		if (timestamp !== undefined) {
+			const alignedTime = alignTime(timestamp);
+			if (!frameCache.has(alignedTime)) {
+				frameCache.set(alignedTime, skiaImage);
+				updateCacheAccess(alignedTime);
+				cleanupCache();
+			}
+		}
+
+		store.setState((state) => ({
+			...state,
+			internal: {
+				...state.internal,
+				currentFrame: skiaImage,
+				isReady: true,
+			},
+		}));
+	};
+
+	// 开始流式播放
+	const startPlayback = async (startTime: number): Promise<void> => {
+		const { internal } = store.getState();
+		const { videoSink } = internal;
+
+		if (!videoSink || isPlaybackActive) return;
+
+		// 停止之前的迭代器
+		await videoFrameIterator?.return?.();
+
+		isPlaybackActive = true;
+		asyncId++;
+		const currentAsyncId = asyncId;
+
+		try {
+			// 创建新的迭代器
+			videoFrameIterator = videoSink.canvases(startTime);
+
+			// 获取第一帧
+			const firstFrameResult = await videoFrameIterator.next();
+			if (currentAsyncId !== asyncId) return;
+
+			const firstFrame = firstFrameResult.value ?? null;
+			if (firstFrame) {
+				const canvas = firstFrame.canvas;
+				if (
+					canvas instanceof HTMLCanvasElement ||
+					canvas instanceof OffscreenCanvas
+				) {
+					const skiaImage = await canvasToSkImage(canvas);
+					if (skiaImage && currentAsyncId === asyncId) {
+						updateCurrentFrame(skiaImage, firstFrame.timestamp);
+					}
+				}
+			}
+
+			// 预读下一帧
+			const secondFrameResult = await videoFrameIterator.next();
+			if (currentAsyncId !== asyncId) return;
+			nextFrame = secondFrameResult.value ?? null;
+		} catch (err) {
+			console.warn("Start playback failed:", err);
+			isPlaybackActive = false;
+		}
+	};
+
+	// 获取下一帧（流式播放时调用）
+	const getNextFrame = async (targetTime: number): Promise<void> => {
+		if (!isPlaybackActive || !videoFrameIterator) return;
+
+		const currentAsyncId = asyncId;
+
+		try {
+			// 跳过时间戳小于目标时间的帧
+			let frameToShow: WrappedCanvas | null = null;
+
+			while (nextFrame && nextFrame.timestamp <= targetTime) {
+				frameToShow = nextFrame;
+
+				// 获取下一帧
+				const result = await videoFrameIterator.next();
+				if (currentAsyncId !== asyncId) return;
+
+				nextFrame = result.value ?? null;
+				if (!nextFrame) break; // 迭代器结束
+			}
+
+			// 显示找到的帧
+			if (frameToShow) {
+				const canvas = frameToShow.canvas;
+				if (
+					canvas instanceof HTMLCanvasElement ||
+					canvas instanceof OffscreenCanvas
+				) {
+					const skiaImage = await canvasToSkImage(canvas);
+					if (skiaImage && currentAsyncId === asyncId) {
+						updateCurrentFrame(skiaImage, frameToShow.timestamp);
+					}
+				}
+			}
+		} catch (err) {
+			console.warn("Get next frame failed:", err);
+		}
+	};
+
+	// 停止流式播放
+	const stopPlayback = () => {
+		isPlaybackActive = false;
+		nextFrame = null;
+		videoFrameIterator?.return?.();
+		videoFrameIterator = null;
+	};
+
+	// Seek 到指定时间的方法（用于拖动/跳转）
 	const seekToTime = async (seconds: number): Promise<void> => {
 		const { internal } = store.getState();
 		const { videoSink } = internal;
 
 		if (!videoSink) return;
 
+		// 如果正在流式播放，先停止
+		if (isPlaybackActive) {
+			stopPlayback();
+		}
+
 		// 防止并发 seek
 		if (isSeekingFlag) return;
 		if (lastSeekTime === seconds) return;
+
+		const alignedTime = alignTime(seconds);
+
+		// 检查缓存
+		const cachedFrame = frameCache.get(alignedTime);
+		if (cachedFrame) {
+			updateCacheAccess(alignedTime);
+			store.setState((state) => ({
+				...state,
+				internal: {
+					...state.internal,
+					currentFrame: cachedFrame,
+					isReady: true,
+				},
+			}));
+			lastSeekTime = seconds;
+			return;
+		}
 
 		isSeekingFlag = true;
 		asyncId++;
 		const currentAsyncId = asyncId;
 
 		try {
-			// 清理旧的迭代器
-			const oldIterator = videoFrameIterator;
-			videoFrameIterator = null;
-			await oldIterator?.return?.();
-
-			if (currentAsyncId !== asyncId) return;
-
-			// 创建新的迭代器
+			// 创建临时迭代器获取帧
 			const iterator = videoSink.canvases(seconds);
-			videoFrameIterator = iterator;
-
-			// 获取第一帧
 			const firstFrame = (await iterator.next()).value ?? null;
+			await iterator.return?.();
 
 			if (currentAsyncId !== asyncId) return;
 
@@ -106,29 +292,12 @@ export function createClipModel(
 					canvas instanceof HTMLCanvasElement ||
 					canvas instanceof OffscreenCanvas
 				) {
-					// 复制 canvas 内容
-					const imageBitmap = await createImageBitmap(canvas);
-					const skiaImage = Skia.Image.MakeImageFromNativeBuffer(imageBitmap);
-
-					if (skiaImage) {
-						store.setState((state) => ({
-							...state,
-							internal: {
-								...state.internal,
-								currentFrame: skiaImage,
-								isReady: true,
-							},
-						}));
+					const skiaImage = await canvasToSkImage(canvas);
+					if (skiaImage && currentAsyncId === asyncId) {
+						updateCurrentFrame(skiaImage, seconds);
+						lastSeekTime = seconds;
 					}
-
-					lastSeekTime = seconds;
 				}
-			}
-
-			// 关闭迭代器
-			await iterator.return?.();
-			if (videoFrameIterator === iterator) {
-				videoFrameIterator = null;
 			}
 		} catch (err) {
 			console.warn("Seek failed:", err);
@@ -154,7 +323,11 @@ export function createClipModel(
 				videoDuration: 0,
 				isReady: false,
 				thumbnailCanvas: null,
+				frameCache,
 				seekToTime,
+				startPlayback,
+				getNextFrame,
+				stopPlayback,
 			} satisfies ClipInternal,
 
 			setProps: (partial) => {
@@ -326,6 +499,10 @@ export function createClipModel(
 				// 清理迭代器
 				videoFrameIterator?.return?.();
 				videoFrameIterator = null;
+
+				// 清理帧缓存
+				frameCache.clear();
+				cacheAccessOrder.length = 0;
 
 				// 清理资源
 				internal.videoSink = null;
