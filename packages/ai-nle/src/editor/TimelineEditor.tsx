@@ -16,6 +16,7 @@ import {
 	useTimelineStore,
 } from "./TimelineContext";
 import TimelineElement from "./TimelineElement";
+import TimelineRuler from "./TimelineRuler";
 
 const TimelineEditor = () => {
 	const setCurrentTime = useTimelineStore((state) => state.setCurrentTime);
@@ -31,6 +32,29 @@ const TimelineEditor = () => {
 
 	// 左侧列宽度状态
 	const [leftColumnWidth] = useState(200); // 默认 44 * 4 = 176px (w-44)
+
+	// 时间刻度尺宽度
+	const [rulerWidth, setRulerWidth] = useState(800);
+	const observerRef = useRef<ResizeObserver | null>(null);
+
+	// 使用 callback ref 来监听容器宽度
+	const rulerContainerRef = useCallback((node: HTMLDivElement | null) => {
+		if (observerRef.current) {
+			observerRef.current.disconnect();
+			observerRef.current = null;
+		}
+
+		if (node) {
+			const observer = new ResizeObserver((entries) => {
+				for (const entry of entries) {
+					setRulerWidth(entry.contentRect.width);
+				}
+			});
+			observer.observe(node);
+			observerRef.current = observer;
+			setRulerWidth(node.clientWidth);
+		}
+	}, []);
 
 	const ratio = 50;
 
@@ -158,34 +182,27 @@ const TimelineEditor = () => {
 
 	const trackHeight = 60;
 
-	const timeStamps = useMemo(() => {
-		return (
+	const timeStamps = (
+		<div
+			className="flex pointer-events-none sticky top-0 left-0 z-50 bg-neutral-800/70 border border-white/10 rounded-full mx-4 backdrop-blur-2xl border-r overflow-hidden"
+			style={{
+				paddingLeft: leftColumnWidth - 34,
+			}}
+		>
 			<div
-				className="pointer-events-none sticky top-0 left-0 z-50 bg-neutral-800/70 border border-white/10 rounded-full mx-4 backdrop-blur-2xl border-r overflow-hidden"
-				style={{
-					paddingLeft: leftColumnWidth - 34,
-					// 	transform: `translateX(-${scrollLeft}px)`,
-				}}
+				ref={rulerContainerRef}
+				className="overflow-hidden border-l border-white/10 flex-1"
 			>
-				<div className="overflow-hidden border-l border-white/10 pl-4">
-					<div
-						className="flex"
-						style={{ transform: `translateX(-${scrollLeft}px)` }}
-					>
-						{Array.from({ length: 100 }).map((_, index) => (
-							<div
-								key={index}
-								className="flex items-center justify-center h-6 -translate-x-1/2 text-xs text-white shrink-0"
-								style={{ left: index * ratio, width: ratio }}
-							>
-								{index}
-							</div>
-						))}
-					</div>
-				</div>
+				<TimelineRuler
+					scrollLeft={scrollLeft}
+					ratio={ratio}
+					width={rulerWidth}
+					paddingLeft={16}
+					// fps={60}
+				/>
 			</div>
-		);
-	}, [scrollLeft, ratio]);
+		</div>
+	);
 
 	const timelineItems = useMemo(() => {
 		return (
