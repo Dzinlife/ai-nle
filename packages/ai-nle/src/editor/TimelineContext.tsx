@@ -9,6 +9,7 @@ interface TimelineStore {
 	elements: TimelineElement[];
 	canvasSize: { width: number; height: number };
 	isPlaying: boolean;
+	isDragging: boolean; // 是否正在拖拽元素
 	setCurrentTime: (time: number) => void;
 	setPreviewTime: (time: number | null) => void;
 	setElements: (
@@ -24,6 +25,7 @@ interface TimelineStore {
 	play: () => void;
 	pause: () => void;
 	togglePlay: () => void;
+	setIsDragging: (isDragging: boolean) => void;
 }
 
 export const useTimelineStore = create<TimelineStore>()(
@@ -33,6 +35,7 @@ export const useTimelineStore = create<TimelineStore>()(
 		elements: [],
 		canvasSize: { width: 1920, height: 1080 },
 		isPlaying: false,
+		isDragging: false,
 
 		setCurrentTime: (time: number) => {
 			const currentTime = get().currentTime;
@@ -90,6 +93,10 @@ export const useTimelineStore = create<TimelineStore>()(
 		togglePlay: () => {
 			set((state) => ({ isPlaying: !state.isPlaying }));
 		},
+
+		setIsDragging: (isDragging: boolean) => {
+			set({ isDragging });
+		},
 	})),
 );
 
@@ -141,6 +148,16 @@ export const usePlaybackControl = () => {
 		play,
 		pause,
 		togglePlay,
+	};
+};
+
+export const useDragging = () => {
+	const isDragging = useTimelineStore((state) => state.isDragging);
+	const setIsDragging = useTimelineStore((state) => state.setIsDragging);
+
+	return {
+		isDragging,
+		setIsDragging,
 	};
 };
 

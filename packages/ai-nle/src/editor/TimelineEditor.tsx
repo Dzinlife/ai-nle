@@ -159,7 +159,7 @@ const TimelineEditor = () => {
 	const timeStamps = useMemo(() => {
 		return (
 			<div
-				className="flex sticky top-0 z-10 border-b border-neutral-700"
+				className="flex sticky top-0 z-10 bg-neutral-800/60 backdrop-blur-2xl"
 				style={{
 					transform: `translateX(-${scrollLeft}px)`,
 				}}
@@ -167,7 +167,7 @@ const TimelineEditor = () => {
 				{Array.from({ length: 100 }).map((_, index) => (
 					<div
 						key={index}
-						className="flex items-center justify-center h-6 -translate-x-1/2 bg-neutral-800/60 text-xs text-white backdrop-blur-2xl shrink-0"
+						className="flex items-center justify-center h-6 -translate-x-1/2 text-xs text-white shrink-0"
 						style={{ left: index * ratio, width: ratio }}
 					>
 						{index}
@@ -218,7 +218,7 @@ const TimelineEditor = () => {
 			{/* 时间线容器，占满整个屏幕，左侧留出 padding 给 left column */}
 			<div
 				ref={containerRef}
-				className="relative w-full h-full overflow-y-auto"
+				className="relative w-full h-full overflow-y-auto overflow-x-hidden"
 				style={{ paddingLeft: leftColumnWidth }}
 				onMouseMove={handleMouseMove}
 				onMouseLeave={handleMouseLeave}

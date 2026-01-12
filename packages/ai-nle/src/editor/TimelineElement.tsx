@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { componentRegistry } from "@/dsl/model/componentRegistry";
 import { modelRegistry, useModelExists } from "@/dsl/model/registry";
 import { TimelineElement as TimelineElementType } from "@/dsl/types";
+import { useDragging } from "./TimelineContext";
 
 interface TimelineElementProps {
 	element: TimelineElementType;
@@ -26,6 +27,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	const isDraggingRef = useRef<boolean>(false);
 	const currentStartTimeRef = useRef<number>(0);
 	const currentEndTimeRef = useRef<number>(0);
+	const { setIsDragging } = useDragging();
 
 	const { start, end } = timeline;
 
@@ -98,6 +100,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 			if (first) {
 				event?.stopPropagation();
 				isDraggingRef.current = true;
+				setIsDragging(true);
 				// 保存拖拽开始时的初始值（从 ref 读取当前实际显示的值）
 				// 这样即使有本地状态，也能正确计算偏移，避免闭包问题
 				initialStartRef.current = currentStartTimeRef.current;
@@ -125,6 +128,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 			if (last) {
 				// 拖拽结束时，更新全局状态（只改变 start，end 保持不变）
 				isDraggingRef.current = false;
+				setIsDragging(false);
 				// 只有在真正有移动时才更新（防止点击误触发）
 				if (Math.abs(mx) > 0) {
 					updateTimeRange(id, newStart, initialEndRef.current);
@@ -153,6 +157,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 			if (first) {
 				event?.stopPropagation();
 				isDraggingRef.current = true;
+				setIsDragging(true);
 				// 保存拖拽开始时的初始值（从 ref 读取当前实际显示的值）
 				// 这样即使有本地状态，也能正确计算偏移，避免闭包问题
 				initialStartRef.current = currentStartTimeRef.current;
@@ -176,6 +181,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 			if (last) {
 				// 拖拽结束时，更新全局状态
 				isDraggingRef.current = false;
+				setIsDragging(false);
 				// 只有在真正有移动时才更新（防止点击误触发）
 				if (Math.abs(mx) > 0) {
 					updateTimeRange(id, initialStartRef.current, newEnd);
@@ -204,6 +210,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 			if (first) {
 				event?.stopPropagation();
 				isDraggingRef.current = true;
+				setIsDragging(true);
 				// 保存拖拽开始时的初始值（从 ref 读取当前实际显示的值）
 				initialStartRef.current = currentStartTimeRef.current;
 				initialEndRef.current = currentEndTimeRef.current;
@@ -218,6 +225,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 			if (last) {
 				// 拖拽结束时，更新全局状态
 				isDraggingRef.current = false;
+				setIsDragging(false);
 				// 只有在真正有移动时才更新（防止点击误触发）
 				if (Math.abs(mx) > 0) {
 					updateTimeRange(id, newStart, newEnd);

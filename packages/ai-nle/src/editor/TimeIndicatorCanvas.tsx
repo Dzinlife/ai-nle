@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef } from "react";
 import {
+	useDragging,
 	usePlaybackControl,
 	usePreviewTime,
 	useTimelineStore,
@@ -21,6 +22,7 @@ const CurrentTimeIndicatorCanvas: React.FC<CurrentTimeIndicatorCanvasProps> = ({
 	const currentTime = useTimelineStore((state) => state.currentTime);
 	const { previewTime } = usePreviewTime();
 	const { isPlaying } = usePlaybackControl();
+	const { isDragging } = useDragging();
 
 	// 绘制函数
 	const draw = useCallback(() => {
@@ -48,8 +50,8 @@ const CurrentTimeIndicatorCanvas: React.FC<CurrentTimeIndicatorCanvasProps> = ({
 		ctx.lineTo(currentX, displayHeight);
 		ctx.stroke();
 
-		// 绘制蓝色竖线 - 预览时间（previewTime，如果存在且非播放状态）
-		if (previewTime !== null && !isPlaying) {
+		// 绘制蓝色竖线 - 预览时间（previewTime，如果存在且非播放/拖拽状态）
+		if (previewTime !== null && !isPlaying && !isDragging) {
 			const previewX = leftColumnWidth + previewTime * ratio - scrollLeft;
 			ctx.strokeStyle = "#3b82f6"; // blue-500
 			ctx.lineWidth = 1;
@@ -60,7 +62,7 @@ const CurrentTimeIndicatorCanvas: React.FC<CurrentTimeIndicatorCanvasProps> = ({
 			ctx.stroke();
 			ctx.setLineDash([]); // 重置为实线
 		}
-	}, [leftColumnWidth, ratio, scrollLeft, currentTime, previewTime, isPlaying]);
+	}, [leftColumnWidth, ratio, scrollLeft, currentTime, previewTime, isPlaying, isDragging]);
 
 	// 当 currentTime、previewTime 或 scrollLeft 变化时重新绘制
 	useEffect(() => {
