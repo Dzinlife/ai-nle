@@ -1,10 +1,28 @@
-import { useCallback, createContext, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import {
+	createContext,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+} from "react";
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import { TimelineElement } from "@/dsl/types";
-import { SnapPoint } from "./utils/snap";
-import { assignTracks, getTrackCount, normalizeTrackAssignments, findAvailableTrack, getYFromTrack, getTrackFromY, getDropTarget, insertTrackAt, hasOverlapOnStoredTrack, DropTarget } from "./utils/trackAssignment";
+import { DropTarget, ExtendedDropTarget } from "./timeline/types";
 import { findAttachments } from "./utils/attachments";
+import { SnapPoint } from "./utils/snap";
+import {
+	assignTracks,
+	findAvailableTrack,
+	getDropTarget,
+	getTrackCount,
+	getTrackFromY,
+	getYFromTrack,
+	hasOverlapOnStoredTrack,
+	insertTrackAt,
+	normalizeTrackAssignments,
+} from "./utils/trackAssignment";
 
 interface TimelineStore {
 	currentTime: number;
@@ -20,7 +38,7 @@ interface TimelineStore {
 	// 层叠关联相关状态
 	autoAttach: boolean;
 	// 拖拽目标指示状态
-	activeDropTarget: (DropTarget & { elementId: string; start: number; end: number; finalTrackIndex: number }) | null;
+	activeDropTarget: ExtendedDropTarget | null;
 	setCurrentTime: (time: number) => void;
 	setPreviewTime: (time: number | null) => void;
 	setElements: (
@@ -44,7 +62,7 @@ interface TimelineStore {
 	// 层叠关联相关方法
 	setAutoAttach: (enabled: boolean) => void;
 	// 拖拽目标指示方法
-	setActiveDropTarget: (target: (DropTarget & { elementId: string; start: number; end: number; finalTrackIndex: number }) | null) => void;
+	setActiveDropTarget: (target: ExtendedDropTarget | null) => void;
 }
 
 export const useTimelineStore = create<TimelineStore>()(
@@ -144,7 +162,7 @@ export const useTimelineStore = create<TimelineStore>()(
 		},
 
 		// 拖拽目标指示方法
-		setActiveDropTarget: (target: (DropTarget & { elementId: string; start: number; end: number; finalTrackIndex: number }) | null) => {
+		setActiveDropTarget: (target: ExtendedDropTarget | null) => {
 			set({ activeDropTarget: target });
 		},
 	})),
@@ -205,7 +223,9 @@ export const useDragging = () => {
 	const isDragging = useTimelineStore((state) => state.isDragging);
 	const setIsDragging = useTimelineStore((state) => state.setIsDragging);
 	const activeDropTarget = useTimelineStore((state) => state.activeDropTarget);
-	const setActiveDropTarget = useTimelineStore((state) => state.setActiveDropTarget);
+	const setActiveDropTarget = useTimelineStore(
+		(state) => state.setActiveDropTarget,
+	);
 
 	return {
 		isDragging,
@@ -216,12 +236,16 @@ export const useDragging = () => {
 };
 
 export const useSelectedElement = () => {
-	const selectedElementId = useTimelineStore((state) => state.selectedElementId);
-	const setSelectedElementId = useTimelineStore((state) => state.setSelectedElementId);
+	const selectedElementId = useTimelineStore(
+		(state) => state.selectedElementId,
+	);
+	const setSelectedElementId = useTimelineStore(
+		(state) => state.setSelectedElementId,
+	);
 	const elements = useTimelineStore((state) => state.elements);
 
 	const selectedElement = selectedElementId
-		? elements.find(el => el.id === selectedElementId) ?? null
+		? (elements.find((el) => el.id === selectedElementId) ?? null)
 		: null;
 
 	return {
@@ -235,7 +259,9 @@ export const useSnap = () => {
 	const snapEnabled = useTimelineStore((state) => state.snapEnabled);
 	const activeSnapPoint = useTimelineStore((state) => state.activeSnapPoint);
 	const setSnapEnabled = useTimelineStore((state) => state.setSnapEnabled);
-	const setActiveSnapPoint = useTimelineStore((state) => state.setActiveSnapPoint);
+	const setActiveSnapPoint = useTimelineStore(
+		(state) => state.setActiveSnapPoint,
+	);
 
 	return {
 		snapEnabled,
@@ -341,17 +367,31 @@ export const useTrackAssignments = () => {
 					// 计算基于存储 trackIndex 的最大轨道
 					const maxStoredTrack = Math.max(
 						0,
-						...tempUpdated.map((el) => el.timeline.trackIndex ?? 0)
+						...tempUpdated.map((el) => el.timeline.trackIndex ?? 0),
 					);
 
 					// 检查相邻轨道是否可作为新目标（排除原始轨道，因为用户拖到缝隙意味着想移动）
-					const belowIsDestination = belowTrack >= 0 &&
+					const belowIsDestination =
+						belowTrack >= 0 &&
 						belowTrack !== originalTrack &&
-						!hasOverlapOnStoredTrack(start, end, belowTrack, tempUpdated, elementId);
+						!hasOverlapOnStoredTrack(
+							start,
+							end,
+							belowTrack,
+							tempUpdated,
+							elementId,
+						);
 
-					const aboveIsDestination = aboveTrack <= maxStoredTrack &&
+					const aboveIsDestination =
+						aboveTrack <= maxStoredTrack &&
 						aboveTrack !== originalTrack &&
-						!hasOverlapOnStoredTrack(start, end, aboveTrack, tempUpdated, elementId);
+						!hasOverlapOnStoredTrack(
+							start,
+							end,
+							aboveTrack,
+							tempUpdated,
+							elementId,
+						);
 
 					if (belowIsDestination) {
 						// 移动到下方轨道
@@ -364,7 +404,11 @@ export const useTrackAssignments = () => {
 					} else {
 						// 没有可用的新目标轨道，检查能否留在原始轨道
 						const canStayOnOriginal = !hasOverlapOnStoredTrack(
-							start, end, originalTrack, tempUpdated, elementId
+							start,
+							end,
+							originalTrack,
+							tempUpdated,
+							elementId,
 						);
 
 						if (canStayOnOriginal) {
@@ -373,7 +417,10 @@ export const useTrackAssignments = () => {
 							updatedAssignments = currentAssignments;
 						} else {
 							// 原始轨道也有重叠，必须新建轨道
-							updatedAssignments = insertTrackAt(gapTrackIndex, currentAssignments);
+							updatedAssignments = insertTrackAt(
+								gapTrackIndex,
+								currentAssignments,
+							);
 							finalTrack = gapTrackIndex;
 						}
 					}
@@ -397,7 +444,7 @@ export const useTrackAssignments = () => {
 					const targetTrack = dropTarget.trackIndex;
 					const maxStoredTrack = Math.max(
 						0,
-						...tempUpdated.map((el) => el.timeline.trackIndex ?? 0)
+						...tempUpdated.map((el) => el.timeline.trackIndex ?? 0),
 					);
 
 					// 检查目标轨道是否有重叠
@@ -416,13 +463,15 @@ export const useTrackAssignments = () => {
 					} else {
 						// 目标轨道有重叠，检查上方一级
 						const aboveTrack = targetTrack + 1;
-						const aboveHasOverlap = aboveTrack <= maxStoredTrack && hasOverlapOnStoredTrack(
-							start,
-							end,
-							aboveTrack,
-							tempUpdated,
-							elementId,
-						);
+						const aboveHasOverlap =
+							aboveTrack <= maxStoredTrack &&
+							hasOverlapOnStoredTrack(
+								start,
+								end,
+								aboveTrack,
+								tempUpdated,
+								elementId,
+							);
 
 						if (!aboveHasOverlap && aboveTrack <= maxStoredTrack) {
 							// 上方轨道有空位，移动到上方
@@ -431,7 +480,10 @@ export const useTrackAssignments = () => {
 						} else {
 							// 上方也没有空位或不存在，在目标轨道上方创建新轨道
 							// 与 gap 模式一致，只向上查一级
-							updatedAssignments = insertTrackAt(targetTrack + 1, currentAssignments);
+							updatedAssignments = insertTrackAt(
+								targetTrack + 1,
+								currentAssignments,
+							);
 							finalTrack = targetTrack + 1;
 						}
 					}
@@ -481,7 +533,9 @@ export const useTrackAssignments = () => {
 					...el,
 					timeline: {
 						...el.timeline,
-						trackIndex: trackMapping.get(el.timeline.trackIndex ?? 0) ?? el.timeline.trackIndex,
+						trackIndex:
+							trackMapping.get(el.timeline.trackIndex ?? 0) ??
+							el.timeline.trackIndex,
 					},
 				}));
 			});
@@ -529,17 +583,31 @@ export const useTrackAssignments = () => {
 					// 计算基于存储 trackIndex 的最大轨道
 					const maxStoredTrack = Math.max(
 						0,
-						...tempUpdated.map((el) => el.timeline.trackIndex ?? 0)
+						...tempUpdated.map((el) => el.timeline.trackIndex ?? 0),
 					);
 
 					// 检查相邻轨道是否可作为新目标（排除原始轨道，因为用户拖到缝隙意味着想移动）
-					const belowIsDestination = belowTrack >= 0 &&
+					const belowIsDestination =
+						belowTrack >= 0 &&
 						belowTrack !== originalTrack &&
-						!hasOverlapOnStoredTrack(start, end, belowTrack, tempUpdated, elementId);
+						!hasOverlapOnStoredTrack(
+							start,
+							end,
+							belowTrack,
+							tempUpdated,
+							elementId,
+						);
 
-					const aboveIsDestination = aboveTrack <= maxStoredTrack &&
+					const aboveIsDestination =
+						aboveTrack <= maxStoredTrack &&
 						aboveTrack !== originalTrack &&
-						!hasOverlapOnStoredTrack(start, end, aboveTrack, tempUpdated, elementId);
+						!hasOverlapOnStoredTrack(
+							start,
+							end,
+							aboveTrack,
+							tempUpdated,
+							elementId,
+						);
 
 					if (belowIsDestination) {
 						// 移动到下方轨道
@@ -552,7 +620,11 @@ export const useTrackAssignments = () => {
 					} else {
 						// 没有可用的新目标轨道，检查能否留在原始轨道
 						const canStayOnOriginal = !hasOverlapOnStoredTrack(
-							start, end, originalTrack, tempUpdated, elementId
+							start,
+							end,
+							originalTrack,
+							tempUpdated,
+							elementId,
 						);
 
 						if (canStayOnOriginal) {
@@ -561,7 +633,10 @@ export const useTrackAssignments = () => {
 							updatedAssignments = currentAssignments;
 						} else {
 							// 原始轨道也有重叠，必须新建轨道
-							updatedAssignments = insertTrackAt(gapTrackIndex, currentAssignments);
+							updatedAssignments = insertTrackAt(
+								gapTrackIndex,
+								currentAssignments,
+							);
 							finalTrack = gapTrackIndex;
 						}
 					}
@@ -580,7 +655,7 @@ export const useTrackAssignments = () => {
 					const targetTrack = dropTarget.trackIndex;
 					const maxStoredTrack = Math.max(
 						0,
-						...tempUpdated.map((el) => el.timeline.trackIndex ?? 0)
+						...tempUpdated.map((el) => el.timeline.trackIndex ?? 0),
 					);
 
 					// 检查目标轨道是否有重叠
@@ -599,13 +674,15 @@ export const useTrackAssignments = () => {
 					} else {
 						// 目标轨道有重叠，检查上方一级
 						const aboveTrack = targetTrack + 1;
-						const aboveHasOverlap = aboveTrack <= maxStoredTrack && hasOverlapOnStoredTrack(
-							start,
-							end,
-							aboveTrack,
-							tempUpdated,
-							elementId,
-						);
+						const aboveHasOverlap =
+							aboveTrack <= maxStoredTrack &&
+							hasOverlapOnStoredTrack(
+								start,
+								end,
+								aboveTrack,
+								tempUpdated,
+								elementId,
+							);
 
 						if (!aboveHasOverlap && aboveTrack <= maxStoredTrack) {
 							// 上方轨道有空位，移动到上方
@@ -613,7 +690,10 @@ export const useTrackAssignments = () => {
 							updatedAssignments = currentAssignments;
 						} else {
 							// 上方也没有空位或不存在，在目标轨道上方创建新轨道
-							updatedAssignments = insertTrackAt(targetTrack + 1, currentAssignments);
+							updatedAssignments = insertTrackAt(
+								targetTrack + 1,
+								currentAssignments,
+							);
 							finalTrack = targetTrack + 1;
 						}
 					}
@@ -717,7 +797,9 @@ export const useTrackAssignments = () => {
 					...el,
 					timeline: {
 						...el.timeline,
-						trackIndex: trackMapping.get(el.timeline.trackIndex ?? 0) ?? el.timeline.trackIndex,
+						trackIndex:
+							trackMapping.get(el.timeline.trackIndex ?? 0) ??
+							el.timeline.trackIndex,
 					},
 				}));
 			});
@@ -751,6 +833,97 @@ export const useAttachments = () => {
 		attachments,
 		autoAttach,
 		setAutoAttach,
+	};
+};
+
+// ============================================================================
+// 多选支持 (Multi-select Extension Point)
+// ============================================================================
+
+/**
+ * 多选 Hook - 为框选和多元素拖拽预留的扩展点
+ *
+ * 当前实现基于单选 selectedElementId，多选功能可以在此基础上扩展：
+ * 1. 添加 selectedElementIds: string[] 到 store
+ * 2. 实现框选逻辑 (marquee selection)
+ * 3. 修改拖拽逻辑支持多元素同步移动
+ *
+ * 相关类型已在 timeline/types.ts 中定义：
+ * - SelectionState: 完整的选择状态结构
+ * - SelectionAction: 选择操作类型
+ * - DragState: 支持 draggedElementIds 数组
+ */
+export const useMultiSelect = () => {
+	const selectedElementId = useTimelineStore(
+		(state) => state.selectedElementId,
+	);
+	const setSelectedElementId = useTimelineStore(
+		(state) => state.setSelectedElementId,
+	);
+	const elements = useTimelineStore((state) => state.elements);
+
+	// 当前实现：将单选 ID 转换为数组格式，便于未来扩展
+	const selectedIds = useMemo(() => {
+		return selectedElementId ? [selectedElementId] : [];
+	}, [selectedElementId]);
+
+	// 获取选中的元素列表
+	const selectedElements = useMemo(() => {
+		return elements.filter((el) => selectedIds.includes(el.id));
+	}, [elements, selectedIds]);
+
+	// 选择单个元素（未来可扩展为 additive 模式）
+	const select = useCallback(
+		(id: string, _additive = false) => {
+			// TODO: 实现 additive 模式（按住 Shift/Ctrl 多选）
+			setSelectedElementId(id);
+		},
+		[setSelectedElementId],
+	);
+
+	// 取消选择
+	const deselect = useCallback(
+		(id: string) => {
+			if (selectedElementId === id) {
+				setSelectedElementId(null);
+			}
+		},
+		[selectedElementId, setSelectedElementId],
+	);
+
+	// 清空选择
+	const deselectAll = useCallback(() => {
+		setSelectedElementId(null);
+	}, [setSelectedElementId]);
+
+	// 切换选择状态
+	const toggleSelect = useCallback(
+		(id: string) => {
+			if (selectedElementId === id) {
+				setSelectedElementId(null);
+			} else {
+				setSelectedElementId(id);
+			}
+		},
+		[selectedElementId, setSelectedElementId],
+	);
+
+	return {
+		selectedIds,
+		selectedElements,
+		primaryId: selectedElementId,
+		select,
+		deselect,
+		deselectAll,
+		toggleSelect,
+		// 框选相关（预留）
+		isMarqueeSelecting: false,
+		marqueeRect: null as {
+			startX: number;
+			startY: number;
+			endX: number;
+			endY: number;
+		} | null,
 	};
 };
 
