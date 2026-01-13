@@ -1,7 +1,10 @@
-import { createContext, useEffect, useLayoutEffect, useRef } from "react";
+import { useCallback, createContext, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import { TimelineElement } from "@/dsl/types";
+import { SnapPoint } from "./utils/snap";
+import { assignTracks, getTrackCount, normalizeTrackAssignments, findAvailableTrack, getYFromTrack, getTrackFromY, getDropTarget, insertTrackAt, DropTarget } from "./utils/trackAssignment";
+import { findAttachments } from "./utils/attachments";
 
 interface TimelineStore {
 	currentTime: number;
@@ -11,6 +14,11 @@ interface TimelineStore {
 	isPlaying: boolean;
 	isDragging: boolean; // 是否正在拖拽元素
 	selectedElementId: string | null; // 当前选中的元素 ID
+	// 吸附相关状态
+	snapEnabled: boolean;
+	activeSnapPoint: SnapPoint | null;
+	// 层叠关联相关状态
+	autoAttach: boolean;
 	setCurrentTime: (time: number) => void;
 	setPreviewTime: (time: number | null) => void;
 	setElements: (
@@ -28,6 +36,11 @@ interface TimelineStore {
 	togglePlay: () => void;
 	setIsDragging: (isDragging: boolean) => void;
 	setSelectedElementId: (id: string | null) => void;
+	// 吸附相关方法
+	setSnapEnabled: (enabled: boolean) => void;
+	setActiveSnapPoint: (point: SnapPoint | null) => void;
+	// 层叠关联相关方法
+	setAutoAttach: (enabled: boolean) => void;
 }
 
 export const useTimelineStore = create<TimelineStore>()(
@@ -39,6 +52,11 @@ export const useTimelineStore = create<TimelineStore>()(
 		isPlaying: false,
 		isDragging: false,
 		selectedElementId: null,
+		// 吸附相关状态初始值
+		snapEnabled: true,
+		activeSnapPoint: null,
+		// 层叠关联相关状态初始值
+		autoAttach: true,
 
 		setCurrentTime: (time: number) => {
 			const currentTime = get().currentTime;
@@ -103,6 +121,20 @@ export const useTimelineStore = create<TimelineStore>()(
 
 		setSelectedElementId: (id: string | null) => {
 			set({ selectedElementId: id });
+		},
+
+		// 吸附相关方法
+		setSnapEnabled: (enabled: boolean) => {
+			set({ snapEnabled: enabled });
+		},
+
+		setActiveSnapPoint: (point: SnapPoint | null) => {
+			set({ activeSnapPoint: point });
+		},
+
+		// 层叠关联相关方法
+		setAutoAttach: (enabled: boolean) => {
+			set({ autoAttach: enabled });
 		},
 	})),
 );
@@ -181,6 +213,208 @@ export const useSelectedElement = () => {
 		selectedElementId,
 		selectedElement,
 		setSelectedElementId,
+	};
+};
+
+export const useSnap = () => {
+	const snapEnabled = useTimelineStore((state) => state.snapEnabled);
+	const activeSnapPoint = useTimelineStore((state) => state.activeSnapPoint);
+	const setSnapEnabled = useTimelineStore((state) => state.setSnapEnabled);
+	const setActiveSnapPoint = useTimelineStore((state) => state.setActiveSnapPoint);
+
+	return {
+		snapEnabled,
+		activeSnapPoint,
+		setSnapEnabled,
+		setActiveSnapPoint,
+	};
+};
+
+export const useTrackAssignments = () => {
+	const elements = useTimelineStore((state) => state.elements);
+	const setElements = useTimelineStore((state) => state.setElements);
+
+	// 基于 elements 计算轨道分配
+	const trackAssignments = useMemo(() => {
+		return assignTracks(elements);
+	}, [elements]);
+
+	const trackCount = useMemo(() => {
+		return getTrackCount(trackAssignments);
+	}, [trackAssignments]);
+
+	// 更新元素的轨道位置
+	const updateElementTrack = useCallback(
+		(elementId: string, targetTrack: number) => {
+			setElements((prev) => {
+				const element = prev.find((el) => el.id === elementId);
+				if (!element) return prev;
+
+				// 计算最终轨道位置（如果有重叠则向上寻找）
+				const finalTrack = findAvailableTrack(
+					element.timeline.start,
+					element.timeline.end,
+					targetTrack,
+					prev,
+					trackAssignments,
+					elementId,
+					trackCount,
+				);
+
+				// 更新元素的 trackIndex
+				const updated = prev.map((el) => {
+					if (el.id === elementId) {
+						return {
+							...el,
+							timeline: {
+								...el.timeline,
+								trackIndex: finalTrack,
+							},
+						};
+					}
+					return el;
+				});
+
+				// 规范化轨道（移除空轨道）
+				const newAssignments = assignTracks(updated);
+				const normalized = normalizeTrackAssignments(newAssignments);
+
+				// 应用规范化后的轨道索引
+				return updated.map((el) => ({
+					...el,
+					timeline: {
+						...el.timeline,
+						trackIndex: normalized.get(el.id) ?? el.timeline.trackIndex,
+					},
+				}));
+			});
+		},
+		[setElements, trackAssignments, trackCount],
+	);
+
+	// 更新元素的时间和轨道位置（用于拖拽结束）
+	const updateElementTimeAndTrack = useCallback(
+		(elementId: string, start: number, end: number, dropTarget: DropTarget) => {
+			setElements((prev) => {
+				// 计算当前的轨道分配
+				const currentAssignments = assignTracks(prev);
+
+				let finalTrack: number;
+				let updatedAssignments: Map<string, number>;
+
+				if (dropTarget.type === "gap") {
+					// 插入模式：在间隙位置插入新轨道
+					const insertAt = dropTarget.trackIndex;
+
+					// 将 insertAt 及以上的轨道向上移动
+					updatedAssignments = insertTrackAt(insertAt, currentAssignments);
+
+					// 新元素放入插入位置
+					finalTrack = insertAt;
+				} else {
+					// 普通模式：智能放置到目标轨道（如有重叠则向上寻找）
+					// 先创建一个临时的更新后元素列表
+					const tempUpdated = prev.map((el) => {
+						if (el.id === elementId) {
+							return {
+								...el,
+								timeline: {
+									...el.timeline,
+									start,
+									end,
+								},
+							};
+						}
+						return el;
+					});
+
+					// 计算新的轨道分配
+					const tempAssignments = assignTracks(tempUpdated);
+					const tempCount = getTrackCount(tempAssignments);
+
+					// 计算最终轨道位置
+					finalTrack = findAvailableTrack(
+						start,
+						end,
+						dropTarget.trackIndex,
+						tempUpdated,
+						tempAssignments,
+						elementId,
+						tempCount,
+					);
+
+					updatedAssignments = currentAssignments;
+				}
+
+				// 应用时间和轨道更新
+				const updated = prev.map((el) => {
+					if (el.id === elementId) {
+						return {
+							...el,
+							timeline: {
+								...el.timeline,
+								start,
+								end,
+								trackIndex: finalTrack,
+							},
+						};
+					}
+					// 应用可能的轨道移动（插入模式时其他元素的轨道会变化）
+					const newTrack = updatedAssignments.get(el.id);
+					if (newTrack !== undefined && newTrack !== el.timeline.trackIndex) {
+						return {
+							...el,
+							timeline: {
+								...el.timeline,
+								trackIndex: newTrack,
+							},
+						};
+					}
+					return el;
+				});
+
+				// 规范化轨道（移除空轨道）
+				const newAssignments = assignTracks(updated);
+				const normalized = normalizeTrackAssignments(newAssignments);
+
+				// 应用规范化后的轨道索引
+				return updated.map((el) => ({
+					...el,
+					timeline: {
+						...el.timeline,
+						trackIndex: normalized.get(el.id) ?? el.timeline.trackIndex,
+					},
+				}));
+			});
+		},
+		[setElements],
+	);
+
+	return {
+		trackAssignments,
+		trackCount,
+		updateElementTrack,
+		updateElementTimeAndTrack,
+		getYFromTrack,
+		getTrackFromY,
+		getDropTarget,
+	};
+};
+
+export const useAttachments = () => {
+	const elements = useTimelineStore((state) => state.elements);
+	const autoAttach = useTimelineStore((state) => state.autoAttach);
+	const setAutoAttach = useTimelineStore((state) => state.setAutoAttach);
+
+	// 基于 elements 计算关联关系
+	const attachments = useMemo(() => {
+		return findAttachments(elements);
+	}, [elements]);
+
+	return {
+		attachments,
+		autoAttach,
+		setAutoAttach,
 	};
 };
 

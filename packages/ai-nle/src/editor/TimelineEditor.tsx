@@ -14,7 +14,9 @@ import {
 	usePlaybackControl,
 	usePreviewTime,
 	useSelectedElement,
+	useSnap,
 	useTimelineStore,
+	useTrackAssignments,
 } from "./TimelineContext";
 import TimelineElement from "./TimelineElement";
 import TimelineRuler from "./TimelineRuler";
@@ -25,6 +27,8 @@ const TimelineEditor = () => {
 	const { isPlaying } = usePlaybackControl();
 	const { elements, setElements } = useElements();
 	const { setSelectedElementId } = useSelectedElement();
+	const { activeSnapPoint } = useSnap();
+	const { trackAssignments, trackCount } = useTrackAssignments();
 
 	// 滚动位置状态
 	const [scrollLeft, setScrollLeft] = useState(0);
@@ -208,27 +212,102 @@ const TimelineEditor = () => {
 	);
 
 	const timelineItems = useMemo(() => {
+		// 使用 trackCount 计算容器高度，确保至少有 1 个轨道的高度
+		const containerHeight = Math.max(trackCount, 1) * trackHeight;
+
+		// 生成轨道背景
+		const trackBackgrounds = [];
+		for (let i = 0; i < trackCount; i++) {
+			const trackIndex = trackCount - 1 - i;
+			const isMainTrack = trackIndex === 0;
+			trackBackgrounds.push(
+				<div
+					key={`bg-${trackIndex}`}
+					className={`absolute left-0 right-0 ${
+						isMainTrack
+							? "bg-blue-500/5 border-b border-blue-500/20"
+							: "border-b border-white/5"
+					}`}
+					style={{
+						top: i * trackHeight,
+						height: trackHeight,
+					}}
+				/>
+			);
+		}
+
 		return (
 			<div
 				className="relative mt-1.5"
 				style={{
 					transform: `translateX(-${scrollLeft}px)`,
-					height: 60 * elements.length,
+					height: containerHeight,
 				}}
 			>
-				{elements.map((element, i) => (
-					<TimelineElement
-						key={element.id}
-						element={element}
-						index={i}
-						ratio={ratio}
-						trackHeight={trackHeight}
-						updateTimeRange={updateTimeRange}
-					/>
-				))}
+				{/* 轨道背景 */}
+				<div
+					className="absolute inset-0 pointer-events-none"
+					style={{ transform: `translateX(${scrollLeft}px)` }}
+				>
+					{trackBackgrounds}
+				</div>
+				{/* 元素 */}
+				{elements.map((element) => {
+					const trackIndex = trackAssignments.get(element.id) ?? 0;
+					// 计算 Y 坐标：主轨道(0)在底部，轨道号越大越靠上
+					const y = (trackCount - 1 - trackIndex) * trackHeight;
+					return (
+						<TimelineElement
+							key={element.id}
+							element={element}
+							trackIndex={trackIndex}
+							trackY={y}
+							ratio={ratio}
+							trackHeight={trackHeight}
+							trackCount={trackCount}
+							updateTimeRange={updateTimeRange}
+						/>
+					);
+				})}
 			</div>
 		);
-	}, [elements, scrollLeft, ratio]);
+	}, [elements, scrollLeft, ratio, updateTimeRange, trackAssignments, trackCount, trackHeight]);
+
+	// 轨道标签
+	const trackLabels = useMemo(() => {
+		const labels = [];
+		for (let i = 0; i < trackCount; i++) {
+			// 轨道 0 在底部，所以需要反转渲染顺序
+			const trackIndex = trackCount - 1 - i;
+			const isMainTrack = trackIndex === 0;
+			labels.push(
+				<div
+					key={trackIndex}
+					className={`flex items-center justify-end pr-3 text-xs font-medium ${
+						isMainTrack
+							? "text-blue-400"
+							: "text-neutral-400"
+					}`}
+					style={{ height: trackHeight }}
+				>
+					{isMainTrack ? "主轨道" : `轨道 ${trackIndex}`}
+				</div>
+			);
+		}
+		return labels;
+	}, [trackCount, trackHeight]);
+
+	// 吸附指示线
+	const snapIndicator = useMemo(() => {
+		if (!activeSnapPoint) return null;
+		const left = activeSnapPoint.time * ratio - scrollLeft;
+		return (
+			<div
+				className="absolute top-0 bottom-0 w-0.5 bg-green-500 z-50 pointer-events-none"
+				style={{ left }}
+			/>
+		);
+	}, [activeSnapPoint, ratio, scrollLeft]);
 	// console.log("TimelineEditor", currentTime);
 
 	return (
@@ -242,13 +321,19 @@ const TimelineEditor = () => {
 			<PlaybackToolbar className="h-12 z-50" />
 			{timeStamps}
 			<div className="relative w-full flex-1 min-h-0 flex -mt-18">
-				{/* 左侧列，绝对定位覆盖在时间线上方 */}
+				{/* 左侧列，轨道标签 */}
 				<div
-					className="pt-12 text-white z-10 pr-4 "
+					className="pt-12 text-white z-10 pr-4 flex flex-col"
 					style={{ width: leftColumnWidth }}
 				>
-					{/* left column */}
-					<div className="bg-neutral-800/80 h-full backdrop-blur-2xl border border-white/10"></div>
+					{/* 占位区域（对应时间刻度尺高度） */}
+					<div className="h-7 shrink-0" />
+					{/* 轨道标签容器 */}
+					<div className="flex-1 overflow-hidden">
+						<div className="mt-1.5">
+							{trackLabels}
+						</div>
+					</div>
 				</div>
 				<TimeIndicatorCanvas
 					className="top-12"
@@ -265,6 +350,7 @@ const TimelineEditor = () => {
 					onMouseLeave={handleMouseLeave}
 					onClick={handleClick}
 				>
+					{snapIndicator}
 					{timelineItems}
 				</div>
 			</div>

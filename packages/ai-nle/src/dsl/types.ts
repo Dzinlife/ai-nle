@@ -16,12 +16,24 @@ export interface TransformMeta {
 }
 
 /**
+ * 轨道角色类型
+ * 为 agent 操作提供语义基础
+ */
+export type TrackRole =
+	| 'main'      // 主轨道：主要内容（视频、音频主体）
+	| 'overlay'   // 叠加层：贴纸、字幕、水印等
+	| 'effect'    // 效果层：滤镜、转场、特效等
+	| 'audio';    // 音频轨：背景音乐、音效等
+
+/**
  * 时间线属性
- * 独立于组件 props，描述元素的时间范围
+ * 独立于组件 props，描述元素的时间范围和轨道位置
  */
 export interface TimelineMeta {
 	start: number; // 开始时间（秒）
 	end: number; // 结束时间（秒）
+	trackIndex?: number; // 轨道索引（0 为主轨道，在底部）
+	role?: TrackRole; // 轨道角色（语义标识，用于 agent 理解）
 }
 
 /**

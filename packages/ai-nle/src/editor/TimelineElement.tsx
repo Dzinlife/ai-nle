@@ -3,32 +3,46 @@ import React, { useEffect, useRef, useState } from "react";
 import { componentRegistry } from "@/dsl/model/componentRegistry";
 import { modelRegistry, useModelExists } from "@/dsl/model/registry";
 import { TimelineElement as TimelineElementType } from "@/dsl/types";
-import { useDragging, useSelectedElement } from "./TimelineContext";
+import { useDragging, useElements, useSelectedElement, useSnap, useTimelineStore, useAttachments, useTrackAssignments } from "./TimelineContext";
+import { applySnap, applySnapForDrag, collectSnapPoints } from "./utils/snap";
 
 interface TimelineElementProps {
 	element: TimelineElementType;
-	index: number;
+	trackIndex: number;
+	trackY: number;
 	ratio: number;
 	trackHeight: number;
+	trackCount: number;
 	updateTimeRange: (elementId: string, start: number, end: number) => void;
 }
 
 const TimelineElement: React.FC<TimelineElementProps> = ({
 	element,
-	index,
+	trackIndex,
+	trackY,
 	ratio,
 	trackHeight,
+	trackCount,
 	updateTimeRange,
 }) => {
 	const { id, type, timeline, props } = element;
 	const containerRef = useRef<HTMLDivElement>(null);
 	const initialStartRef = useRef<number>(0);
 	const initialEndRef = useRef<number>(0);
+	const initialTrackRef = useRef<number>(0);
 	const isDraggingRef = useRef<boolean>(false);
 	const currentStartTimeRef = useRef<number>(0);
 	const currentEndTimeRef = useRef<number>(0);
 	const { setIsDragging } = useDragging();
 	const { selectedElementId, setSelectedElementId } = useSelectedElement();
+	const { snapEnabled, setActiveSnapPoint } = useSnap();
+	const { elements } = useElements();
+	const currentTime = useTimelineStore((state) => state.currentTime);
+	const { attachments, autoAttach } = useAttachments();
+	const { updateElementTimeAndTrack, getDropTarget } = useTrackAssignments();
+
+	// 本地状态用于拖拽时的临时 Y 位置显示
+	const [localTrackY, setLocalTrackY] = useState<number | null>(null);
 
 	const isSelected = selectedElementId === id;
 
@@ -76,8 +90,9 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 		if (!isDraggingRef.current) {
 			setLocalStartTime(null);
 			setLocalEndTime(null);
+			setLocalTrackY(null);
 		}
-	}, [baseStartTime, baseEndTime]);
+	}, [baseStartTime, baseEndTime, trackY]);
 
 	// 使用本地状态或基础值
 	const startTime = localStartTime ?? baseStartTime;
@@ -128,10 +143,26 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				newStart = Math.max(newStart, minStart);
 			}
 
+			// 吸附处理
+			let activeSnap = null;
+			if (snapEnabled) {
+				const snapPoints = collectSnapPoints(elements, currentTime, id);
+				const snapped = applySnap(newStart, snapPoints, ratio);
+				if (snapped.snapPoint) {
+					// 检查吸附后的位置是否仍然有效
+					const snappedStart = snapped.time;
+					if (snappedStart >= 0 && snappedStart < initialEndRef.current - 0.1) {
+						newStart = snappedStart;
+						activeSnap = snapped.snapPoint;
+					}
+				}
+			}
+
 			if (last) {
 				// 拖拽结束时，更新全局状态（只改变 start，end 保持不变）
 				isDraggingRef.current = false;
 				setIsDragging(false);
+				setActiveSnapPoint(null);
 				// 只有在真正有移动时才更新（防止点击误触发）
 				if (Math.abs(mx) > 0) {
 					updateTimeRange(id, newStart, initialEndRef.current);
@@ -141,6 +172,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 			} else {
 				// 拖拽过程中，只更新本地状态（只改变 start，end 保持不变）
 				setLocalStartTime(newStart);
+				setActiveSnapPoint(activeSnap);
 			}
 		},
 		{
@@ -181,10 +213,26 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				newEnd = Math.min(newEnd, maxEnd);
 			}
 
+			// 吸附处理
+			let activeSnap = null;
+			if (snapEnabled) {
+				const snapPoints = collectSnapPoints(elements, currentTime, id);
+				const snapped = applySnap(newEnd, snapPoints, ratio);
+				if (snapped.snapPoint) {
+					// 检查吸附后的位置是否仍然有效
+					const snappedEnd = snapped.time;
+					if (snappedEnd > initialStartRef.current + 0.1) {
+						newEnd = snappedEnd;
+						activeSnap = snapped.snapPoint;
+					}
+				}
+			}
+
 			if (last) {
 				// 拖拽结束时，更新全局状态
 				isDraggingRef.current = false;
 				setIsDragging(false);
+				setActiveSnapPoint(null);
 				// 只有在真正有移动时才更新（防止点击误触发）
 				if (Math.abs(mx) > 0) {
 					updateTimeRange(id, initialStartRef.current, newEnd);
@@ -194,6 +242,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 			} else {
 				// 拖拽过程中，只更新本地状态
 				setLocalEndTime(newEnd);
+				setActiveSnapPoint(activeSnap);
 			}
 		},
 		{
@@ -202,9 +251,9 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 		},
 	);
 
-	// 整体拖动 - 同步改变 start 和 end
+	// 整体拖动 - 同步改变 start、end 和轨道
 	const bindBodyDrag = useDrag(
-		({ movement: [mx], first, last, event, tap }) => {
+		({ movement: [mx, my], first, last, event, tap }) => {
 			// 如果是点击（没有移动），直接返回，不执行任何操作
 			if (tap) {
 				return;
@@ -217,31 +266,72 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				// 保存拖拽开始时的初始值（从 ref 读取当前实际显示的值）
 				initialStartRef.current = currentStartTimeRef.current;
 				initialEndRef.current = currentEndTimeRef.current;
+				initialTrackRef.current = trackIndex;
 			}
 
 			// 计算新的 start 和 end 时间（保持 duration 不变）
 			const deltaTime = mx / ratio;
 			const duration = initialEndRef.current - initialStartRef.current;
-			const newStart = Math.max(0, initialStartRef.current + deltaTime);
-			const newEnd = newStart + duration;
+			let newStart = Math.max(0, initialStartRef.current + deltaTime);
+			let newEnd = newStart + duration;
+
+			// 计算新的 Y 位置
+			const newY = trackY + my;
+
+			// 吸附处理 - 整体拖动时考虑 start 和 end 两个边缘
+			let activeSnap = null;
+			if (snapEnabled) {
+				const snapPoints = collectSnapPoints(elements, currentTime, id);
+				const snapped = applySnapForDrag(newStart, newEnd, snapPoints, ratio);
+				newStart = snapped.start;
+				newEnd = snapped.end;
+				activeSnap = snapped.snapPoint;
+			}
 
 			if (last) {
 				// 拖拽结束时，更新全局状态
 				isDraggingRef.current = false;
 				setIsDragging(false);
+				setActiveSnapPoint(null);
+				setLocalTrackY(null);
+
 				// 只有在真正有移动时才更新（防止点击误触发）
-				if (Math.abs(mx) > 0) {
-					updateTimeRange(id, newStart, newEnd);
+				if (Math.abs(mx) > 0 || Math.abs(my) > 0) {
+					// 计算实际移动的时间偏移量
+					const actualDelta = newStart - initialStartRef.current;
+
+					// 根据拖拽位置判断是放到轨道还是插入间隙
+					const dropTarget = getDropTarget(Math.max(0, newY), trackHeight, trackCount);
+
+					// 更新当前元素的时间和轨道
+					updateElementTimeAndTrack(id, newStart, newEnd, dropTarget);
+
+					// 如果启用了层叠关联，同步移动所有子元素
+					if (autoAttach && actualDelta !== 0) {
+						const childIds = attachments.get(id) ?? [];
+						for (const childId of childIds) {
+							const child = elements.find((el) => el.id === childId);
+							if (child) {
+								const childNewStart = child.timeline.start + actualDelta;
+								const childNewEnd = child.timeline.end + actualDelta;
+								// 确保子元素不会移动到负数时间
+								if (childNewStart >= 0) {
+									updateTimeRange(childId, childNewStart, childNewEnd);
+								}
+							}
+						}
+					}
 				}
 				// 不立即清除本地状态，让 useEffect 在全局状态更新后自动清除
 			} else {
 				// 拖拽过程中，只更新本地状态
 				setLocalStartTime(newStart);
 				setLocalEndTime(newEnd);
+				setLocalTrackY(newY);
+				setActiveSnapPoint(activeSnap);
 			}
 		},
 		{
-			axis: "x",
 			filterTaps: true,
 		},
 	);
@@ -257,6 +347,9 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 		setSelectedElementId(id);
 	};
 
+	// 计算显示位置
+	const displayY = localTrackY ?? trackY;
+
 	return (
 		<div
 			ref={containerRef}
@@ -271,7 +364,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 			style={{
 				left,
 				width,
-				top: index * trackHeight,
+				top: displayY,
 				height: 54,
 			}}
 			onClick={handleClick}
