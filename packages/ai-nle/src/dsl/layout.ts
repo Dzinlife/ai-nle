@@ -439,9 +439,11 @@ export const transformMetaToRenderLayout = (
 	const scaleX = (canvas.width / picture.width) * pixelRatio;
 	const scaleY = (canvas.height / picture.height) * pixelRatio;
 
-	// 将中心坐标和尺寸从 picture 坐标系转换到 canvas 坐标系
-	const canvasCenterX = centerX * scaleX;
-	const canvasCenterY = centerY * scaleY;
+	// 将中心坐标从画布中心坐标系转换到左上角坐标系，然后缩放到 canvas 坐标系
+	// centerX/centerY 是相对于画布中心的坐标（0,0 表示画布中心）
+	// 需要先加上 picture 尺寸的一半，转换为相对于左上角的坐标
+	const canvasCenterX = (centerX + picture.width / 2) * scaleX;
+	const canvasCenterY = (centerY + picture.height / 2) * scaleY;
 	const canvasWidth = width * scaleX;
 	const canvasHeight = height * scaleY;
 

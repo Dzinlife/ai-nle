@@ -3,12 +3,13 @@
 // ============================================================================
 
 /**
- * 空间变换属性 (中心坐标系统)
+ * 空间变换属性 (画布中心坐标系统)
  * 独立于组件 props，描述元素的空间位置和变换
+ * 坐标系原点在画布中心，centerX=0, centerY=0 表示元素中心在画布中心
  */
 export interface TransformMeta {
-	centerX: number; // 中心点 X 坐标
-	centerY: number; // 中心点 Y 坐标
+	centerX: number; // 中心点 X 坐标（相对于画布中心，正值向右）
+	centerY: number; // 中心点 Y 坐标（相对于画布中心，正值向下）
 	width: number; // 宽度（像素）
 	height: number; // 高度（像素）
 	rotation: number; // 旋转角度（弧度）

@@ -10,8 +10,8 @@
 			"type": "CloudBackground",
 			"name": "云彩背景",
 			"transform": {
-				"centerX": 960,
-				"centerY": 540,
+				"centerX": 0,
+				"centerY": 0,
 				"width": 1920,
 				"height": 1080,
 				"rotation": 0
@@ -35,8 +35,8 @@
 			"type": "Clip",
 			"name": "clip1",
 			"transform": {
-				"centerX": 600,
-				"centerY": 600,
+				"centerX": -360,
+				"centerY": 60,
 				"width": 700,
 				"height": 700,
 				"rotation": 0
@@ -57,8 +57,8 @@
 			"type": "BackdropZoom",
 			"name": "backdropZoom1",
 			"transform": {
-				"centerX": 350,
-				"centerY": 400,
+				"centerX": -610,
+				"centerY": -140,
 				"width": 300,
 				"height": 300,
 				"rotation": 0
@@ -81,8 +81,8 @@
 			"type": "Lottie",
 			"name": "Lottie 动画",
 			"transform": {
-				"centerX": 800,
-				"centerY": 800,
+				"centerX": -160,
+				"centerY": 260,
 				"width": 400,
 				"height": 400,
 				"rotation": 0
@@ -105,8 +105,8 @@
 			"type": "Image",
 			"name": "image2",
 			"transform": {
-				"centerX": 250,
-				"centerY": 250,
+				"centerX": -710,
+				"centerY": -290,
 				"width": 500,
 				"height": 500,
 				"rotation": 0
@@ -127,8 +127,8 @@
 			"type": "ColorFilterLayer",
 			"name": "调色滤镜层",
 			"transform": {
-				"centerX": 960,
-				"centerY": 540,
+				"centerX": 0,
+				"centerY": 0,
 				"width": 1920,
 				"height": 1080,
 				"rotation": 0
@@ -153,8 +153,8 @@
 			"type": "Image",
 			"name": "image1",
 			"transform": {
-				"centerX": 1400,
-				"centerY": 300,
+				"centerX": 440,
+				"centerY": -240,
 				"width": 500,
 				"height": 500,
 				"rotation": 0

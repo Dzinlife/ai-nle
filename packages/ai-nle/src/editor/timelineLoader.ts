@@ -215,17 +215,28 @@ function validateRender(render: any, path: string): RenderMeta {
 }
 
 /**
- * 辅助函数：将旧的 left/top 坐标转换为新的 center 坐标
+ * 辅助函数：将旧的 left/top 坐标（左上角坐标系）转换为新的 center 坐标（画布中心坐标系）
+ * @param layout 旧的布局信息（左上角坐标系）
+ * @param pictureSize 画布尺寸，用于坐标系转换
  */
-export function convertLegacyLayoutToTransform(layout: {
-	left: number;
-	top: number;
-	width: number;
-	height: number;
-	rotate?: string;
-}): TransformMeta {
-	const centerX = layout.left + layout.width / 2;
-	const centerY = layout.top + layout.height / 2;
+export function convertLegacyLayoutToTransform(
+	layout: {
+		left: number;
+		top: number;
+		width: number;
+		height: number;
+		rotate?: string;
+	},
+	pictureSize: { width: number; height: number } = { width: 1920, height: 1080 }
+): TransformMeta {
+	// 从左上角坐标系转换到画布中心坐标系
+	// 元素中心相对于画布左上角的坐标
+	const centerXFromTopLeft = layout.left + layout.width / 2;
+	const centerYFromTopLeft = layout.top + layout.height / 2;
+
+	// 转换为相对于画布中心的坐标
+	const centerX = centerXFromTopLeft - pictureSize.width / 2;
+	const centerY = centerYFromTopLeft - pictureSize.height / 2;
 
 	// 解析旋转角度（从 "45deg" 转换为弧度）
 	let rotation = 0;
@@ -247,17 +258,28 @@ export function convertLegacyLayoutToTransform(layout: {
 }
 
 /**
- * 辅助函数：将新的 center 坐标转换为旧的 left/top 坐标（用于向后兼容）
+ * 辅助函数：将新的 center 坐标（画布中心坐标系）转换为旧的 left/top 坐标（左上角坐标系，用于向后兼容）
+ * @param transform 变换属性（画布中心坐标系）
+ * @param pictureSize 画布尺寸，用于坐标系转换
  */
-export function convertTransformToLegacyLayout(transform: TransformMeta): {
+export function convertTransformToLegacyLayout(
+	transform: TransformMeta,
+	pictureSize: { width: number; height: number } = { width: 1920, height: 1080 }
+): {
 	left: number;
 	top: number;
 	width: number;
 	height: number;
 	rotate: string;
 } {
-	const left = transform.centerX - transform.width / 2;
-	const top = transform.centerY - transform.height / 2;
+	// 从画布中心坐标系转换到左上角坐标系
+	// 元素中心相对于画布左上角的坐标
+	const centerXFromTopLeft = transform.centerX + pictureSize.width / 2;
+	const centerYFromTopLeft = transform.centerY + pictureSize.height / 2;
+
+	// 计算左上角坐标
+	const left = centerXFromTopLeft - transform.width / 2;
+	const top = centerYFromTopLeft - transform.height / 2;
 	const degrees = (transform.rotation * 180) / Math.PI;
 
 	return {

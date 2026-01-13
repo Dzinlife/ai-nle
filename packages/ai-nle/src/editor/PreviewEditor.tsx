@@ -383,11 +383,13 @@ const Preview = () => {
 				// 使用 el.id 而不是 el.props.id
 				if (el.id !== id) return el;
 
-				// 更新 transform（使用中心坐标系统）
+				// 更新 transform（使用画布中心坐标系统）
+				// canvasX/Y 是左上角坐标（相对于画布左上角）
+				// 需要转换为中心坐标（相对于画布中心）
 				const updatedTransform = {
 					...el.transform,
-					centerX: canvasX + el.transform.width / 2,
-					centerY: canvasY + el.transform.height / 2,
+					centerX: canvasX + el.transform.width / 2 - pictureWidth / 2,
+					centerY: canvasY + el.transform.height / 2 - pictureHeight / 2,
 				};
 
 				return {
@@ -399,7 +401,7 @@ const Preview = () => {
 
 			useTimelineStore.setState({ elements: newElements });
 		},
-		[stageToCanvasCoords],
+		[stageToCanvasCoords, pictureWidth, pictureHeight],
 	);
 
 	const handleDragEnd = useCallback(
@@ -494,10 +496,12 @@ const Preview = () => {
 				// 使用 el.id 而不是 el.props.id
 				if (el.id !== id) return el;
 
-				// 更新 transform（使用中心坐标系统）
+				// 更新 transform（使用画布中心坐标系统）
+				// canvasX/Y 是左上角坐标（相对于画布左上角）
+				// 需要转换为中心坐标（相对于画布中心）
 				const updatedTransform = {
-					centerX: canvasX + pictureWidth_scaled / 2,
-					centerY: canvasY + pictureHeight_scaled / 2,
+					centerX: canvasX + pictureWidth_scaled / 2 - pictureWidth / 2,
+					centerY: canvasY + pictureHeight_scaled / 2 - pictureHeight / 2,
 					width: pictureWidth_scaled,
 					height: pictureHeight_scaled,
 					rotation: rotationRadians,
@@ -520,7 +524,7 @@ const Preview = () => {
 
 			useTimelineStore.setState({ elements: newElements });
 		},
-		[stageToCanvasCoords, zoomLevel, pinchState],
+		[stageToCanvasCoords, zoomLevel, pinchState, pictureWidth, pictureHeight],
 	);
 
 	// 处理 transform 结束事件
@@ -563,10 +567,12 @@ const Preview = () => {
 				// 使用 el.id 而不是 el.props.id
 				if (el.id !== id) return el;
 
-				// 更新 transform（使用中心坐标系统）
+				// 更新 transform（使用画布中心坐标系统）
+				// canvasX/Y 是左上角坐标（相对于画布左上角）
+				// 需要转换为中心坐标（相对于画布中心）
 				const updatedTransform = {
-					centerX: canvasX + pictureWidth_scaled / 2,
-					centerY: canvasY + pictureHeight_scaled / 2,
+					centerX: canvasX + pictureWidth_scaled / 2 - pictureWidth / 2,
+					centerY: canvasY + pictureHeight_scaled / 2 - pictureHeight / 2,
 					width: pictureWidth_scaled,
 					height: pictureHeight_scaled,
 					rotation: rotationRadians,
@@ -580,7 +586,7 @@ const Preview = () => {
 
 			useTimelineStore.setState({ elements: newElements });
 		},
-		[stageToCanvasCoords, zoomLevel, pinchState],
+		[stageToCanvasCoords, zoomLevel, pinchState, pictureWidth, pictureHeight],
 	);
 
 	// 处理点击事件，支持选择/取消选择
