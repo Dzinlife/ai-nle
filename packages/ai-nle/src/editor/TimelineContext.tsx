@@ -10,6 +10,7 @@ interface TimelineStore {
 	canvasSize: { width: number; height: number };
 	isPlaying: boolean;
 	isDragging: boolean; // 是否正在拖拽元素
+	selectedElementId: string | null; // 当前选中的元素 ID
 	setCurrentTime: (time: number) => void;
 	setPreviewTime: (time: number | null) => void;
 	setElements: (
@@ -26,6 +27,7 @@ interface TimelineStore {
 	pause: () => void;
 	togglePlay: () => void;
 	setIsDragging: (isDragging: boolean) => void;
+	setSelectedElementId: (id: string | null) => void;
 }
 
 export const useTimelineStore = create<TimelineStore>()(
@@ -36,6 +38,7 @@ export const useTimelineStore = create<TimelineStore>()(
 		canvasSize: { width: 1920, height: 1080 },
 		isPlaying: false,
 		isDragging: false,
+		selectedElementId: null,
 
 		setCurrentTime: (time: number) => {
 			const currentTime = get().currentTime;
@@ -96,6 +99,10 @@ export const useTimelineStore = create<TimelineStore>()(
 
 		setIsDragging: (isDragging: boolean) => {
 			set({ isDragging });
+		},
+
+		setSelectedElementId: (id: string | null) => {
+			set({ selectedElementId: id });
 		},
 	})),
 );
@@ -158,6 +165,22 @@ export const useDragging = () => {
 	return {
 		isDragging,
 		setIsDragging,
+	};
+};
+
+export const useSelectedElement = () => {
+	const selectedElementId = useTimelineStore((state) => state.selectedElementId);
+	const setSelectedElementId = useTimelineStore((state) => state.setSelectedElementId);
+	const elements = useTimelineStore((state) => state.elements);
+
+	const selectedElement = selectedElementId
+		? elements.find(el => el.id === selectedElementId) ?? null
+		: null;
+
+	return {
+		selectedElementId,
+		selectedElement,
+		setSelectedElementId,
 	};
 };
 

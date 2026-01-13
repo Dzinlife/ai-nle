@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { componentRegistry } from "@/dsl/model/componentRegistry";
 import { modelRegistry, useModelExists } from "@/dsl/model/registry";
 import { TimelineElement as TimelineElementType } from "@/dsl/types";
-import { useDragging } from "./TimelineContext";
+import { useDragging, useSelectedElement } from "./TimelineContext";
 
 interface TimelineElementProps {
 	element: TimelineElementType;
@@ -28,6 +28,9 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	const currentStartTimeRef = useRef<number>(0);
 	const currentEndTimeRef = useRef<number>(0);
 	const { setIsDragging } = useDragging();
+	const { selectedElementId, setSelectedElementId } = useSelectedElement();
+
+	const isSelected = selectedElementId === id;
 
 	const { start, end } = timeline;
 
@@ -248,14 +251,22 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	const isAtMaxDuration =
 		maxDuration !== undefined && Math.abs(currentDuration - maxDuration) < 0.01;
 
+	// 点击选中元素
+	const handleClick = (e: React.MouseEvent) => {
+		e.stopPropagation();
+		setSelectedElementId(id);
+	};
+
 	return (
 		<div
 			ref={containerRef}
 			key={id}
 			className={`absolute flex rounded-md group ${
-				isAtMaxDuration
-					? "bg-amber-700 ring-1 ring-amber-500"
-					: "bg-neutral-700"
+				isSelected
+					? "ring-2 ring-blue-500 bg-blue-900/50"
+					: isAtMaxDuration
+						? "bg-amber-700 ring-1 ring-amber-500"
+						: "bg-neutral-700"
 			}`}
 			style={{
 				left,
@@ -263,7 +274,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				top: index * trackHeight,
 				height: 54,
 			}}
-			onClick={(e) => e.stopPropagation()}
+			onClick={handleClick}
 		>
 			{/* 左拖拽手柄 */}
 			<div

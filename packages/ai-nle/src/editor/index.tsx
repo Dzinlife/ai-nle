@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { useEffect, useState } from "react";
 import { ModelManager } from "@/dsl/model";
 import { TimelineElement } from "@/dsl/types";
+import ElementSettingsPanel from "./ElementSettingsPanel";
 import PlaybackToolbar from "./PlaybackToolbar";
 import PreviewEditor from "./PreviewEditor";
 import PreviewProvider from "./PreviewProvider";
@@ -52,7 +53,8 @@ const Editor = () => {
 			>
 				<ModelManager>
 					<PreviewProvider>
-						<div className="flex flex-col flex-1 min-h-0">
+						<div className="relative flex flex-col flex-1 min-h-0">
+							<ElementSettingsPanel />
 							<div className="flex-2 min-h-24 bg-neutral-900">
 								<PreviewEditor />
 							</div>

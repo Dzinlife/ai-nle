@@ -232,7 +232,7 @@ export const ClipTimeline: React.FC<ClipTimelineProps> = ({
 			</div>
 
 			{/* 最大时长指示器 */}
-			{maxDuration && clipDuration > maxDuration && (
+			{maxDuration && clipDuration > maxDuration + 0.001 && (
 				<div
 					className="absolute top-0 bottom-0 bg-red-500/30 border-l-2 border-red-500 z-10"
 					style={{

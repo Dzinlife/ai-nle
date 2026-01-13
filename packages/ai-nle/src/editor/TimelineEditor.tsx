@@ -13,6 +13,7 @@ import {
 	useElements,
 	usePlaybackControl,
 	usePreviewTime,
+	useSelectedElement,
 	useTimelineStore,
 } from "./TimelineContext";
 import TimelineElement from "./TimelineElement";
@@ -23,6 +24,7 @@ const TimelineEditor = () => {
 	const { setPreviewTime } = usePreviewTime();
 	const { isPlaying } = usePlaybackControl();
 	const { elements, setElements } = useElements();
+	const { setSelectedElementId } = useSelectedElement();
 
 	// 滚动位置状态
 	const [scrollLeft, setScrollLeft] = useState(0);
@@ -93,15 +95,16 @@ const TimelineEditor = () => {
 		[ratio, scrollLeft, leftColumnWidth, isPlaying, setPreviewTime],
 	);
 
-	// 点击时设置固定时间
+	// 点击时设置固定时间，并清除选中状态
 	const handleClick = useCallback(
 		(e: React.MouseEvent<HTMLDivElement>) => {
 			const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
 			const time = Math.max(0, (x - leftColumnWidth + scrollLeft) / ratio);
 			setCurrentTime(time);
 			setPreviewTime(null); // 清除预览时间
+			setSelectedElementId(null); // 清除选中状态
 		},
-		[ratio, scrollLeft, leftColumnWidth, setCurrentTime, setPreviewTime],
+		[ratio, scrollLeft, leftColumnWidth, setCurrentTime, setPreviewTime, setSelectedElementId],
 	);
 
 	// 鼠标离开时清除预览时间，回到固定时间
