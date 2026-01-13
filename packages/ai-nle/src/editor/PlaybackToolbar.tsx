@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { exportCanvasAsImage } from "@/dsl/export";
 import { cn } from "@/lib/utils";
 import { usePreview } from "./PreviewProvider";
-import { useCurrentTime, usePlaybackControl } from "./TimelineContext";
+import { useAttachments, useCurrentTime, usePlaybackControl, useSnap } from "./TimelineContext";
 
 // 格式化时间为 MM:SS:mmm（输入单位为秒）
 const formatTime = (seconds: number) => {
@@ -18,6 +18,8 @@ const PlaybackToolbar: React.FC<{ className?: string }> = ({ className }) => {
 	const { isPlaying, togglePlay } = usePlaybackControl();
 	const { canvasRef } = usePreview();
 	const [isExporting, setIsExporting] = useState(false);
+	const { snapEnabled, setSnapEnabled } = useSnap();
+	const { autoAttach, setAutoAttach } = useAttachments();
 
 	// 全局空格键播放/暂停
 	useEffect(() => {
@@ -64,6 +66,33 @@ const PlaybackToolbar: React.FC<{ className?: string }> = ({ className }) => {
 			<span className="font-mono text-sm text-neutral-300">
 				{formatTime(currentTime)}
 			</span>
+			{/* 开关按钮组 */}
+			<div className="flex items-center gap-2 ml-4">
+				<button
+					onClick={() => setSnapEnabled(!snapEnabled)}
+					className={cn(
+						"px-2 py-1 text-xs rounded transition-colors",
+						snapEnabled
+							? "bg-green-600 text-white"
+							: "bg-neutral-700 text-neutral-400 hover:bg-neutral-600"
+					)}
+					title="水平吸附"
+				>
+					吸附
+				</button>
+				<button
+					onClick={() => setAutoAttach(!autoAttach)}
+					className={cn(
+						"px-2 py-1 text-xs rounded transition-colors",
+						autoAttach
+							? "bg-green-600 text-white"
+							: "bg-neutral-700 text-neutral-400 hover:bg-neutral-600"
+					)}
+					title="主轴联动"
+				>
+					联动
+				</button>
+			</div>
 			<div className="flex-1" />
 			<button
 				onClick={handleExport}

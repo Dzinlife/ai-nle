@@ -73,6 +73,7 @@ const ElementSettingsPanel: React.FC = () => {
 					<div className="text-xs text-neutral-500">
 						<div>Type: {selectedElement.type}</div>
 						<div>ID: {selectedElement.id}</div>
+						<div>Track Index: {selectedElement.timeline.trackIndex}</div>
 					</div>
 				</div>
 			</div>

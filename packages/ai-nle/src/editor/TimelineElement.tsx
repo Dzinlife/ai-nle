@@ -5,7 +5,7 @@ import { modelRegistry, useModelExists } from "@/dsl/model/registry";
 import { TimelineElement as TimelineElementType } from "@/dsl/types";
 import { useDragging, useElements, useSelectedElement, useSnap, useTimelineStore, useAttachments, useTrackAssignments } from "./TimelineContext";
 import { applySnap, applySnapForDrag, collectSnapPoints } from "./utils/snap";
-import { findAvailableTrack, assignTracks, getTrackCount, hasOverlapOnStoredTrack } from "./utils/trackAssignment";
+import { hasOverlapOnStoredTrack } from "./utils/trackAssignment";
 
 interface TimelineElementProps {
 	element: TimelineElementType;
@@ -278,6 +278,8 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 
 			// 计算新的 Y 位置
 			const newY = trackY + my;
+			const elementHeight = 54;
+			const centerY = newY + elementHeight / 2; // 使用元素中心点进行轨道判定
 
 			// 吸附处理 - 整体拖动时考虑 start 和 end 两个边缘
 			let activeSnap = null;
@@ -303,11 +305,26 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 					const actualDelta = newStart - initialStartRef.current;
 
 					// 根据拖拽位置判断是放到轨道还是插入间隙
-					const dropTarget = getDropTarget(Math.max(0, newY), trackHeight, trackCount);
+					let dropTarget = getDropTarget(Math.max(0, centerY), trackHeight, trackCount);
+
+					// 检查是否有显著的垂直移动
+					const originalTrackIndex = element.timeline.trackIndex ?? 0;
+					const significantVerticalMove = Math.abs(my) > trackHeight / 2;
+
+					// 如果垂直移动不显著，强制保持在原轨道（避免横向拖动时误入其他轨道）
+					if (!significantVerticalMove) {
+						dropTarget = { type: "track", trackIndex: originalTrackIndex };
+					}
+
+					// 检查元素是否从主轨道拖离到上层轨道（用于联动逻辑）
+					const isLeavingMainTrack = originalTrackIndex === 0 &&
+						significantVerticalMove &&
+						(dropTarget.type === "gap" || dropTarget.trackIndex > 0);
 
 					// 收集需要同步移动的附属元素
+					// 注意：如果元素从主轨道拖离，不触发附属元素联动
 					const attachedChildren: { id: string; start: number; end: number }[] = [];
-					if (autoAttach && actualDelta !== 0) {
+					if (autoAttach && actualDelta !== 0 && !isLeavingMainTrack) {
 						const childIds = attachments.get(id) ?? [];
 						for (const childId of childIds) {
 							const child = elements.find((el) => el.id === childId);
@@ -337,8 +354,16 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				setLocalTrackY(newY);
 				setActiveSnapPoint(activeSnap);
 
+				// 检查是否有显著的垂直移动
+				const originalTrackIndex = element.timeline.trackIndex ?? 0;
+				const significantVerticalMove = Math.abs(my) > trackHeight / 2;
+
 				// 计算并更新拖拽目标指示
-				const dropTarget = getDropTarget(Math.max(0, newY), trackHeight, trackCount);
+				// 如果垂直移动不显著，强制使用原轨道
+				let dropTarget = getDropTarget(Math.max(0, centerY), trackHeight, trackCount);
+				if (!significantVerticalMove) {
+					dropTarget = { type: "track", trackIndex: originalTrackIndex };
+				}
 
 				// 创建临时元素列表（更新当前元素的时间范围）
 				const tempElements = elements.map((el) => {
@@ -399,23 +424,48 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 						finalTrackIndex = gapTrackIndex;
 					}
 				} else {
-					// 轨道模式：使用原有逻辑（基于 assignTracks 的分配）
-					const tempAssignments = assignTracks(tempElements);
-					const tempCount = getTrackCount(tempAssignments);
-					finalTrackIndex = findAvailableTrack(
+					// 轨道模式：使用与 gap 模式一致的逻辑
+					// 只检查当前轨道和上方一级，避免与 gap 模式行为不一致
+					const targetTrack = dropTarget.trackIndex;
+
+					// 检查目标轨道是否有重叠
+					const targetHasOverlap = hasOverlapOnStoredTrack(
 						newStart,
 						newEnd,
-						dropTarget.trackIndex,
+						targetTrack,
 						tempElements,
-						tempAssignments,
 						id,
-						tempCount,
 					);
+
+					if (!targetHasOverlap) {
+						// 目标轨道没有重叠，直接放入
+						finalTrackIndex = targetTrack;
+					} else {
+						// 目标轨道有重叠，检查上方一级
+						const aboveTrack = targetTrack + 1;
+						const aboveHasOverlap = aboveTrack <= maxStoredTrack && hasOverlapOnStoredTrack(
+							newStart,
+							newEnd,
+							aboveTrack,
+							tempElements,
+							id,
+						);
+
+						if (!aboveHasOverlap && aboveTrack <= maxStoredTrack) {
+							// 上方轨道有空位，移动到上方
+							finalTrackIndex = aboveTrack;
+						} else {
+							// 上方也没有空位或不存在，在目标轨道上方创建新轨道
+							// 与 gap 模式一致，只向上查一级
+							finalTrackIndex = targetTrack + 1;
+							displayType = "gap";
+						}
+					}
 				}
 
 				setActiveDropTarget({
 					type: displayType,
-					trackIndex: dropTarget.trackIndex,
+					trackIndex: displayType === "gap" ? finalTrackIndex : dropTarget.trackIndex,
 					elementId: id,
 					start: newStart,
 					end: newEnd,

@@ -323,6 +323,10 @@ export const useTrackAssignments = () => {
 					const belowTrack = gapTrackIndex - 1; // 缝隙下方的轨道
 					const aboveTrack = gapTrackIndex; // 缝隙上方的轨道
 
+					// 获取元素的原始轨道
+					const originalElement = prev.find((el) => el.id === elementId);
+					const originalTrack = originalElement?.timeline.trackIndex ?? 0;
+
 					// 创建临时元素列表用于检查重叠
 					const tempUpdated = prev.map((el) => {
 						if (el.id === elementId) {
@@ -340,41 +344,42 @@ export const useTrackAssignments = () => {
 						...tempUpdated.map((el) => el.timeline.trackIndex ?? 0)
 					);
 
-					// 检查下方轨道是否有空位（基于存储的 trackIndex）
-					const belowHasSpace = belowTrack >= 0 && !hasOverlapOnStoredTrack(
-						start,
-						end,
-						belowTrack,
-						tempUpdated,
-						elementId,
-					);
+					// 检查相邻轨道是否可作为新目标（排除原始轨道，因为用户拖到缝隙意味着想移动）
+					const belowIsDestination = belowTrack >= 0 &&
+						belowTrack !== originalTrack &&
+						!hasOverlapOnStoredTrack(start, end, belowTrack, tempUpdated, elementId);
 
-					// 检查上方轨道是否有空位（基于存储的 trackIndex）
-					const aboveHasSpace = aboveTrack <= maxStoredTrack && !hasOverlapOnStoredTrack(
-						start,
-						end,
-						aboveTrack,
-						tempUpdated,
-						elementId,
-					);
+					const aboveIsDestination = aboveTrack <= maxStoredTrack &&
+						aboveTrack !== originalTrack &&
+						!hasOverlapOnStoredTrack(start, end, aboveTrack, tempUpdated, elementId);
 
-					if (belowHasSpace) {
-						// 下方轨道有空位，直接放入
+					if (belowIsDestination) {
+						// 移动到下方轨道
 						finalTrack = belowTrack;
 						updatedAssignments = currentAssignments;
-					} else if (aboveHasSpace) {
-						// 上方轨道有空位，直接放入
+					} else if (aboveIsDestination) {
+						// 移动到上方轨道
 						finalTrack = aboveTrack;
 						updatedAssignments = currentAssignments;
 					} else {
-						// 两边都没有空位，插入新轨道
-						// 只查一级，不继续向上查找，让用户可以主动插入新轨道
-						updatedAssignments = insertTrackAt(gapTrackIndex, currentAssignments);
-						finalTrack = gapTrackIndex;
+						// 没有可用的新目标轨道，检查能否留在原始轨道
+						const canStayOnOriginal = !hasOverlapOnStoredTrack(
+							start, end, originalTrack, tempUpdated, elementId
+						);
+
+						if (canStayOnOriginal) {
+							// 留在原始轨道（只是时间位置变化）
+							finalTrack = originalTrack;
+							updatedAssignments = currentAssignments;
+						} else {
+							// 原始轨道也有重叠，必须新建轨道
+							updatedAssignments = insertTrackAt(gapTrackIndex, currentAssignments);
+							finalTrack = gapTrackIndex;
+						}
 					}
 				} else {
-					// 普通模式：智能放置到目标轨道（如有重叠则向上寻找）
-					// 先创建一个临时的更新后元素列表
+					// 普通模式：使用与 gap 模式一致的逻辑
+					// 只检查当前轨道和上方一级，避免与 gap 模式行为不一致
 					const tempUpdated = prev.map((el) => {
 						if (el.id === elementId) {
 							return {
@@ -389,22 +394,47 @@ export const useTrackAssignments = () => {
 						return el;
 					});
 
-					// 计算新的轨道分配
-					const tempAssignments = assignTracks(tempUpdated);
-					const tempCount = getTrackCount(tempAssignments);
-
-					// 计算最终轨道位置
-					finalTrack = findAvailableTrack(
-						start,
-						end,
-						dropTarget.trackIndex,
-						tempUpdated,
-						tempAssignments,
-						elementId,
-						tempCount,
+					const targetTrack = dropTarget.trackIndex;
+					const maxStoredTrack = Math.max(
+						0,
+						...tempUpdated.map((el) => el.timeline.trackIndex ?? 0)
 					);
 
-					updatedAssignments = currentAssignments;
+					// 检查目标轨道是否有重叠
+					const targetHasOverlap = hasOverlapOnStoredTrack(
+						start,
+						end,
+						targetTrack,
+						tempUpdated,
+						elementId,
+					);
+
+					if (!targetHasOverlap) {
+						// 目标轨道没有重叠，直接放入
+						finalTrack = targetTrack;
+						updatedAssignments = currentAssignments;
+					} else {
+						// 目标轨道有重叠，检查上方一级
+						const aboveTrack = targetTrack + 1;
+						const aboveHasOverlap = aboveTrack <= maxStoredTrack && hasOverlapOnStoredTrack(
+							start,
+							end,
+							aboveTrack,
+							tempUpdated,
+							elementId,
+						);
+
+						if (!aboveHasOverlap && aboveTrack <= maxStoredTrack) {
+							// 上方轨道有空位，移动到上方
+							finalTrack = aboveTrack;
+							updatedAssignments = currentAssignments;
+						} else {
+							// 上方也没有空位或不存在，在目标轨道上方创建新轨道
+							// 与 gap 模式一致，只向上查一级
+							updatedAssignments = insertTrackAt(targetTrack + 1, currentAssignments);
+							finalTrack = targetTrack + 1;
+						}
+					}
 				}
 
 				// 应用时间和轨道更新
@@ -434,16 +464,24 @@ export const useTrackAssignments = () => {
 					return el;
 				});
 
-				// 规范化轨道（移除空轨道）
-				const newAssignments = assignTracks(updated);
-				const normalized = normalizeTrackAssignments(newAssignments);
+				// 直接基于存储的 trackIndex 压缩空轨道（不重新分配）
+				const usedTracks = new Set<number>();
+				for (const el of updated) {
+					usedTracks.add(el.timeline.trackIndex ?? 0);
+				}
+				usedTracks.add(0); // 主轨道始终存在
 
-				// 应用规范化后的轨道索引
+				const sortedTracks = [...usedTracks].sort((a, b) => a - b);
+				const trackMapping = new Map<number, number>();
+				sortedTracks.forEach((oldTrack, newIndex) => {
+					trackMapping.set(oldTrack, newIndex);
+				});
+
 				return updated.map((el) => ({
 					...el,
 					timeline: {
 						...el.timeline,
-						trackIndex: normalized.get(el.id) ?? el.timeline.trackIndex,
+						trackIndex: trackMapping.get(el.timeline.trackIndex ?? 0) ?? el.timeline.trackIndex,
 					},
 				}));
 			});
@@ -473,6 +511,10 @@ export const useTrackAssignments = () => {
 					const belowTrack = gapTrackIndex - 1; // 缝隙下方的轨道
 					const aboveTrack = gapTrackIndex; // 缝隙上方的轨道
 
+					// 获取元素的原始轨道
+					const originalElement = prev.find((el) => el.id === elementId);
+					const originalTrack = originalElement?.timeline.trackIndex ?? 0;
+
 					// 创建临时元素列表用于检查重叠
 					const tempUpdated = prev.map((el) => {
 						if (el.id === elementId) {
@@ -490,40 +532,41 @@ export const useTrackAssignments = () => {
 						...tempUpdated.map((el) => el.timeline.trackIndex ?? 0)
 					);
 
-					// 检查下方轨道是否有空位（基于存储的 trackIndex）
-					const belowHasSpace = belowTrack >= 0 && !hasOverlapOnStoredTrack(
-						start,
-						end,
-						belowTrack,
-						tempUpdated,
-						elementId,
-					);
+					// 检查相邻轨道是否可作为新目标（排除原始轨道，因为用户拖到缝隙意味着想移动）
+					const belowIsDestination = belowTrack >= 0 &&
+						belowTrack !== originalTrack &&
+						!hasOverlapOnStoredTrack(start, end, belowTrack, tempUpdated, elementId);
 
-					// 检查上方轨道是否有空位（基于存储的 trackIndex）
-					const aboveHasSpace = aboveTrack <= maxStoredTrack && !hasOverlapOnStoredTrack(
-						start,
-						end,
-						aboveTrack,
-						tempUpdated,
-						elementId,
-					);
+					const aboveIsDestination = aboveTrack <= maxStoredTrack &&
+						aboveTrack !== originalTrack &&
+						!hasOverlapOnStoredTrack(start, end, aboveTrack, tempUpdated, elementId);
 
-					if (belowHasSpace) {
-						// 下方轨道有空位，直接放入
+					if (belowIsDestination) {
+						// 移动到下方轨道
 						finalTrack = belowTrack;
 						updatedAssignments = currentAssignments;
-					} else if (aboveHasSpace) {
-						// 上方轨道有空位，直接放入
+					} else if (aboveIsDestination) {
+						// 移动到上方轨道
 						finalTrack = aboveTrack;
 						updatedAssignments = currentAssignments;
 					} else {
-						// 两边都没有空位，插入新轨道
-						// 只查一级，不继续向上查找，让用户可以主动插入新轨道
-						updatedAssignments = insertTrackAt(gapTrackIndex, currentAssignments);
-						finalTrack = gapTrackIndex;
+						// 没有可用的新目标轨道，检查能否留在原始轨道
+						const canStayOnOriginal = !hasOverlapOnStoredTrack(
+							start, end, originalTrack, tempUpdated, elementId
+						);
+
+						if (canStayOnOriginal) {
+							// 留在原始轨道（只是时间位置变化）
+							finalTrack = originalTrack;
+							updatedAssignments = currentAssignments;
+						} else {
+							// 原始轨道也有重叠，必须新建轨道
+							updatedAssignments = insertTrackAt(gapTrackIndex, currentAssignments);
+							finalTrack = gapTrackIndex;
+						}
 					}
 				} else {
-					// 普通模式：智能放置到目标轨道
+					// 普通模式：使用与 gap 模式一致的逻辑
 					const tempUpdated = prev.map((el) => {
 						if (el.id === elementId) {
 							return {
@@ -533,18 +576,47 @@ export const useTrackAssignments = () => {
 						}
 						return el;
 					});
-					const tempAssignments = assignTracks(tempUpdated);
-					const tempCount = getTrackCount(tempAssignments);
-					finalTrack = findAvailableTrack(
+
+					const targetTrack = dropTarget.trackIndex;
+					const maxStoredTrack = Math.max(
+						0,
+						...tempUpdated.map((el) => el.timeline.trackIndex ?? 0)
+					);
+
+					// 检查目标轨道是否有重叠
+					const targetHasOverlap = hasOverlapOnStoredTrack(
 						start,
 						end,
-						dropTarget.trackIndex,
+						targetTrack,
 						tempUpdated,
-						tempAssignments,
 						elementId,
-						tempCount,
 					);
-					updatedAssignments = currentAssignments;
+
+					if (!targetHasOverlap) {
+						// 目标轨道没有重叠，直接放入
+						finalTrack = targetTrack;
+						updatedAssignments = currentAssignments;
+					} else {
+						// 目标轨道有重叠，检查上方一级
+						const aboveTrack = targetTrack + 1;
+						const aboveHasOverlap = aboveTrack <= maxStoredTrack && hasOverlapOnStoredTrack(
+							start,
+							end,
+							aboveTrack,
+							tempUpdated,
+							elementId,
+						);
+
+						if (!aboveHasOverlap && aboveTrack <= maxStoredTrack) {
+							// 上方轨道有空位，移动到上方
+							finalTrack = aboveTrack;
+							updatedAssignments = currentAssignments;
+						} else {
+							// 上方也没有空位或不存在，在目标轨道上方创建新轨道
+							updatedAssignments = insertTrackAt(targetTrack + 1, currentAssignments);
+							finalTrack = targetTrack + 1;
+						}
+					}
 				}
 
 				// 第一步：更新主元素的时间和轨道
@@ -628,15 +700,24 @@ export const useTrackAssignments = () => {
 					}
 				}
 
-				// 第四步：规范化轨道（移除空轨道）
-				const newAssignments = assignTracks(updated);
-				const normalized = normalizeTrackAssignments(newAssignments);
+				// 直接基于存储的 trackIndex 压缩空轨道（不重新分配）
+				const usedTracks = new Set<number>();
+				for (const el of updated) {
+					usedTracks.add(el.timeline.trackIndex ?? 0);
+				}
+				usedTracks.add(0); // 主轨道始终存在
+
+				const sortedTracks = [...usedTracks].sort((a, b) => a - b);
+				const trackMapping = new Map<number, number>();
+				sortedTracks.forEach((oldTrack, newIndex) => {
+					trackMapping.set(oldTrack, newIndex);
+				});
 
 				return updated.map((el) => ({
 					...el,
 					timeline: {
 						...el.timeline,
-						trackIndex: normalized.get(el.id) ?? el.timeline.trackIndex,
+						trackIndex: trackMapping.get(el.timeline.trackIndex ?? 0) ?? el.timeline.trackIndex,
 					},
 				}));
 			});
