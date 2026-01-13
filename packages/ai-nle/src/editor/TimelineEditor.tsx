@@ -11,6 +11,7 @@ import { ProgressiveBlur } from "@/components/ui/progressive-blur";
 import TimeIndicatorCanvas from "@/editor/TimeIndicatorCanvas";
 import PlaybackToolbar from "./PlaybackToolbar";
 import {
+	useAutoScroll,
 	useDragging,
 	useElements,
 	usePlaybackControl,
@@ -26,6 +27,8 @@ import { DEFAULT_ELEMENT_HEIGHT } from "./timeline/trackConfig";
 
 const TimelineEditor = () => {
 	const setCurrentTime = useTimelineStore((state) => state.setCurrentTime);
+	const scrollLeft = useTimelineStore((state) => state.scrollLeft);
+	const setScrollLeft = useTimelineStore((state) => state.setScrollLeft);
 	const { setPreviewTime } = usePreviewTime();
 	const { isPlaying } = usePlaybackControl();
 	const { elements, setElements } = useElements();
@@ -33,10 +36,12 @@ const TimelineEditor = () => {
 	const { activeSnapPoint } = useSnap();
 	const { trackAssignments, trackCount } = useTrackAssignments();
 	const { activeDropTarget, dragGhost } = useDragging();
+	const { autoScrollSpeed, autoScrollSpeedY } = useAutoScroll();
 
-	// 滚动位置状态
-	const [scrollLeft, setScrollLeft] = useState(0);
+	// 滚动位置 refs
 	const containerRef = useRef<HTMLDivElement>(null);
+	const scrollAreaRef = useRef<HTMLDivElement>(null);
+	const verticalScrollRef = useRef<HTMLDivElement>(null);
 	const scrollLeftRef = useRef(0);
 	const touchStartXRef = useRef(0);
 
@@ -154,10 +159,9 @@ const TimelineEditor = () => {
 				e.stopPropagation();
 
 				// 修复方向：向右滚动（deltaX > 0）应该增加 scrollLeft
-				setScrollLeft((prev) => {
-					const newScrollLeft = prev + e.deltaX;
-					return Math.max(0, newScrollLeft);
-				});
+				const currentScrollLeft = useTimelineStore.getState().scrollLeft;
+				const newScrollLeft = Math.max(0, currentScrollLeft + e.deltaX);
+				setScrollLeft(newScrollLeft);
 			}
 			// 如果是纯垂直滚动（只有 deltaY），不阻止默认行为，让页面正常滚动
 		};
@@ -206,6 +210,50 @@ const TimelineEditor = () => {
 			container.removeEventListener("touchmove", handleTouchMove);
 		};
 	}, []);
+
+	// 自动滚动效果（拖拽到边缘时触发）
+	useEffect(() => {
+		if (autoScrollSpeed === 0) return;
+
+		let animationFrameId: number;
+
+		const animate = () => {
+			const currentScrollLeft = useTimelineStore.getState().scrollLeft;
+			const newScrollLeft = Math.max(0, currentScrollLeft + autoScrollSpeed);
+			setScrollLeft(newScrollLeft);
+			animationFrameId = requestAnimationFrame(animate);
+		};
+
+		animationFrameId = requestAnimationFrame(animate);
+
+		return () => {
+			cancelAnimationFrame(animationFrameId);
+		};
+	}, [autoScrollSpeed, setScrollLeft]);
+
+	// 垂直自动滚动效果（拖拽到上下边缘时触发）
+	useEffect(() => {
+		if (autoScrollSpeedY === 0) return;
+
+		const scrollContainer = verticalScrollRef.current;
+		if (!scrollContainer) return;
+
+		let animationFrameId: number;
+
+		const animate = () => {
+			const currentScrollTop = scrollContainer.scrollTop;
+			const maxScrollTop = scrollContainer.scrollHeight - scrollContainer.clientHeight;
+			const newScrollTop = Math.max(0, Math.min(maxScrollTop, currentScrollTop + autoScrollSpeedY));
+			scrollContainer.scrollTop = newScrollTop;
+			animationFrameId = requestAnimationFrame(animate);
+		};
+
+		animationFrameId = requestAnimationFrame(animate);
+
+		return () => {
+			cancelAnimationFrame(animationFrameId);
+		};
+	}, [autoScrollSpeedY]);
 
 	const trackHeight = 60;
 
@@ -389,72 +437,89 @@ const TimelineEditor = () => {
 		);
 	}, [activeSnapPoint, ratio, scrollLeft]);
 
-	// 拖拽目标指示器（其他轨道区域）
-	const otherDropIndicator = useMemo(() => {
-		if (!activeDropTarget || activeDropTarget.finalTrackIndex === 0)
-			return null;
+	// 拖拽目标指示器（渲染到 body，跨区域显示）
+	const dropIndicatorPortal = useMemo(() => {
+		if (!activeDropTarget) return null;
 
-		// 使用拖拽后的新时间范围
-		const elementLeft = activeDropTarget.start * ratio - scrollLeft;
 		const elementWidth =
 			(activeDropTarget.end - activeDropTarget.start) * ratio;
 
-		if (activeDropTarget.type === "gap") {
-			// 间隙插入模式 - 显示横向高亮线
-			// gap 的 trackIndex 表示新轨道将插入到该位置
-			// 在其他轨道区域，trackIndex 1 在底部
-			const gapY =
-				(otherTrackCount - activeDropTarget.trackIndex + 1) * trackHeight;
-			return (
-				<div
-					className="absolute left-0 right-0 h-1 bg-green-500 z-40 pointer-events-none rounded-full shadow-lg shadow-green-500/50"
-					style={{
-						top: gapY - 2,
-					}}
-				/>
+		// 查找目标区域的 DOM 元素来计算屏幕坐标
+		let targetZone: HTMLElement | null = null;
+		let screenX = 0;
+		let screenY = 0;
+
+		if (activeDropTarget.finalTrackIndex === 0) {
+			// 主轨道
+			targetZone = document.querySelector<HTMLElement>(
+				'[data-track-drop-zone="main"]',
 			);
+			if (targetZone) {
+				const contentArea = targetZone.querySelector<HTMLElement>(
+					'[data-track-content-area="main"]',
+				);
+				if (contentArea) {
+					const contentRect = contentArea.getBoundingClientRect();
+					// 计算屏幕坐标
+					screenX = contentRect.left + activeDropTarget.start * ratio - scrollLeft;
+					screenY = contentRect.top;
+				}
+			}
+		} else {
+			// 其他轨道
+			targetZone = document.querySelector<HTMLElement>(
+				'[data-track-drop-zone="other"]',
+			);
+			if (targetZone) {
+				const contentArea = targetZone.querySelector<HTMLElement>(
+					'[data-track-content-area="other"]',
+				);
+				if (contentArea) {
+					const contentRect = contentArea.getBoundingClientRect();
+
+					if (activeDropTarget.type === "gap") {
+						// gap 模式 - 显示水平线
+						const gapY = (otherTrackCount - activeDropTarget.trackIndex + 1) * trackHeight;
+						screenX = contentRect.left;
+						screenY = contentRect.top + gapY - 2;
+
+						const indicator = (
+							<div
+								className="fixed h-1 bg-green-500 z-[9998] pointer-events-none rounded-full shadow-lg shadow-green-500/50"
+								style={{
+									left: screenX,
+									top: screenY,
+									width: contentRect.width,
+								}}
+							/>
+						);
+						return createPortal(indicator, document.body);
+					}
+
+					// track 模式
+					const trackY = (otherTrackCount - activeDropTarget.finalTrackIndex) * trackHeight;
+					screenX = contentRect.left + activeDropTarget.start * ratio - scrollLeft;
+					screenY = contentRect.top + trackY;
+				}
+			}
 		}
-		// track 模式 - 显示矩形占位符
-		// 在其他轨道区域，需要计算相对位置
-		const trackY =
-			(otherTrackCount - activeDropTarget.finalTrackIndex) * trackHeight;
 
-		return (
+		if (!targetZone) return null;
+
+		const indicator = (
 			<div
-				className="absolute bg-blue-500/20 border-2 border-blue-500 border-dashed z-40 pointer-events-none rounded-md box-border"
+				className="fixed bg-blue-500/20 border-2 border-blue-500 border-dashed z-[9998] pointer-events-none rounded-md box-border"
 				style={{
-					top: trackY,
-					left: elementLeft,
+					left: screenX,
+					top: screenY,
 					width: elementWidth,
 					height: DEFAULT_ELEMENT_HEIGHT,
 				}}
 			/>
 		);
+
+		return createPortal(indicator, document.body);
 	}, [activeDropTarget, ratio, scrollLeft, otherTrackCount, trackHeight]);
-
-	// 拖拽目标指示器（主轨道区域）
-	const mainDropIndicator = useMemo(() => {
-		if (!activeDropTarget || activeDropTarget.finalTrackIndex !== 0)
-			return null;
-
-		// 使用拖拽后的新时间范围
-		const elementLeft = activeDropTarget.start * ratio - scrollLeft;
-		const elementWidth =
-			(activeDropTarget.end - activeDropTarget.start) * ratio;
-
-		// 主轨道模式 - 显示矩形占位符
-		return (
-			<div
-				className="absolute bg-blue-500/20 border-2 border-blue-500 border-dashed z-40 pointer-events-none rounded-md box-border"
-				style={{
-					top: 0,
-					left: elementLeft,
-					width: elementWidth,
-					height: DEFAULT_ELEMENT_HEIGHT,
-				}}
-			/>
-		);
-	}, [activeDropTarget, ratio, scrollLeft]);
 
 	// 拖拽 Ghost 元素（使用 Portal 渲染到 body）
 	const ghostElement = useMemo(() => {
@@ -462,7 +527,7 @@ const TimelineEditor = () => {
 
 		const ghost = (
 			<div
-				className="fixed bg-blue-500/30 border-2 border-blue-500 rounded-md pointer-events-none shadow-lg shadow-blue-500/20"
+				className="fixed pointer-events-none"
 				style={{
 					left: dragGhost.screenX,
 					top: dragGhost.screenY,
@@ -471,9 +536,15 @@ const TimelineEditor = () => {
 					zIndex: 9999,
 				}}
 			>
-				<div className="p-1 text-xs text-white truncate">
-					{dragGhost.element.name || dragGhost.element.type}
-				</div>
+				{/* 半透明的元素克隆 */}
+				<div
+					className="absolute inset-0 opacity-60"
+					dangerouslySetInnerHTML={{ __html: dragGhost.clonedHtml }}
+				/>
+				{/* 蓝色实线边框指示器 */}
+				<div
+					className="absolute inset-0 border-2 border-blue-500 rounded-md shadow-lg shadow-blue-500/30"
+				/>
 			</div>
 		);
 
@@ -490,7 +561,11 @@ const TimelineEditor = () => {
 			/>
 			<PlaybackToolbar className="h-12 z-50" />
 			{timeStamps}
-			<div className="relative w-full flex-1 min-h-0 flex flex-col -mt-18 overflow-hidden">
+			<div
+				ref={scrollAreaRef}
+				data-timeline-scroll-area
+				className="relative w-full flex-1 min-h-0 flex flex-col -mt-18 overflow-hidden"
+			>
 				<TimeIndicatorCanvas
 					className="top-12"
 					leftOffset={leftColumnWidth + timelinePaddingLeft}
@@ -498,7 +573,11 @@ const TimelineEditor = () => {
 					scrollLeft={scrollLeft}
 				/>
 				{/* 其他轨道区域（可滚动） */}
-				<div className="flex items-start pt-18 w-full flex-1 min-h-0 overflow-y-auto">
+				<div
+					ref={verticalScrollRef}
+					data-vertical-scroll-area
+					className="flex items-start pt-18 w-full flex-1 min-h-0 overflow-y-auto"
+				>
 					{/* 左侧列，其他轨道标签 */}
 					<div
 						className="text-white z-20 pr-4 flex flex-col bg-neutral-800/80 backdrop-blur-3xl backdrop-saturate-150 border-r border-white/10 pt-10 -mt-10 sticky top-0"
@@ -530,7 +609,6 @@ const TimelineEditor = () => {
 								data-content-height={otherTrackCount * trackHeight}
 							>
 								{otherSnapIndicator}
-								{otherDropIndicator}
 								{otherTimelineItems}
 							</div>
 						</div>
@@ -559,9 +637,8 @@ const TimelineEditor = () => {
 						}}
 					>
 						<div style={{ paddingLeft: timelinePaddingLeft }}>
-							<div className="relative">
+							<div className="relative" data-track-content-area="main">
 								{mainSnapIndicator}
-								{mainDropIndicator}
 								{mainTimelineItems}
 							</div>
 						</div>
@@ -569,6 +646,7 @@ const TimelineEditor = () => {
 				</div>
 				{/* 拖拽 Ghost 层 */}
 				{ghostElement}
+				{dropIndicatorPortal}
 			</div>
 		</div>
 	);

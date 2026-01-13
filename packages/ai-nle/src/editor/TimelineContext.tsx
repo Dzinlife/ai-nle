@@ -33,7 +33,22 @@ export interface DragGhostState {
 	screenY: number;
 	width: number;
 	height: number;
+	// 克隆的元素 HTML（用于渲染半透明影子）
+	clonedHtml: string;
 }
+
+// 自动滚动配置
+export interface AutoScrollConfig {
+	/** 边缘检测阈值（像素） */
+	edgeThreshold: number;
+	/** 最大滚动速度（像素/帧） */
+	maxSpeed: number;
+}
+
+export const DEFAULT_AUTO_SCROLL_CONFIG: AutoScrollConfig = {
+	edgeThreshold: 80,
+	maxSpeed: 12,
+};
 
 interface TimelineStore {
 	currentTime: number;
@@ -52,6 +67,11 @@ interface TimelineStore {
 	activeDropTarget: ExtendedDropTarget | null;
 	// 拖拽 Ghost 状态
 	dragGhost: DragGhostState | null;
+	// 自动滚动状态
+	autoScrollSpeed: number; // -1 到 1，负数向左，正数向右，0 停止
+	autoScrollSpeedY: number; // 垂直滚动速度，负数向上，正数向下
+	// 时间线滚动位置
+	scrollLeft: number;
 	setCurrentTime: (time: number) => void;
 	setPreviewTime: (time: number | null) => void;
 	setElements: (
@@ -78,6 +98,11 @@ interface TimelineStore {
 	setActiveDropTarget: (target: ExtendedDropTarget | null) => void;
 	// 拖拽 Ghost 方法
 	setDragGhost: (ghost: DragGhostState | null) => void;
+	// 自动滚动方法
+	setAutoScrollSpeed: (speed: number) => void;
+	setAutoScrollSpeedY: (speed: number) => void;
+	// 滚动位置方法
+	setScrollLeft: (scrollLeft: number) => void;
 }
 
 export const useTimelineStore = create<TimelineStore>()(
@@ -98,6 +123,11 @@ export const useTimelineStore = create<TimelineStore>()(
 		activeDropTarget: null,
 		// 拖拽 Ghost 状态初始值
 		dragGhost: null,
+		// 自动滚动状态初始值
+		autoScrollSpeed: 0,
+		autoScrollSpeedY: 0,
+		// 滚动位置初始值
+		scrollLeft: 0,
 
 		setCurrentTime: (time: number) => {
 			const currentTime = get().currentTime;
@@ -187,6 +217,20 @@ export const useTimelineStore = create<TimelineStore>()(
 		setDragGhost: (ghost: DragGhostState | null) => {
 			set({ dragGhost: ghost });
 		},
+
+		// 自动滚动方法
+		setAutoScrollSpeed: (speed: number) => {
+			set({ autoScrollSpeed: speed });
+		},
+
+		setAutoScrollSpeedY: (speed: number) => {
+			set({ autoScrollSpeedY: speed });
+		},
+
+		// 滚动位置方法
+		setScrollLeft: (scrollLeft: number) => {
+			set({ scrollLeft });
+		},
 	})),
 );
 
@@ -258,6 +302,105 @@ export const useDragging = () => {
 		setActiveDropTarget,
 		dragGhost,
 		setDragGhost,
+	};
+};
+
+export const useAutoScroll = () => {
+	const autoScrollSpeed = useTimelineStore((state) => state.autoScrollSpeed);
+	const autoScrollSpeedY = useTimelineStore((state) => state.autoScrollSpeedY);
+	const setAutoScrollSpeed = useTimelineStore(
+		(state) => state.setAutoScrollSpeed,
+	);
+	const setAutoScrollSpeedY = useTimelineStore(
+		(state) => state.setAutoScrollSpeedY,
+	);
+
+	/**
+	 * 根据鼠标位置计算并设置水平自动滚动速度
+	 */
+	const updateAutoScrollFromPosition = useCallback(
+		(
+			screenX: number,
+			containerLeft: number,
+			containerRight: number,
+			config: AutoScrollConfig = DEFAULT_AUTO_SCROLL_CONFIG,
+		) => {
+			const { edgeThreshold, maxSpeed } = config;
+
+			// 检查左边缘
+			const distanceFromLeft = screenX - containerLeft;
+			if (distanceFromLeft < edgeThreshold && distanceFromLeft >= 0) {
+				const intensity = 1 - distanceFromLeft / edgeThreshold;
+				setAutoScrollSpeed(-intensity * maxSpeed);
+				return;
+			}
+
+			// 检查右边缘
+			const distanceFromRight = containerRight - screenX;
+			if (distanceFromRight < edgeThreshold && distanceFromRight >= 0) {
+				const intensity = 1 - distanceFromRight / edgeThreshold;
+				setAutoScrollSpeed(intensity * maxSpeed);
+				return;
+			}
+
+			// 不在边缘区域，停止水平滚动
+			if (autoScrollSpeed !== 0) {
+				setAutoScrollSpeed(0);
+			}
+		},
+		[autoScrollSpeed, setAutoScrollSpeed],
+	);
+
+	/**
+	 * 根据鼠标位置计算并设置垂直自动滚动速度
+	 */
+	const updateAutoScrollYFromPosition = useCallback(
+		(
+			screenY: number,
+			containerTop: number,
+			containerBottom: number,
+			config: AutoScrollConfig = DEFAULT_AUTO_SCROLL_CONFIG,
+		) => {
+			const { edgeThreshold, maxSpeed } = config;
+
+			// 检查上边缘
+			const distanceFromTop = screenY - containerTop;
+			if (distanceFromTop < edgeThreshold && distanceFromTop >= 0) {
+				const intensity = 1 - distanceFromTop / edgeThreshold;
+				setAutoScrollSpeedY(-intensity * maxSpeed);
+				return;
+			}
+
+			// 检查下边缘
+			const distanceFromBottom = containerBottom - screenY;
+			if (distanceFromBottom < edgeThreshold && distanceFromBottom >= 0) {
+				const intensity = 1 - distanceFromBottom / edgeThreshold;
+				setAutoScrollSpeedY(intensity * maxSpeed);
+				return;
+			}
+
+			// 不在边缘区域，停止垂直滚动
+			if (autoScrollSpeedY !== 0) {
+				setAutoScrollSpeedY(0);
+			}
+		},
+		[autoScrollSpeedY, setAutoScrollSpeedY],
+	);
+
+	// 停止自动滚动（水平和垂直）
+	const stopAutoScroll = useCallback(() => {
+		setAutoScrollSpeed(0);
+		setAutoScrollSpeedY(0);
+	}, [setAutoScrollSpeed, setAutoScrollSpeedY]);
+
+	return {
+		autoScrollSpeed,
+		autoScrollSpeedY,
+		setAutoScrollSpeed,
+		setAutoScrollSpeedY,
+		updateAutoScrollFromPosition,
+		updateAutoScrollYFromPosition,
+		stopAutoScroll,
 	};
 };
 

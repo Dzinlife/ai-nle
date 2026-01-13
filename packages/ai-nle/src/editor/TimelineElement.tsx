@@ -16,6 +16,7 @@ import { modelRegistry, useModelExists } from "@/dsl/model/registry";
 import { TimelineElement as TimelineElementType } from "@/dsl/types";
 import {
 	useAttachments,
+	useAutoScroll,
 	useDragging,
 	useElements,
 	useSelectedElement,
@@ -205,13 +206,19 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	const { id, timeline } = element;
 
 	// Context hooks
-	const { setIsDragging, setActiveDropTarget, setDragGhost, dragGhost } = useDragging();
+	const { setIsDragging, setActiveDropTarget, setDragGhost, dragGhost } =
+		useDragging();
 	const { selectedElementId, setSelectedElementId } = useSelectedElement();
 	const { snapEnabled, setActiveSnapPoint } = useSnap();
 	const { elements } = useElements();
 	const currentTime = useTimelineStore((state) => state.currentTime);
 	const { attachments, autoAttach } = useAttachments();
 	const { moveWithAttachments } = useTrackAssignments();
+	const {
+		updateAutoScrollFromPosition,
+		updateAutoScrollYFromPosition,
+		stopAutoScroll,
+	} = useAutoScroll();
 
 	// 约束
 	const maxDuration = useMaxDurationConstraint(id);
@@ -233,6 +240,8 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	const initialTrackRef = useRef(0);
 	const currentStartRef = useRef(timeline.start);
 	const currentEndRef = useRef(timeline.end);
+	// Ref for DOM element (用于 clone)
+	const elementRef = useRef<HTMLDivElement>(null);
 
 	// 计算显示值
 	const startTime = localStartTime ?? timeline.start;
@@ -364,10 +373,17 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	// ========== 整体拖拽 ==========
 	// 记录初始鼠标位置和元素位置的偏移
 	const initialMouseOffsetRef = useRef({ x: 0, y: 0 });
+	// 记录拖拽开始时的滚动位置
+	const initialScrollLeftRef = useRef(0);
+	// 记录克隆的 HTML（拖拽过程中不变）
+	const clonedHtmlRef = useRef("");
 
 	const bindBodyDrag = useDrag(
 		({ movement: [mx, my], first, last, event, tap, xy }) => {
 			if (tap) return;
+
+			// 获取当前滚动位置
+			const currentScrollLeft = useTimelineStore.getState().scrollLeft;
 
 			if (first) {
 				event?.stopPropagation();
@@ -376,10 +392,13 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				initialStartRef.current = currentStartRef.current;
 				initialEndRef.current = currentEndRef.current;
 				initialTrackRef.current = trackIndex;
+				initialScrollLeftRef.current = currentScrollLeft;
 
 				// 计算鼠标相对于元素左上角的偏移
 				const target = event?.target as HTMLElement;
-				const rect = target?.closest('[data-timeline-element]')?.getBoundingClientRect();
+				const rect = target
+					?.closest("[data-timeline-element]")
+					?.getBoundingClientRect();
 				if (rect) {
 					initialMouseOffsetRef.current = {
 						x: xy[0] - rect.left,
@@ -387,8 +406,22 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 					};
 				}
 
+				// 克隆元素 DOM
+				if (elementRef.current) {
+					const clone = elementRef.current.cloneNode(true) as HTMLElement;
+					// 移除拖拽相关的 data 属性避免冲突
+					clone.removeAttribute("data-timeline-element");
+					// 重置位置相关样式（将在 ghost 容器中设置）
+					clone.style.position = "relative";
+					clone.style.left = "0";
+					clone.style.top = "0";
+					clone.style.opacity = "1";
+					clonedHtmlRef.current = clone.outerHTML;
+				}
+
 				// 设置初始 ghost（使用屏幕坐标）
-				const ghostWidth = (currentEndRef.current - currentStartRef.current) * ratio;
+				const ghostWidth =
+					(currentEndRef.current - currentStartRef.current) * ratio;
 				setDragGhost({
 					elementId: id,
 					element,
@@ -396,12 +429,18 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 					screenY: xy[1] - initialMouseOffsetRef.current.y,
 					width: ghostWidth,
 					height: DEFAULT_ELEMENT_HEIGHT,
+					clonedHtml: clonedHtmlRef.current,
 				});
 			}
 
+			// 计算滚动偏移量（自动滚动导致的额外位移）
+			const scrollDelta = currentScrollLeft - initialScrollLeftRef.current;
+			// 将滚动偏移加入到水平移动量中
+			const adjustedDeltaX = mx + scrollDelta;
+
 			// 先计算基础的拖拽结果（用于时间计算和 fallback）
 			const dragResult = calculateDragResult({
-				deltaX: mx,
+				deltaX: adjustedDeltaX,
 				deltaY: my,
 				ratio,
 				initialStart: initialStartRef.current,
@@ -517,7 +556,8 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 
 			const screenDropTarget = findDropTargetFromScreenPosition(xy[0], xy[1]);
 			const dropTarget = screenDropTarget;
-			const hasSignificantVerticalMove = screenDropTarget.trackIndex !== trackIndex;
+			const hasSignificantVerticalMove =
+				screenDropTarget.trackIndex !== trackIndex;
 
 			// 使用基础拖拽结果的时间计算
 			let { newStart, newEnd } = dragResult;
@@ -540,6 +580,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				setActiveDropTarget(null);
 				setDragGhost(null);
 				setLocalTrackY(null);
+				stopAutoScroll();
 
 				if (Math.abs(mx) > 0 || Math.abs(my) > 0) {
 					const actualDelta = newStart - initialStartRef.current;
@@ -594,6 +635,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 					screenY: xy[1] - initialMouseOffsetRef.current.y,
 					width: ghostWidth,
 					height: DEFAULT_ELEMENT_HEIGHT,
+					clonedHtml: clonedHtmlRef.current,
 				});
 
 				// 计算最终轨道位置用于显示
@@ -625,6 +667,32 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 					end: newEnd,
 					finalTrackIndex: finalTrackResult.trackIndex,
 				});
+
+				// 自动滚动：检查鼠标是否靠近边缘
+				const scrollArea = document.querySelector<HTMLElement>(
+					"[data-timeline-scroll-area]",
+				);
+				if (scrollArea) {
+					const scrollRect = scrollArea.getBoundingClientRect();
+					updateAutoScrollFromPosition(
+						xy[0],
+						scrollRect.left,
+						scrollRect.right,
+					);
+				}
+
+				// 垂直自动滚动：检查鼠标是否靠近上下边缘
+				const verticalScrollArea = document.querySelector<HTMLElement>(
+					"[data-vertical-scroll-area]",
+				);
+				if (verticalScrollArea) {
+					const verticalRect = verticalScrollArea.getBoundingClientRect();
+					updateAutoScrollYFromPosition(
+						xy[1],
+						verticalRect.top,
+						verticalRect.bottom,
+					);
+				}
 			}
 		},
 		{ filterTaps: true },
@@ -652,6 +720,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 
 	return (
 		<div
+			ref={elementRef}
 			data-timeline-element
 			className={containerClassName}
 			style={{
@@ -660,7 +729,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				top: displayY,
 				height: DEFAULT_ELEMENT_HEIGHT,
 				// 拖拽时降低透明度，但保持在 DOM 中以维持拖拽手势
-				opacity: isBeingDragged ? 0.3 : 1,
+				opacity: isBeingDragged ? 0 : 1,
 			}}
 			onClick={handleClick}
 		>
