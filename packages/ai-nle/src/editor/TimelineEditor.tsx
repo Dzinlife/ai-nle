@@ -21,6 +21,7 @@ import {
 } from "./TimelineContext";
 import TimelineElement from "./TimelineElement";
 import TimelineRuler from "./TimelineRuler";
+import { DEFAULT_ELEMENT_HEIGHT } from "./timeline/trackConfig";
 
 const TimelineEditor = () => {
 	const setCurrentTime = useTimelineStore((state) => state.setCurrentTime);
@@ -66,6 +67,8 @@ const TimelineEditor = () => {
 
 	const ratio = 50;
 
+	const timelinePaddingLeft = 48;
+
 	// 更新元素的时间范围（start 和 end）
 	const updateTimeRange = useCallback(
 		(elementId: string, start: number, end: number) => {
@@ -93,7 +96,10 @@ const TimelineEditor = () => {
 		(e: React.MouseEvent<HTMLDivElement>) => {
 			if (isPlaying) return;
 			const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
-			const time = Math.max(0, (x - leftColumnWidth + scrollLeft) / ratio);
+			const time = Math.max(
+				0,
+				(x - leftColumnWidth - timelinePaddingLeft + scrollLeft) / ratio,
+			);
 			startTransition(() => {
 				setPreviewTime(time);
 			});
@@ -105,7 +111,10 @@ const TimelineEditor = () => {
 	const handleClick = useCallback(
 		(e: React.MouseEvent<HTMLDivElement>) => {
 			const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
-			const time = Math.max(0, (x - leftColumnWidth + scrollLeft) / ratio);
+			const time = Math.max(
+				0,
+				(x - leftColumnWidth - timelinePaddingLeft + scrollLeft) / ratio,
+			);
 			setCurrentTime(time);
 			setPreviewTime(null); // 清除预览时间
 			setSelectedElementId(null); // 清除选中状态
@@ -114,6 +123,7 @@ const TimelineEditor = () => {
 			ratio,
 			scrollLeft,
 			leftColumnWidth,
+			timelinePaddingLeft,
 			setCurrentTime,
 			setPreviewTime,
 			setSelectedElementId,
@@ -200,20 +210,20 @@ const TimelineEditor = () => {
 
 	const timeStamps = (
 		<div
-			className="flex pointer-events-none sticky top-0 left-0 z-50 bg-neutral-800/70 border border-white/10 rounded-full mx-4 backdrop-blur-2xl border-r overflow-hidden"
+			className="flex pointer-events-none sticky top-0 left-0 z-50 bg-neutral-800/10 border border-white/10 rounded-full mx-4 backdrop-blur-2xl border-r overflow-hidden"
 			style={{
-				paddingLeft: leftColumnWidth - 34,
+				paddingLeft: leftColumnWidth - 16 - 2,
 			}}
 		>
 			<div
 				ref={rulerContainerRef}
-				className="overflow-hidden border-l border-white/10 flex-1"
+				className="overflow-hidden border-l border-white/10 bg-neutral-800/30 flex-1"
 			>
 				<TimelineRuler
 					scrollLeft={scrollLeft}
 					ratio={ratio}
 					width={rulerWidth}
-					paddingLeft={16}
+					paddingLeft={timelinePaddingLeft}
 					// fps={60}
 				/>
 			</div>
@@ -224,42 +234,14 @@ const TimelineEditor = () => {
 		// 使用 trackCount 计算容器高度，确保至少有 1 个轨道的高度
 		const containerHeight = Math.max(trackCount, 1) * trackHeight;
 
-		// 生成轨道背景
-		const trackBackgrounds = [];
-		for (let i = 0; i < trackCount; i++) {
-			const trackIndex = trackCount - 1 - i;
-			const isMainTrack = trackIndex === 0;
-			trackBackgrounds.push(
-				<div
-					key={`bg-${trackIndex}`}
-					className={`absolute left-0 right-0 ${
-						isMainTrack
-							? "bg-blue-500/5 border-b border-blue-500/20"
-							: "border-b border-white/5"
-					}`}
-					style={{
-						top: i * trackHeight,
-						height: trackHeight,
-					}}
-				/>,
-			);
-		}
-
 		return (
 			<div
-				className="relative mt-1.5"
+				className="relative"
 				style={{
 					transform: `translateX(-${scrollLeft}px)`,
 					height: containerHeight,
 				}}
 			>
-				{/* 轨道背景 */}
-				<div
-					className="absolute inset-0 pointer-events-none"
-					style={{ transform: `translateX(${scrollLeft}px)` }}
-				>
-					{trackBackgrounds}
-				</div>
 				{/* 元素 */}
 				{elements.map((element) => {
 					const trackIndex = trackAssignments.get(element.id) ?? 0;
@@ -330,7 +312,8 @@ const TimelineEditor = () => {
 
 		// 使用拖拽后的新时间范围
 		const elementLeft = activeDropTarget.start * ratio - scrollLeft;
-		const elementWidth = (activeDropTarget.end - activeDropTarget.start) * ratio;
+		const elementWidth =
+			(activeDropTarget.end - activeDropTarget.start) * ratio;
 
 		if (activeDropTarget.type === "gap") {
 			// 间隙插入模式 - 显示横向高亮线
@@ -342,32 +325,26 @@ const TimelineEditor = () => {
 					className="absolute left-0 right-0 h-1 bg-green-500 z-40 pointer-events-none rounded-full shadow-lg shadow-green-500/50"
 					style={{
 						top: gapY - 2,
-						marginLeft: leftColumnWidth,
 					}}
 				/>
 			);
 		}
 		// track 模式 - 显示矩形占位符，使用 finalTrackIndex（考虑重叠后的实际位置）
-		const trackY = (trackCount - 1 - activeDropTarget.finalTrackIndex) * trackHeight;
+		const trackY =
+			(trackCount - 1 - activeDropTarget.finalTrackIndex) * trackHeight;
+
 		return (
 			<div
-				className="absolute h-[54px] bg-blue-500/20 border-2 border-blue-500 border-dashed z-40 pointer-events-none rounded-md"
+				className="absolute bg-blue-500/20 border-2 border-blue-500 border-dashed z-40 pointer-events-none rounded-md box-border"
 				style={{
-					top: trackY + 3,
-					left: elementLeft + leftColumnWidth,
-					width: Math.max(elementWidth, 50),
+					top: trackY,
+					left: elementLeft,
+					width: elementWidth,
+					height: DEFAULT_ELEMENT_HEIGHT,
 				}}
 			/>
 		);
-	}, [
-		activeDropTarget,
-		ratio,
-		scrollLeft,
-		trackCount,
-		trackHeight,
-		leftColumnWidth,
-	]);
-	// console.log("TimelineEditor", currentTime);
+	}, [activeDropTarget, ratio, scrollLeft, trackCount, trackHeight]);
 
 	return (
 		<div className="relative bg-neutral-800 h-full flex flex-col min-h-0 w-full overflow-hidden">
@@ -379,37 +356,45 @@ const TimelineEditor = () => {
 			/>
 			<PlaybackToolbar className="h-12 z-50" />
 			{timeStamps}
-			<div className="relative w-full flex-1 min-h-0 flex -mt-18">
-				{/* 左侧列，轨道标签 */}
-				<div
-					className="pt-12 text-white z-10 pr-4 flex flex-col"
-					style={{ width: leftColumnWidth }}
-				>
-					{/* 占位区域（对应时间刻度尺高度） */}
-					<div className="h-7 shrink-0" />
-					{/* 轨道标签容器 */}
-					<div className="flex-1 overflow-hidden">
-						<div className="mt-1.5">{trackLabels}</div>
-					</div>
-				</div>
+			<div className="relative w-full flex-1 min-h-0 flex -mt-18 overflow-hidden">
 				<TimeIndicatorCanvas
 					className="top-12"
-					leftColumnWidth={leftColumnWidth}
+					leftOffset={leftColumnWidth + timelinePaddingLeft}
 					ratio={ratio}
 					scrollLeft={scrollLeft}
 				/>
-				{/* 时间线容器，占满整个屏幕，左侧留出 padding 给 left column */}
-				<div
-					ref={containerRef}
-					className="relative mt-19 w-full overflow-y-auto overflow-x-hidden h-full pb-32"
-					style={{ paddingLeft: leftColumnWidth, marginLeft: -leftColumnWidth }}
-					onMouseMove={handleMouseMove}
-					onMouseLeave={handleMouseLeave}
-					onClick={handleClick}
-				>
-					{snapIndicator}
-					{dropIndicator}
-					{timelineItems}
+				{/* 时间线容器，左右列共用垂直滚动 */}
+				<div className="flex items-start pt-18 w-full flex-1 min-h-0 overflow-y-auto [&>div]:pb-18">
+					{/* 左侧列，轨道标签 */}
+					<div
+						className="text-white z-20 pr-4 flex flex-col bg-neutral-800/80 backdrop-blur-3xl backdrop-saturate-150 border-r border-white/10 pt-10 -mt-10"
+						style={{ width: leftColumnWidth }}
+					>
+						{/* 轨道标签容器 */}
+						<div className="flex-1">
+							<div className="mt-1.5">{trackLabels}</div>
+						</div>
+					</div>
+					{/* 右侧时间线内容 */}
+					<div
+						ref={containerRef}
+						className="relative flex-1 overflow-x-hidden pt-1.5 "
+						onMouseMove={handleMouseMove}
+						onMouseLeave={handleMouseLeave}
+						onClick={handleClick}
+						style={{
+							paddingLeft: leftColumnWidth,
+							marginLeft: -leftColumnWidth,
+						}}
+					>
+						<div style={{ paddingLeft: timelinePaddingLeft }}>
+							<div className="relative">
+								{snapIndicator}
+								{dropIndicator}
+								{timelineItems}
+							</div>
+						</div>
+					</div>
 				</div>
 			</div>
 		</div>

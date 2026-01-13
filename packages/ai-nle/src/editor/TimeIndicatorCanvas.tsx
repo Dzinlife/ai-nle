@@ -9,14 +9,14 @@ import { cn } from "@/lib/utils";
 
 interface CurrentTimeIndicatorCanvasProps {
 	className?: string;
-	leftColumnWidth: number;
+	leftOffset?: number;
 	ratio: number;
 	scrollLeft: number;
 }
 
 const CurrentTimeIndicatorCanvas: React.FC<CurrentTimeIndicatorCanvasProps> = ({
 	className,
-	leftColumnWidth,
+	leftOffset = 0,
 	ratio,
 	scrollLeft,
 }) => {
@@ -45,7 +45,7 @@ const CurrentTimeIndicatorCanvas: React.FC<CurrentTimeIndicatorCanvasProps> = ({
 		ctx.clearRect(0, 0, canvas.width, canvas.height);
 
 		// 绘制红色竖线 - 固定时间（currentTime）
-		const currentX = leftColumnWidth + currentTime * ratio - scrollLeft;
+		const currentX = leftOffset + currentTime * ratio - scrollLeft;
 		ctx.strokeStyle = "#ef4444"; // red-500
 		ctx.lineWidth = 1;
 		ctx.beginPath();
@@ -55,7 +55,7 @@ const CurrentTimeIndicatorCanvas: React.FC<CurrentTimeIndicatorCanvasProps> = ({
 
 		// 绘制蓝色竖线 - 预览时间（previewTime，如果存在且非播放/拖拽状态）
 		if (previewTime !== null && !isPlaying && !isDragging) {
-			const previewX = leftColumnWidth + previewTime * ratio - scrollLeft;
+			const previewX = leftOffset + previewTime * ratio - scrollLeft;
 			ctx.strokeStyle = "#3b82f6"; // blue-500
 			ctx.lineWidth = 1;
 			ctx.setLineDash([4, 4]); // 虚线
@@ -66,7 +66,7 @@ const CurrentTimeIndicatorCanvas: React.FC<CurrentTimeIndicatorCanvasProps> = ({
 			ctx.setLineDash([]); // 重置为实线
 		}
 	}, [
-		leftColumnWidth,
+		leftOffset,
 		ratio,
 		scrollLeft,
 		currentTime,
