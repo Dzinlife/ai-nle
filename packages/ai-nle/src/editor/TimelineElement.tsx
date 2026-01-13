@@ -205,7 +205,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	const { id, timeline } = element;
 
 	// Context hooks
-	const { setIsDragging, setActiveDropTarget } = useDragging();
+	const { setIsDragging, setActiveDropTarget, setDragGhost, dragGhost } = useDragging();
 	const { selectedElementId, setSelectedElementId } = useSelectedElement();
 	const { snapEnabled, setActiveSnapPoint } = useSnap();
 	const { elements } = useElements();
@@ -237,7 +237,10 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	// 计算显示值
 	const startTime = localStartTime ?? timeline.start;
 	const endTime = localEndTime ?? timeline.end;
-	const displayY = localTrackY ?? trackY;
+	// 显示 Y：主轨道元素在容器内固定为 0，其他轨道使用 trackY
+	// localTrackY 在拖拽时会被设置，用于显示拖拽效果（ghost 处理）
+	// 由于主轨道元素在拖拽时会被隐藏（显示 ghost），这里不需要特殊处理 localTrackY
+	const displayY = trackIndex === 0 ? 0 : (localTrackY ?? trackY);
 
 	// 同步当前值到 refs
 	useEffect(() => {
@@ -359,8 +362,11 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	);
 
 	// ========== 整体拖拽 ==========
+	// 记录初始鼠标位置和元素位置的偏移
+	const initialMouseOffsetRef = useRef({ x: 0, y: 0 });
+
 	const bindBodyDrag = useDrag(
-		({ movement: [mx, my], first, last, event, tap }) => {
+		({ movement: [mx, my], first, last, event, tap, xy }) => {
 			if (tap) return;
 
 			if (first) {
@@ -370,9 +376,30 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				initialStartRef.current = currentStartRef.current;
 				initialEndRef.current = currentEndRef.current;
 				initialTrackRef.current = trackIndex;
+
+				// 计算鼠标相对于元素左上角的偏移
+				const target = event?.target as HTMLElement;
+				const rect = target?.closest('[data-timeline-element]')?.getBoundingClientRect();
+				if (rect) {
+					initialMouseOffsetRef.current = {
+						x: xy[0] - rect.left,
+						y: xy[1] - rect.top,
+					};
+				}
+
+				// 设置初始 ghost（使用屏幕坐标）
+				const ghostWidth = (currentEndRef.current - currentStartRef.current) * ratio;
+				setDragGhost({
+					elementId: id,
+					element,
+					screenX: xy[0] - initialMouseOffsetRef.current.x,
+					screenY: xy[1] - initialMouseOffsetRef.current.y,
+					width: ghostWidth,
+					height: DEFAULT_ELEMENT_HEIGHT,
+				});
 			}
 
-			// 使用统一的拖拽计算
+			// 先计算基础的拖拽结果（用于时间计算和 fallback）
 			const dragResult = calculateDragResult({
 				deltaX: mx,
 				deltaY: my,
@@ -386,8 +413,115 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				elementHeight: DEFAULT_ELEMENT_HEIGHT,
 			});
 
+			// 通用的拖拽目标检测（基于实际 DOM 测量，不依赖 hardcode）
+			const findDropTargetFromScreenPosition = (
+				mouseX: number,
+				mouseY: number,
+			): { trackIndex: number; type: "track" | "gap" } => {
+				// 查找所有 drop zone
+				const mainZone = document.querySelector<HTMLElement>(
+					'[data-track-drop-zone="main"]',
+				);
+				const otherZone = document.querySelector<HTMLElement>(
+					'[data-track-drop-zone="other"]',
+				);
+
+				// 检查主轨道区域
+				if (mainZone) {
+					const rect = mainZone.getBoundingClientRect();
+					if (
+						mouseY >= rect.top &&
+						mouseY <= rect.bottom &&
+						mouseX >= rect.left &&
+						mouseX <= rect.right
+					) {
+						return { trackIndex: 0, type: "track" };
+					}
+				}
+
+				// 检查其他轨道区域
+				if (otherZone) {
+					const rect = otherZone.getBoundingClientRect();
+					const otherTrackCount = parseInt(
+						otherZone.dataset.trackCount || "0",
+						10,
+					);
+					const zoneTrackHeight = parseInt(
+						otherZone.dataset.trackHeight || "60",
+						10,
+					);
+
+					if (
+						mouseY >= rect.top &&
+						mouseY <= rect.bottom &&
+						mouseX >= rect.left &&
+						mouseX <= rect.right &&
+						otherTrackCount > 0
+					) {
+						// 查找内容容器来确定精确的内容区域位置
+						const contentArea = otherZone.querySelector<HTMLElement>(
+							'[data-track-content-area="other"]',
+						);
+
+						let contentTop = rect.top;
+						if (contentArea) {
+							const contentRect = contentArea.getBoundingClientRect();
+							contentTop = contentRect.top;
+						}
+
+						// 计算相对于内容区域顶部的位置
+						const contentRelativeY = mouseY - contentTop;
+
+						if (contentRelativeY < 0) {
+							// 在内容区域上方（padding 区域），返回最高的轨道
+							return { trackIndex: otherTrackCount, type: "track" };
+						}
+
+						// 计算目标轨道（从上到下是 otherTrackCount, otherTrackCount-1, ..., 1）
+						const trackFromTop = Math.floor(contentRelativeY / zoneTrackHeight);
+						const targetTrackIndex = Math.max(
+							1,
+							Math.min(otherTrackCount, otherTrackCount - trackFromTop),
+						);
+
+						return { trackIndex: targetTrackIndex, type: "track" };
+					}
+				}
+
+				// 如果鼠标在两个区域之外，根据 Y 位置判断最近的区域
+				if (mainZone && otherZone) {
+					const mainRect = mainZone.getBoundingClientRect();
+					const otherRect = otherZone.getBoundingClientRect();
+
+					// 如果在主轨道下方或更靠近主轨道
+					if (mouseY > mainRect.top) {
+						return { trackIndex: 0, type: "track" };
+					}
+
+					// 如果在其他轨道上方
+					if (mouseY < otherRect.top) {
+						const otherTrackCount = parseInt(
+							otherZone.dataset.trackCount || "0",
+							10,
+						);
+						return {
+							trackIndex: Math.max(1, otherTrackCount),
+							type: "track",
+						};
+					}
+				}
+
+				// 最终 fallback
+				return { trackIndex: trackIndex, type: "track" };
+			};
+
+			const screenDropTarget = findDropTargetFromScreenPosition(xy[0], xy[1]);
+			const dropTarget = screenDropTarget;
+			const hasSignificantVerticalMove = screenDropTarget.trackIndex !== trackIndex;
+
+			// 使用基础拖拽结果的时间计算
 			let { newStart, newEnd } = dragResult;
-			const { newY, dropTarget, hasSignificantVerticalMove } = dragResult;
+			const { newY } = dragResult;
 
 			// 吸附处理
 			let snapPoint = null;
@@ -404,6 +538,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				setIsDragging(false);
 				setActiveSnapPoint(null);
 				setActiveDropTarget(null);
+				setDragGhost(null);
 				setLocalTrackY(null);
 
 				if (Math.abs(mx) > 0 || Math.abs(my) > 0) {
@@ -450,6 +585,17 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				setLocalTrackY(newY);
 				setActiveSnapPoint(snapPoint);
 
+				// 更新 ghost 位置（使用屏幕坐标）
+				const ghostWidth = (newEnd - newStart) * ratio;
+				setDragGhost({
+					elementId: id,
+					element,
+					screenX: xy[0] - initialMouseOffsetRef.current.x,
+					screenY: xy[1] - initialMouseOffsetRef.current.y,
+					width: ghostWidth,
+					height: DEFAULT_ELEMENT_HEIGHT,
+				});
+
 				// 计算最终轨道位置用于显示
 				const tempElements = elements.map((el) =>
 					el.id === id
@@ -493,6 +639,9 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 		[id, setSelectedElementId],
 	);
 
+	// 判断当前元素是否正在被拖拽
+	const isBeingDragged = dragGhost?.elementId === id;
+
 	// 容器样式
 	const containerClassName = useMemo(() => {
 		const base = "absolute flex rounded-md group";
@@ -503,8 +652,16 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 
 	return (
 		<div
+			data-timeline-element
 			className={containerClassName}
-			style={{ left, width, top: displayY, height: DEFAULT_ELEMENT_HEIGHT }}
+			style={{
+				left,
+				width,
+				top: displayY,
+				height: DEFAULT_ELEMENT_HEIGHT,
+				// 拖拽时降低透明度，但保持在 DOM 中以维持拖拽手势
+				opacity: isBeingDragged ? 0.3 : 1,
+			}}
 			onClick={handleClick}
 		>
 			<DragHandle position="left" onDrag={bindLeftDrag} />

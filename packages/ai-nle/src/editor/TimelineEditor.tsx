@@ -6,6 +6,7 @@ import React, {
 	useRef,
 	useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { ProgressiveBlur } from "@/components/ui/progressive-blur";
 import TimeIndicatorCanvas from "@/editor/TimeIndicatorCanvas";
 import PlaybackToolbar from "./PlaybackToolbar";
@@ -31,7 +32,7 @@ const TimelineEditor = () => {
 	const { setSelectedElementId } = useSelectedElement();
 	const { activeSnapPoint } = useSnap();
 	const { trackAssignments, trackCount } = useTrackAssignments();
-	const { activeDropTarget } = useDragging();
+	const { activeDropTarget, dragGhost } = useDragging();
 
 	// 滚动位置状态
 	const [scrollLeft, setScrollLeft] = useState(0);
@@ -230,9 +231,29 @@ const TimelineEditor = () => {
 		</div>
 	);
 
-	const timelineItems = useMemo(() => {
-		// 使用 trackCount 计算容器高度，确保至少有 1 个轨道的高度
-		const containerHeight = Math.max(trackCount, 1) * trackHeight;
+	// 分离主轨道元素和其他轨道元素
+	const { mainTrackElements, otherTrackElements } = useMemo(() => {
+		const main: typeof elements = [];
+		const other: typeof elements = [];
+		for (const element of elements) {
+			const trackIndex = trackAssignments.get(element.id) ?? 0;
+			if (trackIndex === 0) {
+				main.push(element);
+			} else {
+				other.push(element);
+			}
+		}
+		return { mainTrackElements: main, otherTrackElements: other };
+	}, [elements, trackAssignments]);
+
+	// 其他轨道数量（不包括主轨道）
+	const otherTrackCount = Math.max(trackCount - 1, 0);
+
+	// 其他轨道的时间线项目
+	const otherTimelineItems = useMemo(() => {
+		if (otherTrackCount === 0) return null;
+
+		const containerHeight = otherTrackCount * trackHeight;
 
 		return (
 			<div
@@ -242,11 +263,12 @@ const TimelineEditor = () => {
 					height: containerHeight,
 				}}
 			>
-				{/* 元素 */}
-				{elements.map((element) => {
+				{otherTrackElements.map((element) => {
 					const trackIndex = trackAssignments.get(element.id) ?? 0;
-					// 计算 Y 坐标：主轨道(0)在底部，轨道号越大越靠上
-					const y = (trackCount - 1 - trackIndex) * trackHeight;
+					// 计算 Y 坐标：在其他轨道区域内，轨道 1 在底部，轨道号越大越靠上
+					// trackIndex 1 -> y = (otherTrackCount - 1) * trackHeight
+					// trackIndex 2 -> y = (otherTrackCount - 2) * trackHeight
+					const y = (otherTrackCount - trackIndex) * trackHeight;
 					return (
 						<TimelineElement
 							key={element.id}
@@ -263,52 +285,114 @@ const TimelineEditor = () => {
 			</div>
 		);
 	}, [
-		elements,
+		otherTrackElements,
 		scrollLeft,
 		ratio,
 		updateTimeRange,
 		trackAssignments,
 		trackCount,
+		otherTrackCount,
 		trackHeight,
 	]);
 
-	// 轨道标签
-	const trackLabels = useMemo(() => {
+	// 主轨道的时间线项目
+	const mainTimelineItems = useMemo(() => {
+		// 主轨道在整体布局中的 Y 坐标（用于拖拽计算）
+		const mainTrackYInGlobalLayout = (trackCount - 1) * trackHeight;
+
+		return (
+			<div
+				className="relative"
+				style={{
+					transform: `translateX(-${scrollLeft}px)`,
+					height: trackHeight,
+				}}
+			>
+				{mainTrackElements.map((element) => {
+					return (
+						<TimelineElement
+							key={element.id}
+							element={element}
+							trackIndex={0}
+							trackY={mainTrackYInGlobalLayout}
+							ratio={ratio}
+							trackHeight={trackHeight}
+							trackCount={trackCount}
+							updateTimeRange={updateTimeRange}
+						/>
+					);
+				})}
+			</div>
+		);
+	}, [
+		mainTrackElements,
+		scrollLeft,
+		ratio,
+		updateTimeRange,
+		trackCount,
+		trackHeight,
+	]);
+
+	// 其他轨道标签（不包括主轨道）
+	const otherTrackLabels = useMemo(() => {
+		if (otherTrackCount === 0) return null;
 		const labels = [];
-		for (let i = 0; i < trackCount; i++) {
-			// 轨道 0 在底部，所以需要反转渲染顺序
-			const trackIndex = trackCount - 1 - i;
-			const isMainTrack = trackIndex === 0;
+		for (let i = 0; i < otherTrackCount; i++) {
+			// 轨道 1 在底部，轨道号越大越靠上
+			const trackIndex = otherTrackCount - i;
 			labels.push(
 				<div
 					key={trackIndex}
-					className={`flex items-center justify-end pr-3 text-xs font-medium ${
-						isMainTrack ? "text-blue-400" : "text-neutral-400"
-					}`}
+					className="flex items-center justify-end pr-3 text-xs font-medium text-neutral-400"
 					style={{ height: trackHeight }}
 				>
-					{isMainTrack ? "主轨道" : `轨道 ${trackIndex}`}
+					{`轨道 ${trackIndex}`}
 				</div>,
 			);
 		}
 		return labels;
-	}, [trackCount, trackHeight]);
+	}, [otherTrackCount, trackHeight]);
 
-	// 吸附指示线
-	const snapIndicator = useMemo(() => {
+	// 主轨道标签
+	const mainTrackLabel = useMemo(() => {
+		return (
+			<div
+				className="flex items-center justify-end pr-3 text-xs font-medium text-blue-400"
+				style={{ height: trackHeight }}
+			>
+				主轨道
+			</div>
+		);
+	}, [trackHeight]);
+
+	// 吸附指示线（其他轨道区域）
+	const otherSnapIndicator = useMemo(() => {
+		if (!activeSnapPoint || otherTrackCount === 0) return null;
+		const left = activeSnapPoint.time * ratio - scrollLeft;
+		return (
+			<div
+				className="absolute top-0 bottom-0 w-0.5 bg-green-500 z-50 pointer-events-none"
+				style={{ left }}
+			/>
+		);
+	}, [activeSnapPoint, ratio, scrollLeft, otherTrackCount]);
+
+	// 吸附指示线（主轨道区域）
+	const mainSnapIndicator = useMemo(() => {
 		if (!activeSnapPoint) return null;
 		const left = activeSnapPoint.time * ratio - scrollLeft;
 		return (
 			<div
 				className="absolute top-0 bottom-0 w-0.5 bg-green-500 z-50 pointer-events-none"
-				style={{ left, marginLeft: leftColumnWidth }}
+				style={{ left }}
 			/>
 		);
 	}, [activeSnapPoint, ratio, scrollLeft]);
 
-	// 拖拽目标指示器
-	const dropIndicator = useMemo(() => {
-		if (!activeDropTarget) return null;
+	// 拖拽目标指示器（其他轨道区域）
+	const otherDropIndicator = useMemo(() => {
+		if (!activeDropTarget || activeDropTarget.finalTrackIndex === 0)
+			return null;
 
 		// 使用拖拽后的新时间范围
 		const elementLeft = activeDropTarget.start * ratio - scrollLeft;
@@ -318,8 +402,9 @@ const TimelineEditor = () => {
 		if (activeDropTarget.type === "gap") {
 			// 间隙插入模式 - 显示横向高亮线
 			// gap 的 trackIndex 表示新轨道将插入到该位置
-			// 视觉上应该显示在 trackIndex 和 trackIndex-1 之间的线
-			const gapY = (trackCount - activeDropTarget.trackIndex) * trackHeight;
+			// 在其他轨道区域，trackIndex 1 在底部
+			const gapY =
+				(otherTrackCount - activeDropTarget.trackIndex + 1) * trackHeight;
 			return (
 				<div
 					className="absolute left-0 right-0 h-1 bg-green-500 z-40 pointer-events-none rounded-full shadow-lg shadow-green-500/50"
@@ -329,9 +414,10 @@ const TimelineEditor = () => {
 				/>
 			);
 		}
-		// track 模式 - 显示矩形占位符，使用 finalTrackIndex（考虑重叠后的实际位置）
+		// track 模式 - 显示矩形占位符
+		// 在其他轨道区域，需要计算相对位置
 		const trackY =
-			(trackCount - 1 - activeDropTarget.finalTrackIndex) * trackHeight;
+			(otherTrackCount - activeDropTarget.finalTrackIndex) * trackHeight;
 
 		return (
 			<div
@@ -344,7 +430,55 @@ const TimelineEditor = () => {
 				}}
 			/>
 		);
-	}, [activeDropTarget, ratio, scrollLeft, trackCount, trackHeight]);
+	}, [activeDropTarget, ratio, scrollLeft, otherTrackCount, trackHeight]);
+
+	// 拖拽目标指示器（主轨道区域）
+	const mainDropIndicator = useMemo(() => {
+		if (!activeDropTarget || activeDropTarget.finalTrackIndex !== 0)
+			return null;
+
+		// 使用拖拽后的新时间范围
+		const elementLeft = activeDropTarget.start * ratio - scrollLeft;
+		const elementWidth =
+			(activeDropTarget.end - activeDropTarget.start) * ratio;
+
+		// 主轨道模式 - 显示矩形占位符
+		return (
+			<div
+				className="absolute bg-blue-500/20 border-2 border-blue-500 border-dashed z-40 pointer-events-none rounded-md box-border"
+				style={{
+					top: 0,
+					left: elementLeft,
+					width: elementWidth,
+					height: DEFAULT_ELEMENT_HEIGHT,
+				}}
+			/>
+		);
+	}, [activeDropTarget, ratio, scrollLeft]);
+
+	// 拖拽 Ghost 元素（使用 Portal 渲染到 body）
+	const ghostElement = useMemo(() => {
+		if (!dragGhost) return null;
+
+		const ghost = (
+			<div
+				className="fixed bg-blue-500/30 border-2 border-blue-500 rounded-md pointer-events-none shadow-lg shadow-blue-500/20"
+				style={{
+					left: dragGhost.screenX,
+					top: dragGhost.screenY,
+					width: dragGhost.width,
+					height: dragGhost.height,
+					zIndex: 9999,
+				}}
+			>
+				<div className="p-1 text-xs text-white truncate">
+					{dragGhost.element.name || dragGhost.element.type}
+				</div>
+			</div>
+		);
+
+		return createPortal(ghost, document.body);
+	}, [dragGhost]);
 
 	return (
 		<div className="relative bg-neutral-800 h-full flex flex-col min-h-0 w-full overflow-hidden">
@@ -356,29 +490,66 @@ const TimelineEditor = () => {
 			/>
 			<PlaybackToolbar className="h-12 z-50" />
 			{timeStamps}
-			<div className="relative w-full flex-1 min-h-0 flex -mt-18 overflow-hidden">
+			<div className="relative w-full flex-1 min-h-0 flex flex-col -mt-18 overflow-hidden">
 				<TimeIndicatorCanvas
 					className="top-12"
 					leftOffset={leftColumnWidth + timelinePaddingLeft}
 					ratio={ratio}
 					scrollLeft={scrollLeft}
 				/>
-				{/* 时间线容器，左右列共用垂直滚动 */}
-				<div className="flex items-start pt-18 w-full flex-1 min-h-0 overflow-y-auto [&>div]:pb-18">
-					{/* 左侧列，轨道标签 */}
+				{/* 其他轨道区域（可滚动） */}
+				<div className="flex items-start pt-18 w-full flex-1 min-h-0 overflow-y-auto">
+					{/* 左侧列，其他轨道标签 */}
 					<div
-						className="text-white z-20 pr-4 flex flex-col bg-neutral-800/80 backdrop-blur-3xl backdrop-saturate-150 border-r border-white/10 pt-10 -mt-10"
+						className="text-white z-20 pr-4 flex flex-col bg-neutral-800/80 backdrop-blur-3xl backdrop-saturate-150 border-r border-white/10 pt-10 -mt-10 sticky top-0"
 						style={{ width: leftColumnWidth }}
 					>
-						{/* 轨道标签容器 */}
 						<div className="flex-1">
-							<div className="mt-1.5">{trackLabels}</div>
+							<div className="mt-1.5">{otherTrackLabels}</div>
 						</div>
 					</div>
-					{/* 右侧时间线内容 */}
+					{/* 右侧其他轨道时间线内容 */}
 					<div
 						ref={containerRef}
-						className="relative flex-1 overflow-x-hidden pt-1.5 "
+						data-track-drop-zone="other"
+						data-track-count={otherTrackCount}
+						data-track-height={trackHeight}
+						className="relative flex-1 overflow-x-hidden pt-1.5"
+						onMouseMove={handleMouseMove}
+						onMouseLeave={handleMouseLeave}
+						onClick={handleClick}
+						style={{
+							paddingLeft: leftColumnWidth,
+							marginLeft: -leftColumnWidth,
+						}}
+					>
+						<div style={{ paddingLeft: timelinePaddingLeft }}>
+							<div
+								className="relative"
+								data-track-content-area="other"
+								data-content-height={otherTrackCount * trackHeight}
+							>
+								{otherSnapIndicator}
+								{otherDropIndicator}
+								{otherTimelineItems}
+							</div>
+						</div>
+					</div>
+				</div>
+				{/* 主轨道区域（sticky 底部） */}
+				<div className="flex items-start w-full shrink-0 border-t border-white/10 bg-neutral-800">
+					{/* 左侧主轨道标签 */}
+					<div
+						className="text-white z-20 pr-4 flex flex-col bg-neutral-800/80 backdrop-blur-3xl backdrop-saturate-150 border-r border-white/10"
+						style={{ width: leftColumnWidth }}
+					>
+						{mainTrackLabel}
+					</div>
+					{/* 右侧主轨道时间线内容 */}
+					<div
+						data-track-drop-zone="main"
+						data-track-index="0"
+						className="relative flex-1 overflow-x-hidden"
 						onMouseMove={handleMouseMove}
 						onMouseLeave={handleMouseLeave}
 						onClick={handleClick}
@@ -389,13 +560,15 @@ const TimelineEditor = () => {
 					>
 						<div style={{ paddingLeft: timelinePaddingLeft }}>
 							<div className="relative">
-								{snapIndicator}
-								{dropIndicator}
-								{timelineItems}
+								{mainSnapIndicator}
+								{mainDropIndicator}
+								{mainTimelineItems}
 							</div>
 						</div>
 					</div>
 				</div>
+				{/* 拖拽 Ghost 层 */}
+				{ghostElement}
 			</div>
 		</div>
 	);

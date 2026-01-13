@@ -24,6 +24,17 @@ import {
 	normalizeTrackAssignments,
 } from "./utils/trackAssignment";
 
+// Ghost 元素状态类型
+export interface DragGhostState {
+	elementId: string;
+	element: TimelineElement;
+	// 屏幕坐标（用于 fixed 定位）
+	screenX: number;
+	screenY: number;
+	width: number;
+	height: number;
+}
+
 interface TimelineStore {
 	currentTime: number;
 	previewTime: number | null; // hover 时的临时预览时间
@@ -39,6 +50,8 @@ interface TimelineStore {
 	autoAttach: boolean;
 	// 拖拽目标指示状态
 	activeDropTarget: ExtendedDropTarget | null;
+	// 拖拽 Ghost 状态
+	dragGhost: DragGhostState | null;
 	setCurrentTime: (time: number) => void;
 	setPreviewTime: (time: number | null) => void;
 	setElements: (
@@ -63,6 +76,8 @@ interface TimelineStore {
 	setAutoAttach: (enabled: boolean) => void;
 	// 拖拽目标指示方法
 	setActiveDropTarget: (target: ExtendedDropTarget | null) => void;
+	// 拖拽 Ghost 方法
+	setDragGhost: (ghost: DragGhostState | null) => void;
 }
 
 export const useTimelineStore = create<TimelineStore>()(
@@ -81,6 +96,8 @@ export const useTimelineStore = create<TimelineStore>()(
 		autoAttach: true,
 		// 拖拽目标指示状态初始值
 		activeDropTarget: null,
+		// 拖拽 Ghost 状态初始值
+		dragGhost: null,
 
 		setCurrentTime: (time: number) => {
 			const currentTime = get().currentTime;
@@ -165,6 +182,11 @@ export const useTimelineStore = create<TimelineStore>()(
 		setActiveDropTarget: (target: ExtendedDropTarget | null) => {
 			set({ activeDropTarget: target });
 		},
+
+		// 拖拽 Ghost 方法
+		setDragGhost: (ghost: DragGhostState | null) => {
+			set({ dragGhost: ghost });
+		},
 	})),
 );
 
@@ -226,12 +248,16 @@ export const useDragging = () => {
 	const setActiveDropTarget = useTimelineStore(
 		(state) => state.setActiveDropTarget,
 	);
+	const dragGhost = useTimelineStore((state) => state.dragGhost);
+	const setDragGhost = useTimelineStore((state) => state.setDragGhost);
 
 	return {
 		isDragging,
 		setIsDragging,
 		activeDropTarget,
 		setActiveDropTarget,
+		dragGhost,
+		setDragGhost,
 	};
 };
 
