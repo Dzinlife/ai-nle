@@ -46,6 +46,63 @@ export function hasOverlapOnTrack(
 }
 
 /**
+ * 检查元素是否与轨道上的其他元素重叠（基于存储的 trackIndex）
+ * 此函数直接使用元素的 timeline.trackIndex，避免 assignTracks 的级联重新分配问题
+ *
+ * @param start 开始时间
+ * @param end 结束时间
+ * @param trackIndex 目标轨道
+ * @param elements 所有元素
+ * @param excludeId 排除的元素ID
+ */
+export function hasOverlapOnStoredTrack(
+	start: number,
+	end: number,
+	trackIndex: number,
+	elements: TimelineElement[],
+	excludeId?: string,
+): boolean {
+	for (const el of elements) {
+		if (el.id === excludeId) continue;
+		const elStoredTrack = el.timeline.trackIndex ?? 0;
+		if (elStoredTrack !== trackIndex) continue;
+
+		if (isTimeOverlapping(start, end, el.timeline.start, el.timeline.end)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * 从指定轨道向上查找可用轨道（基于存储的 trackIndex）
+ *
+ * @param start 开始时间
+ * @param end 结束时间
+ * @param targetTrack 目标轨道
+ * @param elements 所有元素
+ * @param excludeId 排除的元素ID
+ * @param maxTrack 最大轨道索引
+ * @returns 可用的轨道索引，如果没有则返回 maxTrack + 1
+ */
+export function findAvailableStoredTrack(
+	start: number,
+	end: number,
+	targetTrack: number,
+	elements: TimelineElement[],
+	excludeId: string,
+	maxTrack: number,
+): number {
+	for (let track = targetTrack; track <= maxTrack; track++) {
+		if (!hasOverlapOnStoredTrack(start, end, track, elements, excludeId)) {
+			return track;
+		}
+	}
+	// 所有现有轨道都有重叠
+	return maxTrack + 1;
+}
+
+/**
  * 为元素找到合适的轨道位置
  * 如果目标轨道有重叠，向上寻找直到找到空闲位置或创建新轨道
  *

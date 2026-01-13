@@ -2,8 +2,8 @@ import { TimelineElement } from "@/dsl/types";
 
 /**
  * 层叠关联关系
- * - parentId: 父元素（底层元素）
- * - childId: 子元素（叠在父元素上方的元素）
+ * - parentId: 父元素（主轨道元素）
+ * - childId: 子元素（叠加轨道元素）
  */
 export interface AttachmentRelation {
 	parentId: string;
@@ -11,32 +11,32 @@ export interface AttachmentRelation {
 }
 
 /**
- * 检查子元素是否完全包含在父元素的时间范围内
+ * 检查子元素的 start 是否在父元素的时间范围内
+ * 只要子元素的开始时间在父元素范围内，就认为是关联的
  */
-function isTimeContained(
+function isStartWithinRange(
 	parent: TimelineElement,
 	child: TimelineElement,
 ): boolean {
 	return (
-		parent.timeline.start <= child.timeline.start &&
-		parent.timeline.end >= child.timeline.end
+		child.timeline.start >= parent.timeline.start &&
+		child.timeline.start < parent.timeline.end
 	);
 }
 
 /**
- * 获取元素的 zIndex（默认为 0）
+ * 获取元素的轨道索引（默认为 0）
  */
-function getZIndex(element: TimelineElement): number {
-	return element.render?.zIndex ?? 0;
+function getTrackIndex(element: TimelineElement): number {
+	return element.timeline?.trackIndex ?? 0;
 }
 
 /**
  * 查找所有层叠关联关系
  *
  * 关联条件：
- * 1. 父元素的时间范围完全包含子元素
- * 2. 父元素的 zIndex 比子元素低
- * 3. 只关联最近的父元素（zIndex 最接近的）
+ * 1. 子元素的 start 在父元素的时间范围内
+ * 2. 父元素在主轨道（trackIndex: 0），子元素在叠加轨道（trackIndex > 0）
  *
  * @param elements 所有时间线元素
  * @returns 父元素 ID -> 子元素 ID 列表 的映射
@@ -50,41 +50,20 @@ export function findAttachments(
 		return result;
 	}
 
-	// 按 zIndex 排序（从低到高）
-	const sortedByZIndex = [...elements].sort(
-		(a, b) => getZIndex(a) - getZIndex(b),
-	);
+	// 分离主轨道元素和叠加轨道元素
+	const mainTrackElements = elements.filter((el) => getTrackIndex(el) === 0);
+	const overlayElements = elements.filter((el) => getTrackIndex(el) > 0);
 
-	// 为每个元素找到其父元素（zIndex 更低且时间包含它的元素中 zIndex 最高的）
-	for (let i = 1; i < sortedByZIndex.length; i++) {
-		const child = sortedByZIndex[i];
-		const childZIndex = getZIndex(child);
-
-		// 从 zIndex 比 child 低的元素中，找到时间包含 child 且 zIndex 最高的
-		let bestParent: TimelineElement | null = null;
-		let bestParentZIndex = -Infinity;
-
-		for (let j = i - 1; j >= 0; j--) {
-			const candidate = sortedByZIndex[j];
-			const candidateZIndex = getZIndex(candidate);
-
-			// zIndex 必须比 child 低
-			if (candidateZIndex >= childZIndex) continue;
-
-			// 时间必须包含 child
-			if (!isTimeContained(candidate, child)) continue;
-
-			// 选择 zIndex 最高的（最近的父元素）
-			if (candidateZIndex > bestParentZIndex) {
-				bestParent = candidate;
-				bestParentZIndex = candidateZIndex;
+	// 为每个叠加元素找到其对应的主轨道父元素
+	for (const child of overlayElements) {
+		// 找到 start 在范围内的主轨道元素
+		for (const parent of mainTrackElements) {
+			if (isStartWithinRange(parent, child)) {
+				const existing = result.get(parent.id) ?? [];
+				existing.push(child.id);
+				result.set(parent.id, existing);
+				break; // 一个子元素只关联一个父元素
 			}
-		}
-
-		if (bestParent) {
-			const existing = result.get(bestParent.id) ?? [];
-			existing.push(child.id);
-			result.set(bestParent.id, existing);
 		}
 	}
 

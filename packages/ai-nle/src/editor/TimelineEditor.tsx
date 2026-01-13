@@ -10,6 +10,7 @@ import { ProgressiveBlur } from "@/components/ui/progressive-blur";
 import TimeIndicatorCanvas from "@/editor/TimeIndicatorCanvas";
 import PlaybackToolbar from "./PlaybackToolbar";
 import {
+	useDragging,
 	useElements,
 	usePlaybackControl,
 	usePreviewTime,
@@ -29,6 +30,7 @@ const TimelineEditor = () => {
 	const { setSelectedElementId } = useSelectedElement();
 	const { activeSnapPoint } = useSnap();
 	const { trackAssignments, trackCount } = useTrackAssignments();
+	const { activeDropTarget } = useDragging();
 
 	// 滚动位置状态
 	const [scrollLeft, setScrollLeft] = useState(0);
@@ -108,7 +110,14 @@ const TimelineEditor = () => {
 			setPreviewTime(null); // 清除预览时间
 			setSelectedElementId(null); // 清除选中状态
 		},
-		[ratio, scrollLeft, leftColumnWidth, setCurrentTime, setPreviewTime, setSelectedElementId],
+		[
+			ratio,
+			scrollLeft,
+			leftColumnWidth,
+			setCurrentTime,
+			setPreviewTime,
+			setSelectedElementId,
+		],
 	);
 
 	// 鼠标离开时清除预览时间，回到固定时间
@@ -232,7 +241,7 @@ const TimelineEditor = () => {
 						top: i * trackHeight,
 						height: trackHeight,
 					}}
-				/>
+				/>,
 			);
 		}
 
@@ -271,7 +280,15 @@ const TimelineEditor = () => {
 				})}
 			</div>
 		);
-	}, [elements, scrollLeft, ratio, updateTimeRange, trackAssignments, trackCount, trackHeight]);
+	}, [
+		elements,
+		scrollLeft,
+		ratio,
+		updateTimeRange,
+		trackAssignments,
+		trackCount,
+		trackHeight,
+	]);
 
 	// 轨道标签
 	const trackLabels = useMemo(() => {
@@ -284,14 +301,12 @@ const TimelineEditor = () => {
 				<div
 					key={trackIndex}
 					className={`flex items-center justify-end pr-3 text-xs font-medium ${
-						isMainTrack
-							? "text-blue-400"
-							: "text-neutral-400"
+						isMainTrack ? "text-blue-400" : "text-neutral-400"
 					}`}
 					style={{ height: trackHeight }}
 				>
 					{isMainTrack ? "主轨道" : `轨道 ${trackIndex}`}
-				</div>
+				</div>,
 			);
 		}
 		return labels;
@@ -304,10 +319,54 @@ const TimelineEditor = () => {
 		return (
 			<div
 				className="absolute top-0 bottom-0 w-0.5 bg-green-500 z-50 pointer-events-none"
-				style={{ left }}
+				style={{ left, marginLeft: leftColumnWidth }}
 			/>
 		);
 	}, [activeSnapPoint, ratio, scrollLeft]);
+
+	// 拖拽目标指示器
+	const dropIndicator = useMemo(() => {
+		if (!activeDropTarget) return null;
+
+		// 使用拖拽后的新时间范围
+		const elementLeft = activeDropTarget.start * ratio - scrollLeft;
+		const elementWidth = (activeDropTarget.end - activeDropTarget.start) * ratio;
+
+		if (activeDropTarget.type === "gap") {
+			// 间隙插入模式 - 显示横向高亮线
+			// gap 的 trackIndex 表示新轨道将插入到该位置
+			// 视觉上应该显示在 trackIndex 和 trackIndex-1 之间的线
+			const gapY = (trackCount - activeDropTarget.trackIndex) * trackHeight;
+			return (
+				<div
+					className="absolute left-0 right-0 h-1 bg-green-500 z-40 pointer-events-none rounded-full shadow-lg shadow-green-500/50"
+					style={{
+						top: gapY - 2,
+						marginLeft: leftColumnWidth,
+					}}
+				/>
+			);
+		}
+		// track 模式 - 显示矩形占位符，使用 finalTrackIndex（考虑重叠后的实际位置）
+		const trackY = (trackCount - 1 - activeDropTarget.finalTrackIndex) * trackHeight;
+		return (
+			<div
+				className="absolute h-[54px] bg-blue-500/20 border-2 border-blue-500 border-dashed z-40 pointer-events-none rounded-md"
+				style={{
+					top: trackY + 3,
+					left: elementLeft + leftColumnWidth,
+					width: Math.max(elementWidth, 50),
+				}}
+			/>
+		);
+	}, [
+		activeDropTarget,
+		ratio,
+		scrollLeft,
+		trackCount,
+		trackHeight,
+		leftColumnWidth,
+	]);
 	// console.log("TimelineEditor", currentTime);
 
 	return (
@@ -330,9 +389,7 @@ const TimelineEditor = () => {
 					<div className="h-7 shrink-0" />
 					{/* 轨道标签容器 */}
 					<div className="flex-1 overflow-hidden">
-						<div className="mt-1.5">
-							{trackLabels}
-						</div>
+						<div className="mt-1.5">{trackLabels}</div>
 					</div>
 				</div>
 				<TimeIndicatorCanvas
@@ -344,13 +401,14 @@ const TimelineEditor = () => {
 				{/* 时间线容器，占满整个屏幕，左侧留出 padding 给 left column */}
 				<div
 					ref={containerRef}
-					className="relative pt-19 w-full overflow-y-auto overflow-x-hidden h-full pb-16"
+					className="relative mt-19 w-full overflow-y-auto overflow-x-hidden h-full pb-32"
 					style={{ paddingLeft: leftColumnWidth, marginLeft: -leftColumnWidth }}
 					onMouseMove={handleMouseMove}
 					onMouseLeave={handleMouseLeave}
 					onClick={handleClick}
 				>
 					{snapIndicator}
+					{dropIndicator}
 					{timelineItems}
 				</div>
 			</div>

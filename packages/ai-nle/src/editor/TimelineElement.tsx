@@ -5,6 +5,7 @@ import { modelRegistry, useModelExists } from "@/dsl/model/registry";
 import { TimelineElement as TimelineElementType } from "@/dsl/types";
 import { useDragging, useElements, useSelectedElement, useSnap, useTimelineStore, useAttachments, useTrackAssignments } from "./TimelineContext";
 import { applySnap, applySnapForDrag, collectSnapPoints } from "./utils/snap";
+import { findAvailableTrack, assignTracks, getTrackCount, hasOverlapOnStoredTrack } from "./utils/trackAssignment";
 
 interface TimelineElementProps {
 	element: TimelineElementType;
@@ -33,13 +34,13 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	const isDraggingRef = useRef<boolean>(false);
 	const currentStartTimeRef = useRef<number>(0);
 	const currentEndTimeRef = useRef<number>(0);
-	const { setIsDragging } = useDragging();
+	const { setIsDragging, setActiveDropTarget } = useDragging();
 	const { selectedElementId, setSelectedElementId } = useSelectedElement();
 	const { snapEnabled, setActiveSnapPoint } = useSnap();
 	const { elements } = useElements();
 	const currentTime = useTimelineStore((state) => state.currentTime);
 	const { attachments, autoAttach } = useAttachments();
-	const { updateElementTimeAndTrack, getDropTarget } = useTrackAssignments();
+	const { getDropTarget, moveWithAttachments } = useTrackAssignments();
 
 	// 本地状态用于拖拽时的临时 Y 位置显示
 	const [localTrackY, setLocalTrackY] = useState<number | null>(null);
@@ -293,6 +294,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				isDraggingRef.current = false;
 				setIsDragging(false);
 				setActiveSnapPoint(null);
+				setActiveDropTarget(null);
 				setLocalTrackY(null);
 
 				// 只有在真正有移动时才更新（防止点击误触发）
@@ -303,10 +305,8 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 					// 根据拖拽位置判断是放到轨道还是插入间隙
 					const dropTarget = getDropTarget(Math.max(0, newY), trackHeight, trackCount);
 
-					// 更新当前元素的时间和轨道
-					updateElementTimeAndTrack(id, newStart, newEnd, dropTarget);
-
-					// 如果启用了层叠关联，同步移动所有子元素
+					// 收集需要同步移动的附属元素
+					const attachedChildren: { id: string; start: number; end: number }[] = [];
 					if (autoAttach && actualDelta !== 0) {
 						const childIds = attachments.get(id) ?? [];
 						for (const childId of childIds) {
@@ -316,11 +316,18 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 								const childNewEnd = child.timeline.end + actualDelta;
 								// 确保子元素不会移动到负数时间
 								if (childNewStart >= 0) {
-									updateTimeRange(childId, childNewStart, childNewEnd);
+									attachedChildren.push({
+										id: childId,
+										start: childNewStart,
+										end: childNewEnd,
+									});
 								}
 							}
 						}
 					}
+
+					// 使用统一函数移动主元素和附属元素，自动处理轨道重叠
+					moveWithAttachments(id, newStart, newEnd, dropTarget, attachedChildren);
 				}
 				// 不立即清除本地状态，让 useEffect 在全局状态更新后自动清除
 			} else {
@@ -329,6 +336,91 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				setLocalEndTime(newEnd);
 				setLocalTrackY(newY);
 				setActiveSnapPoint(activeSnap);
+
+				// 计算并更新拖拽目标指示
+				const dropTarget = getDropTarget(Math.max(0, newY), trackHeight, trackCount);
+
+				// 创建临时元素列表（更新当前元素的时间范围）
+				const tempElements = elements.map((el) => {
+					if (el.id === id) {
+						return {
+							...el,
+							timeline: { ...el.timeline, start: newStart, end: newEnd },
+						};
+					}
+					return el;
+				});
+
+				// 计算基于存储 trackIndex 的最大轨道（用于 gap 检测）
+				const maxStoredTrack = Math.max(
+					0,
+					...tempElements.map((el) => el.timeline.trackIndex ?? 0)
+				);
+
+				// 计算实际的最终轨道位置和显示类型
+				let finalTrackIndex: number;
+				let displayType: "track" | "gap" = dropTarget.type;
+
+				if (dropTarget.type === "gap") {
+					// 间隙模式：使用存储的 trackIndex 检查重叠，避免级联重分配问题
+					const gapTrackIndex = dropTarget.trackIndex;
+					const belowTrack = gapTrackIndex - 1; // 缝隙下方的轨道
+					const aboveTrack = gapTrackIndex; // 缝隙上方的轨道
+
+					// 检查下方轨道是否有空位（基于存储的 trackIndex）
+					const belowHasSpace = belowTrack >= 0 && !hasOverlapOnStoredTrack(
+						newStart,
+						newEnd,
+						belowTrack,
+						tempElements,
+						id,
+					);
+
+					// 检查上方轨道是否有空位（基于存储的 trackIndex）
+					const aboveHasSpace = aboveTrack <= maxStoredTrack && !hasOverlapOnStoredTrack(
+						newStart,
+						newEnd,
+						aboveTrack,
+						tempElements,
+						id,
+					);
+
+					if (belowHasSpace) {
+						// 当前轨道（下方）有空位，放入下方轨道
+						displayType = "track";
+						finalTrackIndex = belowTrack;
+					} else if (aboveHasSpace) {
+						// 上方轨道有空位，放入上方轨道
+						displayType = "track";
+						finalTrackIndex = aboveTrack;
+					} else {
+						// 两边都没有空位，保持 gap 模式（插入新轨道）
+						// 只查一级，不继续向上查找，让用户可以主动插入新轨道
+						finalTrackIndex = gapTrackIndex;
+					}
+				} else {
+					// 轨道模式：使用原有逻辑（基于 assignTracks 的分配）
+					const tempAssignments = assignTracks(tempElements);
+					const tempCount = getTrackCount(tempAssignments);
+					finalTrackIndex = findAvailableTrack(
+						newStart,
+						newEnd,
+						dropTarget.trackIndex,
+						tempElements,
+						tempAssignments,
+						id,
+						tempCount,
+					);
+				}
+
+				setActiveDropTarget({
+					type: displayType,
+					trackIndex: dropTarget.trackIndex,
+					elementId: id,
+					start: newStart,
+					end: newEnd,
+					finalTrackIndex,
+				});
 			}
 		},
 		{

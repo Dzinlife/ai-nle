@@ -6,6 +6,30 @@
 	},
 	"elements": [
 		{
+			"id": "clip1",
+			"type": "Clip",
+			"name": "视频片段",
+			"transform": {
+				"centerX": 0,
+				"centerY": 0,
+				"width": 1920,
+				"height": 1080,
+				"rotation": 0
+			},
+			"timeline": {
+				"start": 0,
+				"end": 6,
+				"trackIndex": 0,
+				"role": "main"
+			},
+			"render": {
+				"zIndex": 0
+			},
+			"props": {
+				"uri": "/intro.mp4"
+			}
+		},
+		{
 			"id": "cloudBackground1",
 			"type": "CloudBackground",
 			"name": "云彩背景",
@@ -17,8 +41,8 @@
 				"rotation": 0
 			},
 			"timeline": {
-				"start": 0,
-				"end": 60,
+				"start": 6,
+				"end": 16,
 				"trackIndex": 0,
 				"role": "main"
 			},
@@ -33,33 +57,33 @@
 			}
 		},
 		{
-			"id": "clip1",
-			"type": "Clip",
-			"name": "clip1",
+			"id": "image2",
+			"type": "Image",
+			"name": "照片",
 			"transform": {
-				"centerX": -360,
-				"centerY": 60,
-				"width": 700,
-				"height": 700,
+				"centerX": 0,
+				"centerY": 0,
+				"width": 1920,
+				"height": 1080,
 				"rotation": 0
 			},
 			"timeline": {
-				"start": 0,
-				"end": 6,
+				"start": 16,
+				"end": 24,
 				"trackIndex": 0,
 				"role": "main"
 			},
 			"render": {
-				"zIndex": 1
+				"zIndex": 0
 			},
 			"props": {
-				"uri": "/intro.mp4"
+				"uri": "/photo.jpeg"
 			}
 		},
 		{
 			"id": "backdropZoom1",
 			"type": "BackdropZoom",
-			"name": "backdropZoom1",
+			"name": "放大镜效果",
 			"transform": {
 				"centerX": -610,
 				"centerY": -140,
@@ -68,8 +92,8 @@
 				"rotation": 0
 			},
 			"timeline": {
-				"start": 0,
-				"end": 30,
+				"start": 2,
+				"end": 12,
 				"trackIndex": 1,
 				"role": "effect"
 			},
@@ -85,7 +109,7 @@
 		{
 			"id": "lottie1",
 			"type": "Lottie",
-			"name": "Lottie 动画",
+			"name": "贴纸动画",
 			"transform": {
 				"centerX": -160,
 				"centerY": 260,
@@ -94,8 +118,8 @@
 				"rotation": 0
 			},
 			"timeline": {
-				"start": 5,
-				"end": 25,
+				"start": 8,
+				"end": 20,
 				"trackIndex": 1,
 				"role": "overlay"
 			},
@@ -109,33 +133,9 @@
 			}
 		},
 		{
-			"id": "image2",
-			"type": "Image",
-			"name": "image2",
-			"transform": {
-				"centerX": -710,
-				"centerY": -290,
-				"width": 500,
-				"height": 500,
-				"rotation": 0
-			},
-			"timeline": {
-				"start": 10,
-				"end": 20,
-				"trackIndex": 2,
-				"role": "overlay"
-			},
-			"render": {
-				"zIndex": 4
-			},
-			"props": {
-				"uri": "/photo.jpeg"
-			}
-		},
-		{
 			"id": "colorFilterLayer1",
 			"type": "ColorFilterLayer",
-			"name": "调色滤镜层",
+			"name": "调色滤镜",
 			"transform": {
 				"centerX": 0,
 				"centerY": 0,
@@ -144,9 +144,9 @@
 				"rotation": 0
 			},
 			"timeline": {
-				"start": 15,
-				"end": 25,
-				"trackIndex": 3,
+				"start": 10,
+				"end": 18,
+				"trackIndex": 2,
 				"role": "effect"
 			},
 			"render": {
@@ -163,18 +163,18 @@
 		{
 			"id": "image1",
 			"type": "Image",
-			"name": "image1",
+			"name": "Logo 水印",
 			"transform": {
-				"centerX": 440,
-				"centerY": -240,
-				"width": 500,
-				"height": 500,
+				"centerX": 760,
+				"centerY": -440,
+				"width": 200,
+				"height": 200,
 				"rotation": 0
 			},
 			"timeline": {
-				"start": 20,
-				"end": 30,
-				"trackIndex": 2,
+				"start": 0,
+				"end": 24,
+				"trackIndex": 3,
 				"role": "overlay"
 			},
 			"render": {

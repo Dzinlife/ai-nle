@@ -3,7 +3,7 @@ import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import { TimelineElement } from "@/dsl/types";
 import { SnapPoint } from "./utils/snap";
-import { assignTracks, getTrackCount, normalizeTrackAssignments, findAvailableTrack, getYFromTrack, getTrackFromY, getDropTarget, insertTrackAt, DropTarget } from "./utils/trackAssignment";
+import { assignTracks, getTrackCount, normalizeTrackAssignments, findAvailableTrack, getYFromTrack, getTrackFromY, getDropTarget, insertTrackAt, hasOverlapOnStoredTrack, DropTarget } from "./utils/trackAssignment";
 import { findAttachments } from "./utils/attachments";
 
 interface TimelineStore {
@@ -19,6 +19,8 @@ interface TimelineStore {
 	activeSnapPoint: SnapPoint | null;
 	// 层叠关联相关状态
 	autoAttach: boolean;
+	// 拖拽目标指示状态
+	activeDropTarget: (DropTarget & { elementId: string; start: number; end: number; finalTrackIndex: number }) | null;
 	setCurrentTime: (time: number) => void;
 	setPreviewTime: (time: number | null) => void;
 	setElements: (
@@ -41,6 +43,8 @@ interface TimelineStore {
 	setActiveSnapPoint: (point: SnapPoint | null) => void;
 	// 层叠关联相关方法
 	setAutoAttach: (enabled: boolean) => void;
+	// 拖拽目标指示方法
+	setActiveDropTarget: (target: (DropTarget & { elementId: string; start: number; end: number; finalTrackIndex: number }) | null) => void;
 }
 
 export const useTimelineStore = create<TimelineStore>()(
@@ -57,6 +61,8 @@ export const useTimelineStore = create<TimelineStore>()(
 		activeSnapPoint: null,
 		// 层叠关联相关状态初始值
 		autoAttach: true,
+		// 拖拽目标指示状态初始值
+		activeDropTarget: null,
 
 		setCurrentTime: (time: number) => {
 			const currentTime = get().currentTime;
@@ -136,6 +142,11 @@ export const useTimelineStore = create<TimelineStore>()(
 		setAutoAttach: (enabled: boolean) => {
 			set({ autoAttach: enabled });
 		},
+
+		// 拖拽目标指示方法
+		setActiveDropTarget: (target: (DropTarget & { elementId: string; start: number; end: number; finalTrackIndex: number }) | null) => {
+			set({ activeDropTarget: target });
+		},
 	})),
 );
 
@@ -193,10 +204,14 @@ export const usePlaybackControl = () => {
 export const useDragging = () => {
 	const isDragging = useTimelineStore((state) => state.isDragging);
 	const setIsDragging = useTimelineStore((state) => state.setIsDragging);
+	const activeDropTarget = useTimelineStore((state) => state.activeDropTarget);
+	const setActiveDropTarget = useTimelineStore((state) => state.setActiveDropTarget);
 
 	return {
 		isDragging,
 		setIsDragging,
+		activeDropTarget,
+		setActiveDropTarget,
 	};
 };
 
@@ -303,14 +318,60 @@ export const useTrackAssignments = () => {
 				let updatedAssignments: Map<string, number>;
 
 				if (dropTarget.type === "gap") {
-					// 插入模式：在间隙位置插入新轨道
-					const insertAt = dropTarget.trackIndex;
+					// 间隙模式：使用存储的 trackIndex 检查重叠，避免级联重分配问题
+					const gapTrackIndex = dropTarget.trackIndex;
+					const belowTrack = gapTrackIndex - 1; // 缝隙下方的轨道
+					const aboveTrack = gapTrackIndex; // 缝隙上方的轨道
 
-					// 将 insertAt 及以上的轨道向上移动
-					updatedAssignments = insertTrackAt(insertAt, currentAssignments);
+					// 创建临时元素列表用于检查重叠
+					const tempUpdated = prev.map((el) => {
+						if (el.id === elementId) {
+							return {
+								...el,
+								timeline: { ...el.timeline, start, end },
+							};
+						}
+						return el;
+					});
 
-					// 新元素放入插入位置
-					finalTrack = insertAt;
+					// 计算基于存储 trackIndex 的最大轨道
+					const maxStoredTrack = Math.max(
+						0,
+						...tempUpdated.map((el) => el.timeline.trackIndex ?? 0)
+					);
+
+					// 检查下方轨道是否有空位（基于存储的 trackIndex）
+					const belowHasSpace = belowTrack >= 0 && !hasOverlapOnStoredTrack(
+						start,
+						end,
+						belowTrack,
+						tempUpdated,
+						elementId,
+					);
+
+					// 检查上方轨道是否有空位（基于存储的 trackIndex）
+					const aboveHasSpace = aboveTrack <= maxStoredTrack && !hasOverlapOnStoredTrack(
+						start,
+						end,
+						aboveTrack,
+						tempUpdated,
+						elementId,
+					);
+
+					if (belowHasSpace) {
+						// 下方轨道有空位，直接放入
+						finalTrack = belowTrack;
+						updatedAssignments = currentAssignments;
+					} else if (aboveHasSpace) {
+						// 上方轨道有空位，直接放入
+						finalTrack = aboveTrack;
+						updatedAssignments = currentAssignments;
+					} else {
+						// 两边都没有空位，插入新轨道
+						// 只查一级，不继续向上查找，让用户可以主动插入新轨道
+						updatedAssignments = insertTrackAt(gapTrackIndex, currentAssignments);
+						finalTrack = gapTrackIndex;
+					}
 				} else {
 					// 普通模式：智能放置到目标轨道（如有重叠则向上寻找）
 					// 先创建一个临时的更新后元素列表
@@ -390,11 +451,205 @@ export const useTrackAssignments = () => {
 		[setElements],
 	);
 
+	// 移动元素及其附属元素（用于拖拽结束，处理层叠关联）
+	const moveWithAttachments = useCallback(
+		(
+			elementId: string,
+			start: number,
+			end: number,
+			dropTarget: DropTarget,
+			attachedChildren: { id: string; start: number; end: number }[],
+		) => {
+			setElements((prev) => {
+				// 计算当前的轨道分配
+				const currentAssignments = assignTracks(prev);
+
+				let finalTrack: number;
+				let updatedAssignments: Map<string, number>;
+
+				if (dropTarget.type === "gap") {
+					// 间隙模式：使用存储的 trackIndex 检查重叠，避免级联重分配问题
+					const gapTrackIndex = dropTarget.trackIndex;
+					const belowTrack = gapTrackIndex - 1; // 缝隙下方的轨道
+					const aboveTrack = gapTrackIndex; // 缝隙上方的轨道
+
+					// 创建临时元素列表用于检查重叠
+					const tempUpdated = prev.map((el) => {
+						if (el.id === elementId) {
+							return {
+								...el,
+								timeline: { ...el.timeline, start, end },
+							};
+						}
+						return el;
+					});
+
+					// 计算基于存储 trackIndex 的最大轨道
+					const maxStoredTrack = Math.max(
+						0,
+						...tempUpdated.map((el) => el.timeline.trackIndex ?? 0)
+					);
+
+					// 检查下方轨道是否有空位（基于存储的 trackIndex）
+					const belowHasSpace = belowTrack >= 0 && !hasOverlapOnStoredTrack(
+						start,
+						end,
+						belowTrack,
+						tempUpdated,
+						elementId,
+					);
+
+					// 检查上方轨道是否有空位（基于存储的 trackIndex）
+					const aboveHasSpace = aboveTrack <= maxStoredTrack && !hasOverlapOnStoredTrack(
+						start,
+						end,
+						aboveTrack,
+						tempUpdated,
+						elementId,
+					);
+
+					if (belowHasSpace) {
+						// 下方轨道有空位，直接放入
+						finalTrack = belowTrack;
+						updatedAssignments = currentAssignments;
+					} else if (aboveHasSpace) {
+						// 上方轨道有空位，直接放入
+						finalTrack = aboveTrack;
+						updatedAssignments = currentAssignments;
+					} else {
+						// 两边都没有空位，插入新轨道
+						// 只查一级，不继续向上查找，让用户可以主动插入新轨道
+						updatedAssignments = insertTrackAt(gapTrackIndex, currentAssignments);
+						finalTrack = gapTrackIndex;
+					}
+				} else {
+					// 普通模式：智能放置到目标轨道
+					const tempUpdated = prev.map((el) => {
+						if (el.id === elementId) {
+							return {
+								...el,
+								timeline: { ...el.timeline, start, end },
+							};
+						}
+						return el;
+					});
+					const tempAssignments = assignTracks(tempUpdated);
+					const tempCount = getTrackCount(tempAssignments);
+					finalTrack = findAvailableTrack(
+						start,
+						end,
+						dropTarget.trackIndex,
+						tempUpdated,
+						tempAssignments,
+						elementId,
+						tempCount,
+					);
+					updatedAssignments = currentAssignments;
+				}
+
+				// 第一步：更新主元素的时间和轨道
+				let updated = prev.map((el) => {
+					if (el.id === elementId) {
+						return {
+							...el,
+							timeline: {
+								...el.timeline,
+								start,
+								end,
+								trackIndex: finalTrack,
+							},
+						};
+					}
+					// 应用可能的轨道移动（插入模式时其他元素的轨道会变化）
+					const newTrack = updatedAssignments.get(el.id);
+					if (newTrack !== undefined && newTrack !== el.timeline.trackIndex) {
+						return {
+							...el,
+							timeline: {
+								...el.timeline,
+								trackIndex: newTrack,
+							},
+						};
+					}
+					return el;
+				});
+
+				// 第二步：更新附属元素的时间（保持原轨道）
+				updated = updated.map((el) => {
+					const childMove = attachedChildren.find((c) => c.id === el.id);
+					if (childMove) {
+						return {
+							...el,
+							timeline: {
+								...el.timeline,
+								start: childMove.start,
+								end: childMove.end,
+							},
+						};
+					}
+					return el;
+				});
+
+				// 第三步：为附属元素重新计算轨道位置（处理重叠）
+				// 按照原轨道顺序逐个处理，如果有重叠则向上查找
+				for (const childMove of attachedChildren) {
+					const child = updated.find((el) => el.id === childMove.id);
+					if (!child) continue;
+
+					const currentTrack = child.timeline.trackIndex ?? 1;
+					const childAssignments = assignTracks(updated);
+					const childCount = getTrackCount(childAssignments);
+
+					// 检查当前轨道是否有重叠，如果有则向上查找
+					const availableTrack = findAvailableTrack(
+						childMove.start,
+						childMove.end,
+						currentTrack,
+						updated,
+						childAssignments,
+						childMove.id,
+						childCount,
+					);
+
+					// 如果需要移动到新轨道
+					if (availableTrack !== currentTrack) {
+						updated = updated.map((el) => {
+							if (el.id === childMove.id) {
+								return {
+									...el,
+									timeline: {
+										...el.timeline,
+										trackIndex: availableTrack,
+									},
+								};
+							}
+							return el;
+						});
+					}
+				}
+
+				// 第四步：规范化轨道（移除空轨道）
+				const newAssignments = assignTracks(updated);
+				const normalized = normalizeTrackAssignments(newAssignments);
+
+				return updated.map((el) => ({
+					...el,
+					timeline: {
+						...el.timeline,
+						trackIndex: normalized.get(el.id) ?? el.timeline.trackIndex,
+					},
+				}));
+			});
+		},
+		[setElements],
+	);
+
 	return {
 		trackAssignments,
 		trackCount,
 		updateElementTrack,
 		updateElementTimeAndTrack,
+		moveWithAttachments,
 		getYFromTrack,
 		getTrackFromY,
 		getDropTarget,
