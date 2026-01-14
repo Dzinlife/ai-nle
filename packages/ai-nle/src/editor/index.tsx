@@ -1,12 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ModelManager } from "@/dsl/model";
 import { TimelineElement } from "@/dsl/types";
 import ElementSettingsPanel from "./components/ElementSettingsPanel";
-import MaterialLibrary, { type MaterialItem } from "./MaterialLibrary";
-import PreviewEditor from "./PreviewEditor";
 import PreviewProvider from "./contexts/PreviewProvider";
 import { TimelineProvider, useTimelineStore } from "./contexts/TimelineContext";
+import MaterialLibrary, { type MaterialItem } from "./MaterialLibrary";
+import PreviewEditor from "./PreviewEditor";
 import TimelineEditor from "./TimelineEditor";
 import timelineData from "./timeline.json";
 import { loadTimelineFromObject } from "./timelineLoader";
@@ -28,6 +28,41 @@ console.log("[Editor] Registered components:", componentRegistry.getTypes());
 const EditorContent: React.FC = () => {
 	const setElements = useTimelineStore((state) => state.setElements);
 	const currentTime = useTimelineStore((state) => state.currentTime);
+
+	// Timeline 高度状态和拖拽逻辑
+	const [timelineMaxHeight, setTimelineMaxHeight] = useState(300);
+	const isDraggingRef = useRef(false);
+	const startYRef = useRef(0);
+	const startHeightRef = useRef(0);
+
+	const handleResizeMouseDown = useCallback(
+		(e: React.MouseEvent) => {
+			e.preventDefault();
+			isDraggingRef.current = true;
+			startYRef.current = e.clientY;
+			startHeightRef.current = timelineMaxHeight;
+
+			const handleMouseMove = (e: MouseEvent) => {
+				if (!isDraggingRef.current) return;
+				const delta = startYRef.current - e.clientY;
+				const newHeight = Math.max(
+					100,
+					Math.min(600, startHeightRef.current + delta),
+				);
+				setTimelineMaxHeight(newHeight);
+			};
+
+			const handleMouseUp = () => {
+				isDraggingRef.current = false;
+				document.removeEventListener("mousemove", handleMouseMove);
+				document.removeEventListener("mouseup", handleMouseUp);
+			};
+
+			document.addEventListener("mousemove", handleMouseMove);
+			document.addEventListener("mouseup", handleMouseUp);
+		},
+		[timelineMaxHeight],
+	);
 
 	// 处理素材库拖拽放置到时间线
 	const handleTimelineDrop = useCallback(
@@ -111,7 +146,15 @@ const EditorContent: React.FC = () => {
 			<div className="flex-2 min-h-24 bg-neutral-900">
 				<PreviewEditor />
 			</div>
-			<div className="flex-1 min-h-16 flex border-t border-neutral-700">
+			<div
+				className="min-h-60 flex flex-col border-t border-neutral-700"
+				style={{ height: timelineMaxHeight }}
+			>
+				{/* 拖拽手柄 */}
+				<div
+					className="h-1.5 cursor-ns-resize bg-neutral-700 hover:bg-neutral-600 active:bg-blue-500 transition-colors shrink-0"
+					onMouseDown={handleResizeMouseDown}
+				/>
 				<TimelineEditor />
 			</div>
 		</div>

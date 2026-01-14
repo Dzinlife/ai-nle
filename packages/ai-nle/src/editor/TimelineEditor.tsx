@@ -9,7 +9,8 @@ import React, {
 import { createPortal } from "react-dom";
 import { ProgressiveBlur } from "@/components/ui/progressive-blur";
 import TimeIndicatorCanvas from "@/editor/components/TimeIndicatorCanvas";
-import { useDragStore } from "./drag";
+import TimelineElement from "./components/TimelineElement";
+import TimelineRuler from "./components/TimelineRuler";
 import TimelineToolbar from "./components/TimelineToolbar";
 import {
 	useAutoScroll,
@@ -22,8 +23,7 @@ import {
 	useTimelineStore,
 	useTrackAssignments,
 } from "./contexts/TimelineContext";
-import TimelineElement from "./components/TimelineElement";
-import TimelineRuler from "./components/TimelineRuler";
+import { useDragStore } from "./drag";
 import { DEFAULT_ELEMENT_HEIGHT } from "./timeline/trackConfig";
 
 const TimelineEditor = () => {
@@ -165,8 +165,8 @@ const TimelineEditor = () => {
 
 	// 使用原生事件监听器来正确处理滚动，防止触发窗口滚动
 	useEffect(() => {
-		const container = containerRef.current;
-		if (!container) return;
+		const scrollArea = scrollAreaRef.current;
+		if (!scrollArea) return;
 
 		const handleWheel = (e: WheelEvent) => {
 			// 只在有水平滚动时才处理，垂直滚动不处理
@@ -187,7 +187,7 @@ const TimelineEditor = () => {
 		const handleTouchStart = (e: TouchEvent) => {
 			if (e.touches.length === 1) {
 				const touch = e.touches[0];
-				const rect = container.getBoundingClientRect();
+				const rect = scrollArea.getBoundingClientRect();
 				// 如果触摸点在容器内，阻止默认行为（防止后退手势）
 				if (
 					touch.clientX >= rect.left &&
@@ -213,18 +213,18 @@ const TimelineEditor = () => {
 		};
 
 		// 使用 { passive: false } 来确保可以调用 preventDefault
-		container.addEventListener("wheel", handleWheel, { passive: false });
-		container.addEventListener("touchstart", handleTouchStart, {
+		scrollArea.addEventListener("wheel", handleWheel, { passive: false });
+		scrollArea.addEventListener("touchstart", handleTouchStart, {
 			passive: false,
 		});
-		container.addEventListener("touchmove", handleTouchMove, {
+		scrollArea.addEventListener("touchmove", handleTouchMove, {
 			passive: false,
 		});
 
 		return () => {
-			container.removeEventListener("wheel", handleWheel);
-			container.removeEventListener("touchstart", handleTouchStart);
-			container.removeEventListener("touchmove", handleTouchMove);
+			scrollArea.removeEventListener("wheel", handleWheel);
+			scrollArea.removeEventListener("touchstart", handleTouchStart);
+			scrollArea.removeEventListener("touchmove", handleTouchMove);
 		};
 	}, []);
 
@@ -259,8 +259,12 @@ const TimelineEditor = () => {
 
 		const animate = () => {
 			const currentScrollTop = scrollContainer.scrollTop;
-			const maxScrollTop = scrollContainer.scrollHeight - scrollContainer.clientHeight;
-			const newScrollTop = Math.max(0, Math.min(maxScrollTop, currentScrollTop + autoScrollSpeedY));
+			const maxScrollTop =
+				scrollContainer.scrollHeight - scrollContainer.clientHeight;
+			const newScrollTop = Math.max(
+				0,
+				Math.min(maxScrollTop, currentScrollTop + autoScrollSpeedY),
+			);
 			scrollContainer.scrollTop = newScrollTop;
 			animationFrameId = requestAnimationFrame(animate);
 		};
@@ -280,7 +284,10 @@ const TimelineEditor = () => {
 
 		const animate = () => {
 			const currentScrollLeft = useTimelineStore.getState().scrollLeft;
-			const newScrollLeft = Math.max(0, currentScrollLeft + globalAutoScrollSpeedX);
+			const newScrollLeft = Math.max(
+				0,
+				currentScrollLeft + globalAutoScrollSpeedX,
+			);
 			setScrollLeft(newScrollLeft);
 			animationFrameId = requestAnimationFrame(animate);
 		};
@@ -303,8 +310,12 @@ const TimelineEditor = () => {
 
 		const animate = () => {
 			const currentScrollTop = scrollContainer.scrollTop;
-			const maxScrollTop = scrollContainer.scrollHeight - scrollContainer.clientHeight;
-			const newScrollTop = Math.max(0, Math.min(maxScrollTop, currentScrollTop + globalAutoScrollSpeedY));
+			const maxScrollTop =
+				scrollContainer.scrollHeight - scrollContainer.clientHeight;
+			const newScrollTop = Math.max(
+				0,
+				Math.min(maxScrollTop, currentScrollTop + globalAutoScrollSpeedY),
+			);
 			scrollContainer.scrollTop = newScrollTop;
 			animationFrameId = requestAnimationFrame(animate);
 		};
@@ -318,27 +329,44 @@ const TimelineEditor = () => {
 
 	const trackHeight = 60;
 
-	const timeStamps = (
-		<div
-			className="flex pointer-events-none sticky top-0 left-0 z-50 bg-neutral-800/10 border border-white/10 rounded-full mx-4 backdrop-blur-2xl border-r overflow-hidden"
-			style={{
-				paddingLeft: leftColumnWidth - 16 - 2,
-			}}
-		>
+	const timeStamps = useMemo(() => {
+		return (
 			<div
-				ref={rulerContainerRef}
-				className="overflow-hidden border-l border-white/10 bg-neutral-800/30 flex-1"
+				key="time-stamps"
+				className="sticky top-0 left-0 z-60"
+				onMouseMove={handleMouseMove}
+				onClick={handleClick}
 			>
-				<TimelineRuler
-					scrollLeft={scrollLeft}
-					ratio={ratio}
-					width={rulerWidth}
-					paddingLeft={timelinePaddingLeft}
-					// fps={60}
-				/>
+				<div
+					className="bg-neutral-800/10 border border-white/10 rounded-full mx-4 backdrop-blur-2xl border-r overflow-hidden"
+					style={{
+						paddingLeft: leftColumnWidth - 16 - 2,
+					}}
+				>
+					<div
+						ref={rulerContainerRef}
+						className="overflow-hidden border-l border-white/10 bg-neutral-800/30 flex-1"
+					>
+						<TimelineRuler
+							scrollLeft={scrollLeft}
+							ratio={ratio}
+							width={rulerWidth}
+							paddingLeft={timelinePaddingLeft}
+							// fps={60}
+						/>
+					</div>
+				</div>
 			</div>
-		</div>
-	);
+		);
+	}, [
+		handleMouseMove,
+		handleClick,
+		leftColumnWidth,
+		scrollLeft,
+		ratio,
+		rulerWidth,
+		timelinePaddingLeft,
+	]);
 
 	// 分离主轨道元素和其他轨道元素
 	const { mainTrackElements, otherTrackElements } = useMemo(() => {
@@ -474,29 +502,23 @@ const TimelineEditor = () => {
 		);
 	}, [trackHeight]);
 
-	// 吸附指示线（其他轨道区域）
-	const otherSnapIndicator = useMemo(() => {
+	// 吸附指示线
+	const snapIndicator = useMemo(() => {
 		if (!activeSnapPoint || otherTrackCount === 0) return null;
 		const left = activeSnapPoint.time * ratio - scrollLeft;
 		return (
 			<div
-				className="absolute top-0 bottom-0 w-0.5 bg-green-500 z-50 pointer-events-none"
-				style={{ left }}
+				className="absolute top-12 bottom-0 w-0.5 bg-green-500 pointer-events-none"
+				style={{ left: left + timelinePaddingLeft }}
 			/>
 		);
-	}, [activeSnapPoint, ratio, scrollLeft, otherTrackCount]);
-
-	// 吸附指示线（主轨道区域）
-	const mainSnapIndicator = useMemo(() => {
-		if (!activeSnapPoint) return null;
-		const left = activeSnapPoint.time * ratio - scrollLeft;
-		return (
-			<div
-				className="absolute top-0 bottom-0 w-0.5 bg-green-500 z-50 pointer-events-none"
-				style={{ left }}
-			/>
-		);
-	}, [activeSnapPoint, ratio, scrollLeft]);
+	}, [
+		activeSnapPoint,
+		ratio,
+		scrollLeft,
+		otherTrackCount,
+		timelinePaddingLeft,
+	]);
 
 	// 拖拽目标指示器（渲染到 body，跨区域显示）
 	const dropIndicatorPortal = useMemo(() => {
@@ -522,7 +544,8 @@ const TimelineEditor = () => {
 				if (contentArea) {
 					const contentRect = contentArea.getBoundingClientRect();
 					// 计算屏幕坐标
-					screenX = contentRect.left + activeDropTarget.start * ratio - scrollLeft;
+					screenX =
+						contentRect.left + activeDropTarget.start * ratio - scrollLeft;
 					screenY = contentRect.top;
 				}
 			}
@@ -540,7 +563,8 @@ const TimelineEditor = () => {
 
 					if (activeDropTarget.type === "gap") {
 						// gap 模式 - 显示水平线
-						const gapY = (otherTrackCount - activeDropTarget.trackIndex + 1) * trackHeight;
+						const gapY =
+							(otherTrackCount - activeDropTarget.trackIndex + 1) * trackHeight;
 						screenX = contentRect.left;
 						screenY = contentRect.top + gapY - 2;
 
@@ -558,8 +582,10 @@ const TimelineEditor = () => {
 					}
 
 					// track 模式
-					const trackY = (otherTrackCount - activeDropTarget.finalTrackIndex) * trackHeight;
-					screenX = contentRect.left + activeDropTarget.start * ratio - scrollLeft;
+					const trackY =
+						(otherTrackCount - activeDropTarget.finalTrackIndex) * trackHeight;
+					screenX =
+						contentRect.left + activeDropTarget.start * ratio - scrollLeft;
 					screenY = contentRect.top + trackY;
 				}
 			}
@@ -569,7 +595,7 @@ const TimelineEditor = () => {
 
 		const indicator = (
 			<div
-				className="fixed bg-blue-500/20 border-2 border-blue-500 border-dashed z-[9998] pointer-events-none rounded-md box-border"
+				className="fixed bg-blue-500/20 border-2 border-blue-500 border-dashed z-9998 pointer-events-none rounded-md box-border"
 				style={{
 					left: screenX,
 					top: screenY,
@@ -603,9 +629,7 @@ const TimelineEditor = () => {
 					dangerouslySetInnerHTML={{ __html: dragGhost.clonedHtml }}
 				/>
 				{/* 蓝色实线边框指示器 */}
-				<div
-					className="absolute inset-0 border-2 border-blue-500 rounded-md shadow-lg shadow-blue-500/30"
-				/>
+				<div className="absolute inset-0 border-2 border-blue-500 rounded-md shadow-lg shadow-blue-500/30" />
 			</div>
 		);
 
@@ -617,92 +641,118 @@ const TimelineEditor = () => {
 			<div className="pointer-events-none absolute top-0 left-0 w-full h-19 z-50 bg-linear-to-b from-neutral-800 via-neutral-800 via-70% to-transparent"></div>
 			<ProgressiveBlur
 				position="top"
-				className="absolute top-0 w-full h-20 z-50 "
+				className="absolute top-0 w-full h-20 z-60 "
 				blurLevels={[0.5, 4, 16, 16, 16, 16, 16, 16]}
 			/>
-			<TimelineToolbar className="h-12 z-50" />
+			<TimelineToolbar className="h-12 z-60" />
 			{timeStamps}
 			<div
 				ref={scrollAreaRef}
 				data-timeline-scroll-area
 				className="relative w-full flex-1 min-h-0 flex flex-col -mt-18 overflow-hidden"
+				onMouseMove={handleMouseMove}
+				onClick={handleClick}
 			>
-				<TimeIndicatorCanvas
-					className="top-12"
-					leftOffset={leftColumnWidth + timelinePaddingLeft}
-					ratio={ratio}
-					scrollLeft={scrollLeft}
-				/>
-				{/* 其他轨道区域（可滚动） */}
+				<div
+					className="h-full w-full absolute top-0 left-0 pointer-events-none z-60"
+					style={{ marginLeft: leftColumnWidth }}
+				>
+					<TimeIndicatorCanvas
+						className="top-12 z-50"
+						leftOffset={timelinePaddingLeft}
+						ratio={ratio}
+						scrollLeft={scrollLeft}
+					/>
+				</div>
+				<div
+					className="h-full w-full absolute top-0 left-0 pointer-events-none z-50"
+					style={{ marginLeft: leftColumnWidth }}
+				>
+					{snapIndicator}
+				</div>
+
+				{/* 轨道区域（可滚动） */}
 				<div
 					ref={verticalScrollRef}
 					data-vertical-scroll-area
-					className="flex items-start pt-18 w-full flex-1 min-h-0 overflow-y-auto"
+					className="flex flex-col pt-18 w-full flex-1 min-h-0 overflow-y-auto"
 				>
-					{/* 左侧列，其他轨道标签 */}
-					<div
-						className="text-white z-20 pr-4 flex flex-col bg-neutral-800/80 backdrop-blur-3xl backdrop-saturate-150 border-r border-white/10 pt-10 -mt-10 sticky top-0"
-						style={{ width: leftColumnWidth }}
-					>
-						<div className="flex-1">
-							<div className="mt-1.5">{otherTrackLabels}</div>
+					{/* 其他轨道区域 */}
+					<div className="flex w-full flex-1">
+						{/* 左侧列，其他轨道标签 */}
+						<div
+							className="text-white z-10 pr-4 flex flex-col bg-neutral-800/80 backdrop-blur-3xl backdrop-saturate-150 border-r border-white/10 pt-10 -mt-10 sticky top-0"
+							style={{ width: leftColumnWidth }}
+						>
+							<div className="flex-1 flex flex-col justify-end">
+								<div className="mt-1.5">{otherTrackLabels}</div>
+							</div>
 						</div>
-					</div>
-					{/* 右侧其他轨道时间线内容 */}
-					<div
-						ref={containerRef}
-						data-track-drop-zone="other"
-						data-track-count={otherTrackCount}
-						data-track-height={trackHeight}
-						className="relative flex-1 overflow-x-hidden pt-1.5"
-						onMouseMove={handleMouseMove}
-						onMouseLeave={handleMouseLeave}
-						onClick={handleClick}
-						style={{
-							paddingLeft: leftColumnWidth,
-							marginLeft: -leftColumnWidth,
-						}}
-					>
-						<div style={{ paddingLeft: timelinePaddingLeft }}>
-							<div
-								className="relative"
-								data-track-content-area="other"
-								data-content-height={otherTrackCount * trackHeight}
-							>
-								{otherSnapIndicator}
-								{otherTimelineItems}
+						{/* 右侧其他轨道时间线内容 */}
+						<div
+							ref={containerRef}
+							data-track-drop-zone="other"
+							data-track-count={otherTrackCount}
+							data-track-height={trackHeight}
+							className="relative flex-1 overflow-x-hidden pt-1.5 flex flex-col justify-end"
+							onMouseLeave={handleMouseLeave}
+							style={{
+								paddingLeft: leftColumnWidth,
+								marginLeft: -leftColumnWidth,
+							}}
+						>
+							<div style={{ paddingLeft: timelinePaddingLeft }}>
+								<div
+									className="relative"
+									data-track-content-area="other"
+									data-content-height={otherTrackCount * trackHeight}
+								>
+									{otherTimelineItems}
+								</div>
 							</div>
 						</div>
 					</div>
-				</div>
-				{/* 主轨道区域（sticky 底部） */}
-				<div className="flex items-start w-full shrink-0 border-t border-white/10 bg-neutral-800">
-					{/* 左侧主轨道标签 */}
-					<div
-						className="text-white z-20 pr-4 flex flex-col bg-neutral-800/80 backdrop-blur-3xl backdrop-saturate-150 border-r border-white/10"
-						style={{ width: leftColumnWidth }}
-					>
-						{mainTrackLabel}
-					</div>
-					{/* 右侧主轨道时间线内容 */}
-					<div
-						data-track-drop-zone="main"
-						data-track-index="0"
-						className="relative flex-1 overflow-x-hidden"
-						onMouseMove={handleMouseMove}
-						onMouseLeave={handleMouseLeave}
-						onClick={handleClick}
-						style={{
-							paddingLeft: leftColumnWidth,
-							marginLeft: -leftColumnWidth,
-						}}
-					>
-						<div style={{ paddingLeft: timelinePaddingLeft }}>
-							<div className="relative" data-track-content-area="main">
-								{mainSnapIndicator}
-								{mainTimelineItems}
+					{/* 主轨道区域（sticky 底部） */}
+					<div className="z-10 flex items-start w-full shrink-0 border-t border-b border-white/10 sticky bottom-0 mt-auto *:pt-1.5">
+						{/* 左侧主轨道标签 */}
+						<div
+							className="text-white z-10 pr-4 flex flex-col bg-neutral-900/90 backdrop-blur-2xl border-r border-white/10"
+							style={{ width: leftColumnWidth }}
+						>
+							{mainTrackLabel}
+						</div>
+						{/* 右侧主轨道时间线内容 */}
+						<div
+							data-track-drop-zone="main"
+							data-track-index="0"
+							className="relative flex-1 overflow-x-hidden bg-neutral-900/90 backdrop-blur-2xl"
+							onMouseMove={handleMouseMove}
+							onMouseLeave={handleMouseLeave}
+							onClick={handleClick}
+							style={{
+								paddingLeft: leftColumnWidth,
+								marginLeft: -leftColumnWidth,
+							}}
+						>
+							<div style={{ paddingLeft: timelinePaddingLeft }}>
+								<div className="relative" data-track-content-area="main">
+									{mainTimelineItems}
+								</div>
 							</div>
 						</div>
+					</div>
+					{/* 音频轨道区域 */}
+					<div className="min-h-12">
+						{/* 左侧音频轨道标签 */}
+						<div
+							className="h-full text-white pr-4 flex flex-col bg-neutral-800/80 backdrop-blur-3xl backdrop-saturate-150 border-r border-white/10"
+							style={{ width: leftColumnWidth }}
+						>
+							<div className="h-12 flex items-center justify-end pr-3 text-xs font-medium text-neutral-400">
+								音频轨道
+							</div>
+						</div>
+						{/* TODO: 右侧音频轨道时间线内容 */}
 					</div>
 				</div>
 				{/* 拖拽 Ghost 层 */}

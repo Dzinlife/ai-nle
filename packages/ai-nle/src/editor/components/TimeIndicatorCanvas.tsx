@@ -120,7 +120,6 @@ const CurrentTimeIndicatorCanvas: React.FC<CurrentTimeIndicatorCanvasProps> = ({
 				"absolute top-0 left-0 w-full h-full pointer-events-none",
 				className,
 			)}
-			style={{ zIndex: 15 }}
 		/>
 	);
 };

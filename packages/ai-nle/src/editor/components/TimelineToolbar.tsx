@@ -2,7 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import { exportCanvasAsImage } from "@/dsl/export";
 import { cn } from "@/lib/utils";
 import { usePreview } from "../contexts/PreviewProvider";
-import { useAttachments, useCurrentTime, usePlaybackControl, useSnap } from "../contexts/TimelineContext";
+import {
+	useAttachments,
+	useCurrentTime,
+	usePlaybackControl,
+	useSnap,
+} from "../contexts/TimelineContext";
 
 // 格式化时间为 MM:SS:mmm（输入单位为秒）
 const formatTime = (seconds: number) => {
@@ -74,7 +79,7 @@ const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
 						"px-2 py-1 text-xs rounded transition-colors",
 						snapEnabled
 							? "bg-green-600 text-white"
-							: "bg-neutral-700 text-neutral-400 hover:bg-neutral-600"
+							: "bg-neutral-700 text-neutral-400 hover:bg-neutral-600",
 					)}
 					title="水平吸附"
 				>
@@ -86,7 +91,7 @@ const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
 						"px-2 py-1 text-xs rounded transition-colors",
 						autoAttach
 							? "bg-green-600 text-white"
-							: "bg-neutral-700 text-neutral-400 hover:bg-neutral-600"
+							: "bg-neutral-700 text-neutral-400 hover:bg-neutral-600",
 					)}
 					title="主轴联动"
 				>

@@ -14,6 +14,7 @@ import React, {
 import { componentRegistry } from "@/dsl/model/componentRegistry";
 import { modelRegistry, useModelExists } from "@/dsl/model/registry";
 import { TimelineElement as TimelineElementType } from "@/dsl/types";
+import { cn } from "@/lib/utils";
 import {
 	useAttachments,
 	useAutoScroll,
@@ -59,11 +60,19 @@ const DragHandle: React.FC<DragHandleProps> = ({ position, onDrag }) => {
 	return (
 		<div
 			{...onDrag()}
-			className={`absolute ${isLeft ? "left-0 rounded-l-md" : "right-0 rounded-r-md"} top-0 bottom-0 w-2 cursor-ew-resize hover:bg-blue-500/50 active:bg-blue-500 z-10`}
+			className={cn(
+				"absolute",
+				isLeft ? "left-0 rounded-l-md" : "right-0 rounded-r-md",
+				"top-0 bottom-0 w-2 cursor-ew-resize hover:bg-blue-500/50 active:bg-blue-500 z-10",
+			)}
 			style={{ touchAction: "none" }}
 		>
 			<div
-				className={`absolute ${isLeft ? "left-0" : "right-0"} top-1/2 -translate-y-1/2 w-1 h-8 bg-blue-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity`}
+				className={cn(
+					"absolute",
+					isLeft ? "left-0" : "right-0",
+					"top-1/2 -translate-y-1/2 w-1 h-8 bg-blue-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity",
+				)}
 			/>
 		</div>
 	);
@@ -727,7 +736,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 			className={containerClassName}
 			style={{
 				left,
-				width,
+				width: width - 1,
 				top: displayY,
 				height: DEFAULT_ELEMENT_HEIGHT,
 				// 拖拽时降低透明度，但保持在 DOM 中以维持拖拽手势
