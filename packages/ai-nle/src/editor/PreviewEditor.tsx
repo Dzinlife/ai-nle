@@ -21,8 +21,8 @@ import {
 } from "@/dsl/layout";
 import { componentRegistry } from "@/dsl/model/componentRegistry";
 import { TimelineElement } from "@/dsl/types";
-import { usePreview } from "./PreviewProvider";
-import { useTimelineStore } from "./TimelineContext";
+import { usePreview } from "./contexts/PreviewProvider";
+import { useTimelineStore } from "./contexts/TimelineContext";
 
 /**
  * Compute visible elements based on current time.

@@ -8,9 +8,9 @@ import React, {
 } from "react";
 import { createPortal } from "react-dom";
 import { ProgressiveBlur } from "@/components/ui/progressive-blur";
-import TimeIndicatorCanvas from "@/editor/TimeIndicatorCanvas";
+import TimeIndicatorCanvas from "@/editor/components/TimeIndicatorCanvas";
 import { useDragStore } from "./drag";
-import PlaybackToolbar from "./PlaybackToolbar";
+import TimelineToolbar from "./components/TimelineToolbar";
 import {
 	useAutoScroll,
 	useDragging,
@@ -21,9 +21,9 @@ import {
 	useSnap,
 	useTimelineStore,
 	useTrackAssignments,
-} from "./TimelineContext";
-import TimelineElement from "./TimelineElement";
-import TimelineRuler from "./TimelineRuler";
+} from "./contexts/TimelineContext";
+import TimelineElement from "./components/TimelineElement";
+import TimelineRuler from "./components/TimelineRuler";
 import { DEFAULT_ELEMENT_HEIGHT } from "./timeline/trackConfig";
 
 const TimelineEditor = () => {
@@ -620,7 +620,7 @@ const TimelineEditor = () => {
 				className="absolute top-0 w-full h-20 z-50 "
 				blurLevels={[0.5, 4, 16, 16, 16, 16, 16, 16]}
 			/>
-			<PlaybackToolbar className="h-12 z-50" />
+			<TimelineToolbar className="h-12 z-50" />
 			{timeStamps}
 			<div
 				ref={scrollAreaRef}

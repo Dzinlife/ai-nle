@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { Group, Rect, Skottie } from "react-skia-lite";
-import { useCurrentTime, useTimelineStore } from "@/editor/TimelineContext";
+import { useCurrentTime, useTimelineStore } from "@/editor/contexts/TimelineContext";
 import { useModelSelector } from "../model/registry";
 import type { ComponentProps } from "../types";
 import type { LottieInternal, LottieProps } from "./model";

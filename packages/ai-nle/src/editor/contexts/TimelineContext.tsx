@@ -9,9 +9,9 @@ import {
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import { TimelineElement } from "@/dsl/types";
-import { DropTarget, ExtendedDropTarget } from "./timeline/types";
-import { findAttachments } from "./utils/attachments";
-import { SnapPoint } from "./utils/snap";
+import { DropTarget, ExtendedDropTarget } from "../timeline/types";
+import { findAttachments } from "../utils/attachments";
+import { SnapPoint } from "../utils/snap";
 import {
 	assignTracks,
 	findAvailableTrack,
@@ -22,7 +22,7 @@ import {
 	hasOverlapOnStoredTrack,
 	insertTrackAt,
 	normalizeTrackAssignments,
-} from "./utils/trackAssignment";
+} from "../utils/trackAssignment";
 
 // Ghost 元素状态类型
 export interface DragGhostState {

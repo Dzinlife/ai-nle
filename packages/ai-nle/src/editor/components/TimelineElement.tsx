@@ -23,13 +23,13 @@ import {
 	useSnap,
 	useTimelineStore,
 	useTrackAssignments,
-} from "./TimelineContext";
+} from "../contexts/TimelineContext";
 import {
 	calculateDragResult,
 	calculateFinalTrack,
 	DEFAULT_ELEMENT_HEIGHT,
-} from "./timeline/index";
-import { applySnap, applySnapForDrag, collectSnapPoints } from "./utils/snap";
+} from "../timeline/index";
+import { applySnap, applySnapForDrag, collectSnapPoints } from "../utils/snap";
 
 // ============================================================================
 // 类型定义

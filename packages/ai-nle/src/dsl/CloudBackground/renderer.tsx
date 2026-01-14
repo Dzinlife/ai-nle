@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Fill, Group, Rect, Shader, Skia } from "react-skia-lite";
-import { useCurrentTime, useTimelineStore } from "@/editor/TimelineContext";
+import { useCurrentTime, useTimelineStore } from "@/editor/contexts/TimelineContext";
 import { useModelSelector } from "../model/registry";
 import { parseStartEndSchema } from "../startEndSchema";
 import type { ComponentProps } from "../types";

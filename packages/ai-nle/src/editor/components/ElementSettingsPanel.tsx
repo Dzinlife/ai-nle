@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useElements, useSelectedElement } from "./TimelineContext";
+import { useElements, useSelectedElement } from "../contexts/TimelineContext";
 
 const ElementSettingsPanel: React.FC = () => {
 	const { selectedElement, setSelectedElementId } = useSelectedElement();

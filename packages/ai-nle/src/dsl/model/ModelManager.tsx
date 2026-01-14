@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useElements } from "@/editor/TimelineContext";
+import { useElements } from "@/editor/contexts/TimelineContext";
 import type { TimelineElement } from "../types";
 import { componentRegistry } from "./componentRegistry";
 import { modelRegistry } from "./registry";

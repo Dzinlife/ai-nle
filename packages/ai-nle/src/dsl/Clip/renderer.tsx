@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Group, ImageShader, Rect } from "react-skia-lite";
-import { usePlaybackControl, useTimelineStore } from "@/editor/TimelineContext";
+import { usePlaybackControl, useTimelineStore } from "@/editor/contexts/TimelineContext";
 import { useModelSelector } from "../model/registry";
 import type { ComponentProps } from "../types";
 import { type ClipInternal, type ClipProps, calculateVideoTime } from "./model";

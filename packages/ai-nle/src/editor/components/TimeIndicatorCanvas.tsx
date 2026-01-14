@@ -4,7 +4,7 @@ import {
 	usePlaybackControl,
 	usePreviewTime,
 	useTimelineStore,
-} from "@/editor/TimelineContext";
+} from "@/editor/contexts/TimelineContext";
 import { cn } from "@/lib/utils";
 
 interface CurrentTimeIndicatorCanvasProps {

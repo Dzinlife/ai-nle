@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { exportCanvasAsImage } from "@/dsl/export";
 import { cn } from "@/lib/utils";
-import { usePreview } from "./PreviewProvider";
-import { useAttachments, useCurrentTime, usePlaybackControl, useSnap } from "./TimelineContext";
+import { usePreview } from "../contexts/PreviewProvider";
+import { useAttachments, useCurrentTime, usePlaybackControl, useSnap } from "../contexts/TimelineContext";
 
 // 格式化时间为 MM:SS:mmm（输入单位为秒）
 const formatTime = (seconds: number) => {
@@ -13,7 +13,7 @@ const formatTime = (seconds: number) => {
 	return `${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}:${milliseconds.toString().padStart(3, "0")}`;
 };
 
-const PlaybackToolbar: React.FC<{ className?: string }> = ({ className }) => {
+const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
 	const { currentTime } = useCurrentTime();
 	const { isPlaying, togglePlay } = usePlaybackControl();
 	const { canvasRef } = usePreview();
@@ -105,4 +105,4 @@ const PlaybackToolbar: React.FC<{ className?: string }> = ({ className }) => {
 	);
 };
 
-export default PlaybackToolbar;
+export default TimelineToolbar;
