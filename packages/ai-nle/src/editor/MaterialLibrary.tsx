@@ -31,14 +31,15 @@ interface MaterialItem {
 
 interface MaterialCardProps {
 	item: MaterialItem;
-	onDrop?: (item: MaterialItem, trackIndex: number, time: number) => void;
+	onTimelineDrop?: (item: MaterialItem, trackIndex: number, time: number) => void;
+	onPreviewDrop?: (item: MaterialItem, canvasX: number, canvasY: number) => void;
 }
 
 // ============================================================================
 // 素材卡片组件
 // ============================================================================
 
-const MaterialCard: React.FC<MaterialCardProps> = ({ item, onDrop }) => {
+const MaterialCard: React.FC<MaterialCardProps> = ({ item, onTimelineDrop, onPreviewDrop }) => {
 	const cardRef = useRef<HTMLDivElement>(null);
 	const {
 		startDrag,
@@ -57,10 +58,53 @@ const MaterialCard: React.FC<MaterialCardProps> = ({ item, onDrop }) => {
 	const initialOffsetRef = useRef({ x: 0, y: 0 });
 
 	// 检测时间线拖拽目标
-	const detectTimelineDropTarget = (
+	const detectDropTarget = (
 		mouseX: number,
 		mouseY: number,
 	): DropTargetInfo | null => {
+		// 首先检查预览画布
+		const previewZone = document.querySelector<HTMLElement>(
+			"[data-preview-drop-zone]",
+		);
+		if (previewZone) {
+			const rect = previewZone.getBoundingClientRect();
+			if (
+				mouseY >= rect.top &&
+				mouseY <= rect.bottom &&
+				mouseX >= rect.left &&
+				mouseX <= rect.right
+			) {
+				// 获取画布参数
+				const zoomLevel = parseFloat(previewZone.dataset.zoomLevel || "1");
+				const offsetX = parseFloat(previewZone.dataset.offsetX || "0");
+				const offsetY = parseFloat(previewZone.dataset.offsetY || "0");
+				const pictureWidth = parseFloat(previewZone.dataset.pictureWidth || "1920");
+				const pictureHeight = parseFloat(previewZone.dataset.pictureHeight || "1080");
+
+				// 计算画布坐标（左上角坐标系，0 到 pictureWidth/Height）
+				const topLeftX = (mouseX - rect.left - offsetX) / zoomLevel;
+				const topLeftY = (mouseY - rect.top - offsetY) / zoomLevel;
+
+				// 检查是否在画布范围内
+				const isInBounds =
+					topLeftX >= 0 &&
+					topLeftX <= pictureWidth &&
+					topLeftY >= 0 &&
+					topLeftY <= pictureHeight;
+
+				// 转换为中心坐标系（centerX/centerY 相对于画布中心）
+				const canvasX = topLeftX - pictureWidth / 2;
+				const canvasY = topLeftY - pictureHeight / 2;
+
+				return {
+					zone: "preview",
+					canvasX,
+					canvasY,
+					canDrop: isInBounds,
+				};
+			}
+		}
+
 		// 查找主轨道区域
 		const mainZone = document.querySelector<HTMLElement>(
 			'[data-track-drop-zone="main"]',
@@ -192,13 +236,20 @@ const MaterialCard: React.FC<MaterialCardProps> = ({ item, onDrop }) => {
 
 				// 检查是否放置在有效目标上
 				const currentDropTarget = useDragStore.getState().dropTarget;
-				if (
-					currentDropTarget?.zone === "timeline" &&
-					currentDropTarget.canDrop &&
-					currentDropTarget.time !== undefined &&
-					currentDropTarget.trackIndex !== undefined
-				) {
-					onDrop?.(item, currentDropTarget.trackIndex, currentDropTarget.time);
+				if (currentDropTarget?.canDrop) {
+					if (
+						currentDropTarget.zone === "timeline" &&
+						currentDropTarget.time !== undefined &&
+						currentDropTarget.trackIndex !== undefined
+					) {
+						onTimelineDrop?.(item, currentDropTarget.trackIndex, currentDropTarget.time);
+					} else if (
+						currentDropTarget.zone === "preview" &&
+						currentDropTarget.canvasX !== undefined &&
+						currentDropTarget.canvasY !== undefined
+					) {
+						onPreviewDrop?.(item, currentDropTarget.canvasX, currentDropTarget.canvasY);
+					}
 				}
 
 				endDrag();
@@ -210,7 +261,7 @@ const MaterialCard: React.FC<MaterialCardProps> = ({ item, onDrop }) => {
 				});
 
 				// 检测拖拽目标
-				const dropTarget = detectTimelineDropTarget(xy[0], xy[1]);
+				const dropTarget = detectDropTarget(xy[0], xy[1]);
 				updateDropTarget(dropTarget);
 
 				// 自动滚动检测
@@ -458,12 +509,14 @@ const DEMO_MATERIALS: MaterialItem[] = [
 
 interface MaterialLibraryProps {
 	className?: string;
-	onDrop?: (item: MaterialItem, trackIndex: number, time: number) => void;
+	onTimelineDrop?: (item: MaterialItem, trackIndex: number, time: number) => void;
+	onPreviewDrop?: (item: MaterialItem, canvasX: number, canvasY: number) => void;
 }
 
 const MaterialLibrary: React.FC<MaterialLibraryProps> = ({
 	className,
-	onDrop,
+	onTimelineDrop,
+	onPreviewDrop,
 }) => {
 	const [isOpen, setIsOpen] = useState(true);
 
@@ -471,7 +524,7 @@ const MaterialLibrary: React.FC<MaterialLibraryProps> = ({
 		<>
 			{/* 素材库面板 */}
 			<div
-				className={`absolute top-16 left-4 z-[100] bg-neutral-900/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl ${className ?? ""}`}
+				className={`absolute top-16 left-4 z-100 bg-neutral-900/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl ${className ?? ""}`}
 				style={{ width: 200 }}
 			>
 				{/* 标题栏 */}
@@ -489,7 +542,12 @@ const MaterialLibrary: React.FC<MaterialLibraryProps> = ({
 				{isOpen && (
 					<div className="p-2 space-y-2 max-h-80 overflow-y-auto">
 						{DEMO_MATERIALS.map((item) => (
-							<MaterialCard key={item.id} item={item} onDrop={onDrop} />
+							<MaterialCard
+								key={item.id}
+								item={item}
+								onTimelineDrop={onTimelineDrop}
+								onPreviewDrop={onPreviewDrop}
+							/>
 						))}
 					</div>
 				)}

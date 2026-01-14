@@ -70,6 +70,10 @@ export interface DropTargetInfo {
 	trackIndex?: number;
 	/** 时间位置（时间线目标） */
 	time?: number;
+	/** 画布 X 坐标（预览画布目标） */
+	canvasX?: number;
+	/** 画布 Y 坐标（预览画布目标） */
+	canvasY?: number;
 	/** 是否可放置 */
 	canDrop: boolean;
 }

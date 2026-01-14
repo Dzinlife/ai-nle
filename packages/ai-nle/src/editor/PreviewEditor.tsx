@@ -1055,6 +1055,12 @@ const Preview = () => {
 			ref={containerRef}
 			className="w-full h-full overflow-hidden"
 			style={{ touchAction: "none", position: "relative" }}
+			data-preview-drop-zone
+			data-zoom-level={zoomLevel}
+			data-offset-x={offsetX}
+			data-offset-y={offsetY}
+			data-picture-width={pictureWidth}
+			data-picture-height={pictureHeight}
 		>
 			{/* <button onClick={handleDownload}>download image</button>
 			<button onClick={handleDownloadWithoutBackground}>

@@ -10,7 +10,6 @@ import { createPortal } from "react-dom";
 import { ProgressiveBlur } from "@/components/ui/progressive-blur";
 import TimeIndicatorCanvas from "@/editor/TimeIndicatorCanvas";
 import { useDragStore } from "./drag";
-import MaterialLibrary, { type MaterialItem } from "./MaterialLibrary";
 import PlaybackToolbar from "./PlaybackToolbar";
 import {
 	useAutoScroll,
@@ -91,41 +90,6 @@ const TimelineEditor = () => {
 	);
 	const globalAutoScrollSpeedY = useDragStore(
 		(state) => state.autoScrollSpeedY,
-	);
-
-	// 处理素材库拖拽放置
-	const handleMaterialDrop = useCallback(
-		(item: MaterialItem, trackIndex: number, time: number) => {
-			// 创建新的时间线元素
-			const newElement = {
-				id: `element-${Date.now()}`,
-				type: "Image" as const,
-				name: item.name,
-				props: {
-					uri: item.uri,
-				},
-				transform: {
-					centerX: 0,
-					centerY: 0,
-					width: item.width ?? 1920,
-					height: item.height ?? 1080,
-					rotation: 0,
-				},
-				timeline: {
-					start: time,
-					end: time + 5, // 默认 5 秒
-					trackIndex,
-				},
-				render: {
-					zIndex: 0,
-					visible: true,
-					opacity: 1,
-				},
-			};
-
-			setElements((prev) => [...prev, newElement]);
-		},
-		[setElements],
 	);
 
 	// 更新元素的时间范围（start 和 end）
@@ -650,8 +614,6 @@ const TimelineEditor = () => {
 
 	return (
 		<div className="relative bg-neutral-800 h-full flex flex-col min-h-0 w-full overflow-hidden">
-			{/* 素材库面板 */}
-			<MaterialLibrary onDrop={handleMaterialDrop} />
 			<div className="pointer-events-none absolute top-0 left-0 w-full h-19 z-50 bg-linear-to-b from-neutral-800 via-neutral-800 via-70% to-transparent"></div>
 			<ProgressiveBlur
 				position="top"
