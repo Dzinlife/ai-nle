@@ -9,6 +9,8 @@ import React, {
 import { createPortal } from "react-dom";
 import { ProgressiveBlur } from "@/components/ui/progressive-blur";
 import TimeIndicatorCanvas from "@/editor/TimeIndicatorCanvas";
+import { useDragStore } from "./drag";
+import MaterialLibrary, { type MaterialItem } from "./MaterialLibrary";
 import PlaybackToolbar from "./PlaybackToolbar";
 import {
 	useAutoScroll,
@@ -74,6 +76,57 @@ const TimelineEditor = () => {
 	const ratio = 50;
 
 	const timelinePaddingLeft = 48;
+
+	// 同步 scrollLeft 到全局拖拽 store
+	const setTimelineScrollLeft = useDragStore(
+		(state) => state.setTimelineScrollLeft,
+	);
+	useEffect(() => {
+		setTimelineScrollLeft(scrollLeft);
+	}, [scrollLeft, setTimelineScrollLeft]);
+
+	// 全局拖拽 store 的自动滚动
+	const globalAutoScrollSpeedX = useDragStore(
+		(state) => state.autoScrollSpeedX,
+	);
+	const globalAutoScrollSpeedY = useDragStore(
+		(state) => state.autoScrollSpeedY,
+	);
+
+	// 处理素材库拖拽放置
+	const handleMaterialDrop = useCallback(
+		(item: MaterialItem, trackIndex: number, time: number) => {
+			// 创建新的时间线元素
+			const newElement = {
+				id: `element-${Date.now()}`,
+				type: "Image" as const,
+				name: item.name,
+				props: {
+					uri: item.uri,
+				},
+				transform: {
+					centerX: 0,
+					centerY: 0,
+					width: item.width ?? 1920,
+					height: item.height ?? 1080,
+					rotation: 0,
+				},
+				timeline: {
+					start: time,
+					end: time + 5, // 默认 5 秒
+					trackIndex,
+				},
+				render: {
+					zIndex: 0,
+					visible: true,
+					opacity: 1,
+				},
+			};
+
+			setElements((prev) => [...prev, newElement]);
+		},
+		[setElements],
+	);
 
 	// 更新元素的时间范围（start 和 end）
 	const updateTimeRange = useCallback(
@@ -254,6 +307,50 @@ const TimelineEditor = () => {
 			cancelAnimationFrame(animationFrameId);
 		};
 	}, [autoScrollSpeedY]);
+
+	// 素材库拖拽时的水平自动滚动
+	useEffect(() => {
+		if (globalAutoScrollSpeedX === 0) return;
+
+		let animationFrameId: number;
+
+		const animate = () => {
+			const currentScrollLeft = useTimelineStore.getState().scrollLeft;
+			const newScrollLeft = Math.max(0, currentScrollLeft + globalAutoScrollSpeedX);
+			setScrollLeft(newScrollLeft);
+			animationFrameId = requestAnimationFrame(animate);
+		};
+
+		animationFrameId = requestAnimationFrame(animate);
+
+		return () => {
+			cancelAnimationFrame(animationFrameId);
+		};
+	}, [globalAutoScrollSpeedX, setScrollLeft]);
+
+	// 素材库拖拽时的垂直自动滚动
+	useEffect(() => {
+		if (globalAutoScrollSpeedY === 0) return;
+
+		const scrollContainer = verticalScrollRef.current;
+		if (!scrollContainer) return;
+
+		let animationFrameId: number;
+
+		const animate = () => {
+			const currentScrollTop = scrollContainer.scrollTop;
+			const maxScrollTop = scrollContainer.scrollHeight - scrollContainer.clientHeight;
+			const newScrollTop = Math.max(0, Math.min(maxScrollTop, currentScrollTop + globalAutoScrollSpeedY));
+			scrollContainer.scrollTop = newScrollTop;
+			animationFrameId = requestAnimationFrame(animate);
+		};
+
+		animationFrameId = requestAnimationFrame(animate);
+
+		return () => {
+			cancelAnimationFrame(animationFrameId);
+		};
+	}, [globalAutoScrollSpeedY]);
 
 	const trackHeight = 60;
 
@@ -553,6 +650,8 @@ const TimelineEditor = () => {
 
 	return (
 		<div className="relative bg-neutral-800 h-full flex flex-col min-h-0 w-full overflow-hidden">
+			{/* 素材库面板 */}
+			<MaterialLibrary onDrop={handleMaterialDrop} />
 			<div className="pointer-events-none absolute top-0 left-0 w-full h-19 z-50 bg-linear-to-b from-neutral-800 via-neutral-800 via-70% to-transparent"></div>
 			<ProgressiveBlur
 				position="top"

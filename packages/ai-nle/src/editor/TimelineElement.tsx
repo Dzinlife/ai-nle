@@ -86,8 +86,10 @@ const ElementContent: React.FC<ElementContentProps> = ({
 }) => {
 	const { id, type, props } = element;
 	const definition = componentRegistry.get(type);
+	const hasModel = useModelExists(id);
 
-	if (definition?.Timeline) {
+	// 如果 model 还未创建，显示加载状态或基础信息
+	if (definition?.Timeline && hasModel) {
 		const TimelineComponent = definition.Timeline;
 		return (
 			<div className="size-full h-8 mt-auto text-white">
