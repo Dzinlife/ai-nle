@@ -482,7 +482,7 @@ const Preview = () => {
 		}
 	}, [draggingId]);
 
-	// 更新 Transformer 的节点
+	// 更新 Transformer 的节点（时间变化时也需要刷新）
 	useEffect(() => {
 		if (!transformerRef.current) return;
 
@@ -490,13 +490,12 @@ const Preview = () => {
 		if (!stage) return;
 
 		const nodes = selectedIds
-			.map((id) => {
-				return stage.findOne(`.element-${id}`);
-			})
-			.filter((node) => node !== undefined);
+			.map((id) => stage.findOne(`.element-${id}`))
+			.filter((node): node is Konva.Node => Boolean(node));
 
 		transformerRef.current.nodes(nodes);
-	}, [selectedIds]);
+		transformerRef.current.getLayer()?.batchDraw();
+	}, [selectedIds, renderElements]);
 
 	// 处理 transform 事件（实时更新）
 	const handleTransform = useCallback(

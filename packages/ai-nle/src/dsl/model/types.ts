@@ -1,9 +1,5 @@
 import type { StoreApi } from "zustand";
-import type {
-	AudioClipMeta,
-	ClipMeta,
-	VideoClipMeta,
-} from "../types";
+import type { AudioClipMeta, ClipMeta, VideoClipMeta } from "../types";
 
 // 组件约束信息
 export interface ComponentConstraints {
@@ -85,11 +81,7 @@ export interface TimelineProps {
 }
 
 // ===== 模型层元类型（用于之后的交互/轨道扩展） =====
-export type {
-	ClipMeta,
-	VideoClipMeta,
-	AudioClipMeta,
-};
+export type { ClipMeta, VideoClipMeta, AudioClipMeta };
 
 export type VideoClipModel = VideoClipMeta;
 export type AudioClipModel = AudioClipMeta;

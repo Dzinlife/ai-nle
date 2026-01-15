@@ -35,7 +35,7 @@ const TimelineEditor = () => {
 	const { selectedIds, deselectAll, setSelection } = useMultiSelect();
 	const { activeSnapPoint } = useSnap();
 	const { trackAssignments, trackCount } = useTrackAssignments();
-	const { activeDropTarget, dragGhosts } = useDragging();
+	const { activeDropTarget, dragGhosts, isDragging } = useDragging();
 	const { autoScrollSpeed, autoScrollSpeedY } = useAutoScroll();
 
 	// 滚动位置 refs
@@ -47,6 +47,15 @@ const TimelineEditor = () => {
 	const isSelectingRef = useRef(false);
 	const selectionAdditiveRef = useRef(false);
 	const initialSelectedIdsRef = useRef<string[]>([]);
+	const lastHoverRef = useRef<{
+		clientX: number;
+		clientY: number;
+		rectLeft: number;
+		rectRight: number;
+		rectTop: number;
+		rectBottom: number;
+	} | null>(null);
+	const wasDraggingRef = useRef(false);
 
 	// 左侧列宽度状态
 	const [leftColumnWidth] = useState(200); // 默认 44 * 4 = 176px (w-44)
@@ -127,8 +136,17 @@ const TimelineEditor = () => {
 	// hover 时设置预览时间（临时）
 	const handleMouseMove = useCallback(
 		(e: React.MouseEvent<HTMLDivElement>) => {
-			if (isPlaying) return;
-			const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
+			const rect = e.currentTarget.getBoundingClientRect();
+			lastHoverRef.current = {
+				clientX: e.clientX,
+				clientY: e.clientY,
+				rectLeft: rect.left,
+				rectRight: rect.right,
+				rectTop: rect.top,
+				rectBottom: rect.bottom,
+			};
+			if (isPlaying || isDragging || isSelectingRef.current) return;
+			const x = e.clientX - rect.left;
 			const time = Math.max(
 				0,
 				(x - leftColumnWidth - timelinePaddingLeft + scrollLeft) / ratio,
@@ -137,7 +155,14 @@ const TimelineEditor = () => {
 				setPreviewTime(time);
 			});
 		},
-		[ratio, scrollLeft, leftColumnWidth, isPlaying, setPreviewTime],
+		[
+			ratio,
+			scrollLeft,
+			leftColumnWidth,
+			isPlaying,
+			isDragging,
+			setPreviewTime,
+		],
 	);
 
 	// 点击时设置固定时间，并清除选中状态
@@ -173,6 +198,7 @@ const TimelineEditor = () => {
 
 	// 鼠标离开时清除预览时间，回到固定时间
 	const handleMouseLeave = useCallback(() => {
+		lastHoverRef.current = null;
 		setPreviewTime(null);
 	}, [setPreviewTime]);
 
@@ -191,6 +217,7 @@ const TimelineEditor = () => {
 			isSelectingRef.current = true;
 			selectionAdditiveRef.current = e.shiftKey || e.ctrlKey || e.metaKey;
 			initialSelectedIdsRef.current = selectedIds;
+			setPreviewTime(null);
 
 			const x = e.clientX - rect.left;
 			const y = e.clientY - rect.top;
@@ -204,8 +231,44 @@ const TimelineEditor = () => {
 			selectionRectRef.current = nextRect;
 			setSelectionRect(nextRect);
 		},
-		[selectedIds],
+		[selectedIds, setPreviewTime],
 	);
+
+	useEffect(() => {
+		if (selectionRect.visible) {
+			setPreviewTime(null);
+		}
+	}, [selectionRect.visible, setPreviewTime]);
+
+	useEffect(() => {
+		if (wasDraggingRef.current && !isDragging && !isPlaying) {
+			const lastHover = lastHoverRef.current;
+			if (lastHover) {
+				const isInside =
+					lastHover.clientX >= lastHover.rectLeft &&
+					lastHover.clientX <= lastHover.rectRight &&
+					lastHover.clientY >= lastHover.rectTop &&
+					lastHover.clientY <= lastHover.rectBottom;
+				if (isInside && !isSelectingRef.current) {
+					const x = lastHover.clientX - lastHover.rectLeft;
+					const time = Math.max(
+						0,
+						(x - leftColumnWidth - timelinePaddingLeft + scrollLeft) / ratio,
+					);
+					setPreviewTime(time);
+				}
+			}
+		}
+		wasDraggingRef.current = isDragging;
+	}, [
+		isDragging,
+		isPlaying,
+		leftColumnWidth,
+		ratio,
+		scrollLeft,
+		timelinePaddingLeft,
+		setPreviewTime,
+	]);
 
 	const computeSelectionInRect = useCallback(
 		(rect: { x1: number; y1: number; x2: number; y2: number }) => {
@@ -496,6 +559,7 @@ const TimelineEditor = () => {
 				className="sticky top-0 left-0 z-60"
 				onMouseMove={handleMouseMove}
 				onClick={handleClick}
+				onMouseLeave={handleMouseLeave}
 			>
 				<div
 					className="bg-neutral-800/10 border border-white/10 rounded-full mx-4 backdrop-blur-2xl border-r overflow-hidden"
@@ -668,7 +732,7 @@ const TimelineEditor = () => {
 		const left = activeSnapPoint.time * ratio - scrollLeft;
 		return (
 			<div
-				className="absolute top-12 bottom-0 w-0.5 bg-green-500 pointer-events-none"
+				className="absolute top-12 bottom-0 w-px bg-green-500 pointer-events-none"
 				style={{ left: left + timelinePaddingLeft }}
 			/>
 		);
@@ -681,7 +745,10 @@ const TimelineEditor = () => {
 	]);
 
 	return (
-		<div className="relative bg-neutral-800 h-full flex flex-col min-h-0 w-full overflow-hidden">
+		<div
+			className="relative bg-neutral-800 h-full flex flex-col min-h-0 w-full overflow-hidden"
+			onMouseLeave={handleMouseLeave}
+		>
 			<div className="pointer-events-none absolute top-0 left-0 w-full h-19 z-50 bg-linear-to-b from-neutral-800 via-neutral-800 via-70% to-transparent"></div>
 			<ProgressiveBlur
 				position="top"
@@ -700,17 +767,17 @@ const TimelineEditor = () => {
 				}}
 				onMouseDown={handleSelectionMouseDown}
 				onMouseUp={handleSelectionMouseUp}
+				onMouseLeave={handleMouseLeave}
 				onClick={handleClick}
 			>
 				{selectionBox && selectionBox.width > 0 && selectionBox.height > 0 && (
 					<div
-						className="absolute border border-blue-500/80 bg-blue-500/10 pointer-events-none"
+						className="absolute border z-70 border-blue-500/80 bg-blue-500/10 pointer-events-none"
 						style={{
 							left: selectionBox.x,
 							top: selectionBox.y,
 							width: selectionBox.width,
 							height: selectionBox.height,
-							zIndex: 70,
 						}}
 					/>
 				)}
@@ -756,7 +823,6 @@ const TimelineEditor = () => {
 							data-track-count={otherTrackCount}
 							data-track-height={trackHeight}
 							className="relative flex-1 overflow-x-hidden pt-1.5 flex flex-col justify-end"
-							onMouseLeave={handleMouseLeave}
 							style={{
 								paddingLeft: leftColumnWidth,
 								marginLeft: -leftColumnWidth,
