@@ -1,3 +1,4 @@
+import { useTimelineStore } from "@/editor/contexts/TimelineContext";
 import { useModelSelector } from "../model/registry";
 import type { TimelineProps } from "../model/types";
 import type { ImageProps } from "./model";
@@ -12,9 +13,8 @@ export const ImageTimeline: React.FC<ImageTimelineProps> = ({ id }) => {
 		id,
 		(state) => state.props.uri,
 	);
-	const name = useModelSelector<ImageProps, string | undefined>(
-		id,
-		(state) => state.props.name,
+	const name = useTimelineStore(
+		(state) => state.elements.find((el) => el.id === id)?.name,
 	);
 
 	return (

@@ -2,16 +2,14 @@ import { useMemo } from "react";
 import {
 	BackdropFilter,
 	Blur,
-	BlurMask,
-	Fill,
 	Group,
 	ImageFilter,
-	Mask,
 	Paint,
 	Path,
 	Skia,
 } from "react-skia-lite";
-import { ComponentProps } from "../types";
+import { useRenderLayout } from "../useRenderLayout";
+import type { ColorFilterLayerProps } from "./model";
 
 // 生成颜色调整矩阵
 const createColorAdjustMatrix = (
@@ -188,7 +186,7 @@ const createColorAdjustMatrix = (
 	return matrix;
 };
 
-interface ColorFilterLayerRendererProps extends ComponentProps {
+interface ColorFilterLayerRendererProps extends ColorFilterLayerProps {
 	id: string;
 	hue?: number; // 色调调整，范围通常为 -180 到 180
 	saturation?: number; // 饱和度调整，范围通常为 -1 到 1
@@ -200,17 +198,18 @@ interface ColorFilterLayerRendererProps extends ComponentProps {
 }
 
 const ColorFilterLayer: React.FC<ColorFilterLayerRendererProps> = ({
+	id,
 	hue = 0,
 	saturation = 0,
 	brightness = 0,
 	contrast = 0,
-	__renderLayout,
 	shape = "rect",
 	cornerRadius = 0,
 	feather = 0,
 }) => {
+	const renderLayout = useRenderLayout(id);
 	// 从中心坐标转换为左上角坐标
-	const { cx, cy, w: width, h: height, rotation: rotate = 0 } = __renderLayout;
+	const { cx, cy, w: width, h: height, rotation: rotate = 0 } = renderLayout;
 	const x = cx - width / 2;
 	const y = cy - height / 2;
 

@@ -1,8 +1,9 @@
 import { useMemo } from "react";
 import { BackdropFilter, Group, ImageFilter, Skia } from "react-skia-lite";
-import { ComponentProps } from "../types";
+import { useRenderLayout } from "../useRenderLayout";
+import type { BackdropZoomProps } from "./model";
 
-interface BackdropZoomRendererProps extends ComponentProps {
+interface BackdropZoomRendererProps extends BackdropZoomProps {
 	id: string;
 	zoom: number;
 	shape?: "circle" | "rect";
@@ -11,13 +12,19 @@ interface BackdropZoomRendererProps extends ComponentProps {
 }
 
 const BackdropZoom: React.FC<BackdropZoomRendererProps> = ({
+	id,
 	zoom,
-	__renderLayout,
 	shape = "circle",
 	cornerRadius = 16,
 }) => {
 	// 从中心坐标转换为左上角坐标
-	const { cx, cy, w: width, h: height, rotation: rotate = 0 } = __renderLayout;
+	const {
+		cx,
+		cy,
+		w: width,
+		h: height,
+		rotation: rotate = 0,
+	} = useRenderLayout(id);
 	const x = cx - width / 2;
 	const y = cy - height / 2;
 

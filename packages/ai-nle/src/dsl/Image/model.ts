@@ -7,10 +7,9 @@ import type {
 	ComponentModelStore,
 	ValidationResult,
 } from "../model/types";
-import type { ComponentProps } from "../types";
 
 // Image 组件的 props 类型
-export interface ImageProps extends ComponentProps {
+export interface ImageProps {
 	uri?: string;
 }
 

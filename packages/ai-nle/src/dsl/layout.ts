@@ -1,4 +1,19 @@
-import { LayoutMeta } from "./types";
+type LegacyLayoutMeta = {
+	width?: number | "auto" | string;
+	height?: number | "auto" | string;
+	left?: number | string;
+	right?: number | string;
+	top?: number | string;
+	bottom?: number | string;
+	constraints?: {
+		horizontal: "LEFT" | "RIGHT" | "CENTER" | "LEFT_RIGHT" | "SCALE";
+		vertical: "TOP" | "BOTTOM" | "CENTER" | "TOP_BOTTOM" | "SCALE";
+	};
+	rotate?: string;
+	anchor?: "top-left" | "center" | "bottom-right";
+	zIndex?: number;
+	visible?: boolean;
+};
 
 /**
  * 解析单位值，支持数值、百分比和 "auto"
@@ -74,7 +89,7 @@ export const parseRotate = (rotate?: string | number): number => {
  * @returns canvas 坐标系下的位置和尺寸
  */
 export const converMetaLayoutToCanvasLayout = (
-	metaLayout: LayoutMeta,
+	metaLayout: LegacyLayoutMeta,
 	picture: {
 		width: number;
 		height: number;
@@ -460,7 +475,9 @@ export const transformMetaToRenderLayout = (
  * 将 RenderLayout（中心坐标）转换为左上角坐标
  * 用于 Konva 等使用左上角坐标的库
  */
-export const renderLayoutToTopLeft = (layout: import("./types").RenderLayout): {
+export const renderLayoutToTopLeft = (
+	layout: import("./types").RenderLayout,
+): {
 	x: number;
 	y: number;
 	width: number;

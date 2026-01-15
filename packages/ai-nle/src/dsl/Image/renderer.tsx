@@ -1,18 +1,16 @@
 import { Group, ImageShader, Rect } from "react-skia-lite";
 import { useModelSelector } from "../model/registry";
-import type { ComponentProps } from "../types";
+import { useRenderLayout } from "../useRenderLayout";
 import type { ImageInternal, ImageProps } from "./model";
 
-interface ImageRendererProps extends ComponentProps {
+interface ImageRendererProps extends ImageProps {
 	id: string;
 }
 
-const ImageRenderer: React.FC<ImageRendererProps> = ({
-	id,
-	__renderLayout,
-}) => {
+const ImageRenderer: React.FC<ImageRendererProps> = ({ id }) => {
+	const renderLayout = useRenderLayout(id);
 	// 将中心坐标转换为左上角坐标
-	const { cx, cy, w: width, h: height, rotation: rotate = 0 } = __renderLayout;
+	const { cx, cy, w: width, h: height, rotation: rotate = 0 } = renderLayout;
 	const x = cx - width / 2;
 	const y = cy - height / 2;
 

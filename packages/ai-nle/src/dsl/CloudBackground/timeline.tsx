@@ -1,6 +1,5 @@
-import { useModelSelector } from "../model/registry";
+import { useTimelineStore } from "@/editor/contexts/TimelineContext";
 import type { TimelineProps } from "../model/types";
-import type { CloudBackgroundProps } from "./model";
 
 interface CloudBackgroundTimelineProps extends TimelineProps {
 	id: string;
@@ -9,11 +8,8 @@ interface CloudBackgroundTimelineProps extends TimelineProps {
 export const CloudBackgroundTimeline: React.FC<
 	CloudBackgroundTimelineProps
 > = ({ id }) => {
-	// 订阅 model 状态
-
-	const name = useModelSelector<CloudBackgroundProps, string | undefined>(
-		id,
-		(state) => state.props.name,
+	const name = useTimelineStore(
+		(state) => state.elements.find((el) => el.id === id)?.name,
 	);
 
 	return (

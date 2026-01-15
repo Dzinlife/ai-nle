@@ -1,9 +1,8 @@
 import { subscribeWithSelector } from "zustand/middleware";
 import { createStore } from "zustand/vanilla";
 import type { ComponentModel, ComponentModelStore } from "../model/types";
-import type { ComponentProps } from "../types";
 
-export interface BackdropZoomProps extends ComponentProps {
+export interface BackdropZoomProps {
 	zoomFactor?: number;
 }
 

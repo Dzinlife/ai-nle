@@ -1,11 +1,14 @@
 import { useCallback } from "react";
 import { Group, Rect, Skottie } from "react-skia-lite";
-import { useCurrentTime, useTimelineStore } from "@/editor/contexts/TimelineContext";
+import {
+	useCurrentTime,
+	useTimelineStore,
+} from "@/editor/contexts/TimelineContext";
 import { useModelSelector } from "../model/registry";
-import type { ComponentProps } from "../types";
+import { useRenderLayout } from "../useRenderLayout";
 import type { LottieInternal, LottieProps } from "./model";
 
-interface LottieRendererProps extends ComponentProps {
+interface LottieRendererProps extends LottieProps {
 	id: string;
 	uri?: string;
 	speed?: number;
@@ -16,7 +19,6 @@ const Lottie: React.FC<LottieRendererProps> = ({
 	id,
 	speed = 1.0,
 	loop = true,
-	__renderLayout,
 }) => {
 	const { currentTime } = useCurrentTime();
 
@@ -26,7 +28,13 @@ const Lottie: React.FC<LottieRendererProps> = ({
 	);
 
 	// 将中心坐标转换为左上角坐标
-	const { cx, cy, w: width, h: height, rotation: rotate = 0 } = __renderLayout;
+	const {
+		cx,
+		cy,
+		w: width,
+		h: height,
+		rotation: rotate = 0,
+	} = useRenderLayout(id);
 	const x = cx - width / 2;
 	const y = cy - height / 2;
 

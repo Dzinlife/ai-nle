@@ -1,4 +1,9 @@
-import type { TimelineElement, TransformMeta, TimelineMeta, RenderMeta } from "../dsl/types";
+import type {
+	RenderMeta,
+	TimelineElement,
+	TimelineMeta,
+	TransformMeta,
+} from "../dsl/types";
 
 /**
  * 时间线 JSON 格式定义
@@ -21,7 +26,9 @@ export function loadTimelineFromJSON(jsonString: string): TimelineElement[] {
 		return validateTimeline(data);
 	} catch (error) {
 		console.error("Failed to parse timeline JSON:", error);
-		throw new Error(`Invalid timeline JSON: ${error instanceof Error ? error.message : String(error)}`);
+		throw new Error(
+			`Invalid timeline JSON: ${error instanceof Error ? error.message : String(error)}`,
+		);
 	}
 }
 
@@ -37,7 +44,7 @@ export function loadTimelineFromObject(data: TimelineJSON): TimelineElement[] {
  */
 export function saveTimelineToJSON(
 	elements: TimelineElement[],
-	canvasSize: { width: number; height: number } = { width: 1920, height: 1080 }
+	canvasSize: { width: number; height: number } = { width: 1920, height: 1080 },
 ): string {
 	const timeline: TimelineJSON = {
 		version: "1.0",
@@ -52,7 +59,7 @@ export function saveTimelineToJSON(
  */
 export function saveTimelineToObject(
 	elements: TimelineElement[],
-	canvasSize: { width: number; height: number } = { width: 1920, height: 1080 }
+	canvasSize: { width: number; height: number } = { width: 1920, height: 1080 },
 ): TimelineJSON {
 	return {
 		version: "1.0",
@@ -69,7 +76,11 @@ function validateTimeline(data: TimelineJSON): TimelineElement[] {
 		throw new Error("Timeline JSON missing version field");
 	}
 
-	if (!data.canvas || typeof data.canvas.width !== "number" || typeof data.canvas.height !== "number") {
+	if (
+		!data.canvas ||
+		typeof data.canvas.width !== "number" ||
+		typeof data.canvas.height !== "number"
+	) {
 		throw new Error("Timeline JSON missing or invalid canvas size");
 	}
 
@@ -110,6 +121,8 @@ function validateElement(el: any, index: number): TimelineElement {
 	// props 可以是任意对象
 	const props = el.props || {};
 
+	const clip = el.clip;
+
 	return {
 		id: el.id,
 		type: el.type,
@@ -118,6 +131,7 @@ function validateElement(el: any, index: number): TimelineElement {
 		timeline,
 		render,
 		props,
+		clip,
 	};
 }
 
@@ -205,7 +219,11 @@ function validateRender(render: any, path: string): RenderMeta {
 	}
 
 	if (render.opacity !== undefined) {
-		if (typeof render.opacity !== "number" || render.opacity < 0 || render.opacity > 1) {
+		if (
+			typeof render.opacity !== "number" ||
+			render.opacity < 0 ||
+			render.opacity > 1
+		) {
 			throw new Error(`${path}.opacity: must be a number between 0 and 1`);
 		}
 		result.opacity = render.opacity;
@@ -227,7 +245,10 @@ export function convertLegacyLayoutToTransform(
 		height: number;
 		rotate?: string;
 	},
-	pictureSize: { width: number; height: number } = { width: 1920, height: 1080 }
+	pictureSize: { width: number; height: number } = {
+		width: 1920,
+		height: 1080,
+	},
 ): TransformMeta {
 	// 从左上角坐标系转换到画布中心坐标系
 	// 元素中心相对于画布左上角的坐标
@@ -264,7 +285,10 @@ export function convertLegacyLayoutToTransform(
  */
 export function convertTransformToLegacyLayout(
 	transform: TransformMeta,
-	pictureSize: { width: number; height: number } = { width: 1920, height: 1080 }
+	pictureSize: { width: number; height: number } = {
+		width: 1920,
+		height: 1080,
+	},
 ): {
 	left: number;
 	top: number;

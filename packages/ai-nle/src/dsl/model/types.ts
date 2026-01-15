@@ -1,5 +1,9 @@
 import type { StoreApi } from "zustand";
-import type { LayoutRendererMeta } from "../types";
+import type {
+	AudioClipMeta,
+	ClipMeta,
+	VideoClipMeta,
+} from "../types";
 
 // 组件约束信息
 export interface ComponentConstraints {
@@ -74,32 +78,18 @@ export type ComponentModelStore<
 	Internal = Record<string, unknown>,
 > = StoreApi<ComponentModel<Props, Internal>>;
 
-// 渲染 Props（传递给 Preview 组件）
-export interface RenderProps {
-	__renderLayout: LayoutRendererMeta;
-}
-
 // 时间线 Props（传递给 Timeline 组件）
 export interface TimelineProps {
 	start: number;
 	end: number;
 }
 
-// DSL 组件定义
-export interface DSLComponentDefinition<Props = Record<string, unknown>> {
-	// 创建 model store 的工厂函数
-	createModel: (id: string, initialProps: Props) => ComponentModelStore<Props>;
+// ===== 模型层元类型（用于之后的交互/轨道扩展） =====
+export type {
+	ClipMeta,
+	VideoClipMeta,
+	AudioClipMeta,
+};
 
-	// View 组件
-	Preview: React.ComponentType<{ id: string } & RenderProps>;
-	Timeline: React.ComponentType<{ id: string } & TimelineProps>;
-	Panel?: React.ComponentType<{ id: string }>;
-
-	// 元信息
-	meta: {
-		name: string;
-		icon?: string;
-		category: "media" | "effect" | "text" | "shape" | "container";
-		defaultProps: Partial<Props>;
-	};
-}
+export type VideoClipModel = VideoClipMeta;
+export type AudioClipModel = AudioClipMeta;

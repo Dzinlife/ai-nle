@@ -20,10 +20,10 @@ export interface TransformMeta {
  * 为 agent 操作提供语义基础
  */
 export type TrackRole =
-	| 'main'      // 主轨道：主要内容（视频、音频主体）
-	| 'overlay'   // 叠加层：贴纸、字幕、水印等
-	| 'effect'    // 效果层：滤镜、转场、特效等
-	| 'audio';    // 音频轨：背景音乐、音效等
+	| "main" // 主轨道：主要内容（视频、音频主体）
+	| "overlay" // 叠加层：贴纸、字幕、水印等
+	| "effect" // 效果层：滤镜、转场、特效等
+	| "audio"; // 音频轨：背景音乐、音效等
 
 /**
  * 时间线属性
@@ -59,6 +59,26 @@ export interface RenderLayout {
 }
 
 /**
+ * Clip 元信息（仅用于模型层元数据）
+ */
+export type ClipKind = "video" | "audio";
+
+export interface VideoClipMeta {
+	kind: "video";
+	audio: {
+		enabled: boolean;
+		splitAudioClipId?: string;
+	};
+}
+
+export interface AudioClipMeta {
+	kind: "audio";
+	sourceVideoClipId?: string;
+}
+
+export type ClipMeta = VideoClipMeta | AudioClipMeta;
+
+/**
  * 时间线元素（纯数据结构）
  * 不再是 React.ReactElement，而是纯 JSON 可序列化的数据对象
  */
@@ -72,78 +92,7 @@ export interface TimelineElement<Props = Record<string, any>> {
 	render: RenderMeta; // 渲染属性
 
 	props: Props; // 组件特定属性（仅业务逻辑）
+
+	// ===== 模型层元数据（不影响当前渲染行为） =====
+	clip?: ClipMeta;
 }
-
-// ============================================================================
-// 向后兼容：旧的接口保留用于渐进式迁移
-// ============================================================================
-
-/**
- * @deprecated 使用 TransformMeta 替代
- * 保留用于渐进式迁移
- */
-export interface LayoutMeta {
-	width?: number | "auto" | string;
-	height?: number | "auto" | string;
-	left?: number | string;
-	right?: number | string;
-	top?: number | string;
-	bottom?: number | string;
-	constraints?: {
-		horizontal: "LEFT" | "RIGHT" | "CENTER" | "LEFT_RIGHT" | "SCALE";
-		vertical: "TOP" | "BOTTOM" | "CENTER" | "TOP_BOTTOM" | "SCALE";
-	};
-	rotate?: string;
-	anchor?: "top-left" | "center" | "bottom-right";
-	zIndex?: number;
-	visible?: boolean;
-}
-
-/**
- * @deprecated 使用 RenderLayout 替代
- */
-export interface LayoutRendererMeta {
-	x: number;
-	y: number;
-	w: number;
-	h: number;
-	r?: number;
-}
-
-/**
- * 组件 Props 基础接口
- * 仅包含渲染所需的基本信息
- */
-export interface ComponentProps {
-	id: string;
-	name: string;
-	__renderLayout: RenderLayout; // 渲染布局（由编辑器注入）
-	__timeline?: TimelineMeta; // 时间线属性（由编辑器注入，可选）
-}
-
-/**
- * 时间线组件 Props
- */
-export interface ComponentTimelineProps {
-	id: string;
-	name: string;
-	transform: TransformMeta;
-	timeline: TimelineMeta;
-	render: RenderMeta;
-}
-
-/**
- * @deprecated 旧的 EditorElement，使用 TimelineElement 替代
- */
-export interface EditorElement
-	extends React.ReactElement<any> {
-	type: EditorComponent;
-}
-
-/**
- * 组件定义类型
- */
-export type EditorComponent<T extends Record<string, any> = {}> =
-	React.ComponentType<T & ComponentProps> & {
-		timelineComponent?: React.ComponentType<T & ComponentTimelineProps>;
-	};

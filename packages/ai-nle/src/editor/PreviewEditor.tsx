@@ -1026,12 +1026,6 @@ const Preview = () => {
 				<ContextBridge>
 					<Fill color="black" />
 					{visibleElements.map((el) => {
-						const renderLayout = transformMetaToRenderLayout(
-							el.transform,
-							canvasConvertOptions.picture,
-							canvasConvertOptions.canvas,
-						);
-
 						// 获取组件定义
 						const componentDef = componentRegistry.get(el.type);
 						if (!componentDef) {
@@ -1049,18 +1043,14 @@ const Preview = () => {
 
 						return (
 							<SkiaGroup key={el.id}>
-								<Renderer
-									id={el.id}
-									__renderLayout={renderLayout}
-									{...el.props}
-								/>
+								<Renderer id={el.id} {...el.props} />
 							</SkiaGroup>
 						);
 					})}
 				</ContextBridge>
 			);
 		},
-		[ContextBridge, canvasConvertOptions],
+		[ContextBridge],
 	);
 
 	useEffect(() => {

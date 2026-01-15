@@ -1,23 +1,20 @@
 import { useMemo } from "react";
 import { Fill, Group, Rect, Shader, Skia } from "react-skia-lite";
-import { useCurrentTime, useTimelineStore } from "@/editor/contexts/TimelineContext";
+import {
+	useCurrentTime,
+	useTimelineStore,
+} from "@/editor/contexts/TimelineContext";
 import { useModelSelector } from "../model/registry";
 import { parseStartEndSchema } from "../startEndSchema";
-import type { ComponentProps } from "../types";
-import type {
-	CloudBackgroundInternal,
-	CloudBackgroundModelStore,
-	CloudBackgroundProps,
-} from "./model";
+import { useRenderLayout } from "../useRenderLayout";
+import type { CloudBackgroundInternal, CloudBackgroundProps } from "./model";
 
-interface CloudBackgroundRendererProps extends ComponentProps {
+interface CloudBackgroundRendererProps extends CloudBackgroundProps {
 	id: string;
-	store: CloudBackgroundModelStore;
 }
 
 const CloudBackgroundRenderer: React.FC<CloudBackgroundRendererProps> = ({
 	id,
-	__renderLayout,
 }) => {
 	const { currentTime } = useCurrentTime();
 
@@ -26,7 +23,13 @@ const CloudBackgroundRenderer: React.FC<CloudBackgroundRendererProps> = ({
 		(state) => state.elements.find((el) => el.id === id)?.timeline,
 	);
 
-	const { cx, cy, w: width, h: height, rotation: rotate = 0 } = __renderLayout;
+	const {
+		cx,
+		cy,
+		w: width,
+		h: height,
+		rotation: rotate = 0,
+	} = useRenderLayout(id);
 	const x = cx - width / 2;
 	const y = cy - height / 2;
 

@@ -1,11 +1,10 @@
 import JSZip from "jszip";
-import { type SkData, type SkSkottieAnimation, Skia } from "react-skia-lite";
+import { type SkData, Skia, type SkSkottieAnimation } from "react-skia-lite";
 import { subscribeWithSelector } from "zustand/middleware";
 import { createStore } from "zustand/vanilla";
 import type { ComponentModel, ComponentModelStore } from "../model/types";
-import type { ComponentProps } from "../types";
 
-export interface LottieProps extends ComponentProps {
+export interface LottieProps {
 	uri?: string;
 	loop?: boolean;
 	speed?: number;

@@ -2,14 +2,14 @@ import { useEffect, useRef } from "react";
 import { Group, ImageShader, Rect } from "react-skia-lite";
 import { usePlaybackControl, useTimelineStore } from "@/editor/contexts/TimelineContext";
 import { useModelSelector } from "../model/registry";
-import type { ComponentProps } from "../types";
+import { useRenderLayout } from "../useRenderLayout";
 import { type ClipInternal, type ClipProps, calculateVideoTime } from "./model";
 
-interface ClipRendererProps extends ComponentProps {
+interface ClipRendererProps extends ClipProps {
 	id: string;
 }
 
-const ClipRenderer: React.FC<ClipRendererProps> = ({ id, __renderLayout }) => {
+const ClipRenderer: React.FC<ClipRendererProps> = ({ id }) => {
 	// 播放时使用真正的 currentTime，非播放时使用 previewTime ?? currentTime
 	const currentTime = useTimelineStore((state) => {
 		if (state.isPlaying) {
@@ -25,7 +25,8 @@ const ClipRenderer: React.FC<ClipRendererProps> = ({ id, __renderLayout }) => {
 	);
 
 	// 将中心坐标转换为左上角坐标
-	const { cx, cy, w: width, h: height, rotation: rotate = 0 } = __renderLayout;
+	const { cx, cy, w: width, h: height, rotation: rotate = 0 } =
+		useRenderLayout(id);
 	const x = cx - width / 2;
 	const y = cy - height / 2;
 
