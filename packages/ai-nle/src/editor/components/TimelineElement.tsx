@@ -16,11 +16,12 @@ import { modelRegistry, useModelExists } from "@/dsl/model/registry";
 import { TimelineElement as TimelineElementType } from "@/dsl/types";
 import { cn } from "@/lib/utils";
 import {
+	DragGhostState,
 	useAttachments,
 	useAutoScroll,
 	useDragging,
 	useElements,
-	useSelectedElement,
+	useMultiSelect,
 	useSnap,
 	useTimelineStore,
 	useTrackAssignments,
@@ -217,11 +218,11 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	const { id, timeline } = element;
 
 	// Context hooks
-	const { setIsDragging, setActiveDropTarget, setDragGhost, dragGhost } =
+	const { setIsDragging, setActiveDropTarget, setDragGhosts, dragGhosts } =
 		useDragging();
-	const { selectedElementId, setSelectedElementId } = useSelectedElement();
+	const { selectedIds, select, toggleSelect, setSelection } = useMultiSelect();
 	const { snapEnabled, setActiveSnapPoint } = useSnap();
-	const { elements } = useElements();
+	const { elements, setElements } = useElements();
 	const currentTime = useTimelineStore((state) => state.currentTime);
 	const { attachments, autoAttach } = useAttachments();
 	const { moveWithAttachments } = useTrackAssignments();
@@ -251,6 +252,13 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	const initialTrackRef = useRef(0);
 	const currentStartRef = useRef(timeline.start);
 	const currentEndRef = useRef(timeline.end);
+	const dragSelectedIdsRef = useRef<string[]>([]);
+	const dragInitialElementsRef = useRef<
+		Map<string, { start: number; end: number; trackIndex: number }>
+	>(new Map());
+	const dragMinStartRef = useRef(0);
+	const initialElementsSnapshotRef = useRef<TimelineElementType[]>([]);
+	const initialGhostsRef = useRef<DragGhostState[]>([]);
 	// Ref for DOM element (用于 clone)
 	const elementRef = useRef<HTMLDivElement>(null);
 
@@ -273,7 +281,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	const width = (endTime - startTime) * ratio;
 
 	// 样式计算
-	const isSelected = selectedElementId === id;
+	const isSelected = selectedIds.includes(id);
 	const currentDuration = endTime - startTime;
 	const isAtMaxDuration =
 		maxDuration !== undefined && Math.abs(currentDuration - maxDuration) < 0.01;
@@ -285,6 +293,9 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 
 			if (first) {
 				event?.stopPropagation();
+				if (!selectedIds.includes(id)) {
+					select(id);
+				}
 				isDraggingRef.current = true;
 				setIsDragging(true);
 				initialStartRef.current = currentStartRef.current;
@@ -400,6 +411,31 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				event?.stopPropagation();
 				isDraggingRef.current = true;
 				setIsDragging(true);
+				const nextSelectedIds = selectedIds.includes(id) ? selectedIds : [id];
+				if (!selectedIds.includes(id)) {
+					setSelection([id], id);
+				}
+				dragSelectedIdsRef.current = nextSelectedIds;
+
+				const initialMap = new Map<
+					string,
+					{ start: number; end: number; trackIndex: number }
+				>();
+				let minStart = Infinity;
+				for (const el of elements) {
+					if (!nextSelectedIds.includes(el.id)) continue;
+					const trackIndexValue = el.timeline.trackIndex ?? 0;
+					initialMap.set(el.id, {
+						start: el.timeline.start,
+						end: el.timeline.end,
+						trackIndex: trackIndexValue,
+					});
+					minStart = Math.min(minStart, el.timeline.start);
+				}
+				dragInitialElementsRef.current = initialMap;
+				dragMinStartRef.current = Number.isFinite(minStart) ? minStart : 0;
+				initialElementsSnapshotRef.current = elements;
+
 				initialStartRef.current = currentStartRef.current;
 				initialEndRef.current = currentEndRef.current;
 				initialTrackRef.current = trackIndex;
@@ -417,51 +453,72 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 					};
 				}
 
-				// 克隆元素 DOM
-				if (elementRef.current) {
-					const clone = elementRef.current.cloneNode(true) as HTMLElement;
-					// 移除拖拽相关的 data 属性避免冲突
+				const isMultiDrag = nextSelectedIds.length > 1;
+				if (!isMultiDrag) {
+					// 克隆元素 DOM
+					if (elementRef.current) {
+						const clone = elementRef.current.cloneNode(true) as HTMLElement;
+						// 移除拖拽相关的 data 属性避免冲突
+						clone.removeAttribute("data-timeline-element");
+						// 重置位置相关样式（将在 ghost 容器中设置）
+						clone.style.position = "relative";
+						clone.style.left = "0";
+						clone.style.top = "0";
+						clone.style.opacity = "1";
+						clonedHtmlRef.current = clone.outerHTML;
+					}
+
+					// 设置初始 ghost（使用屏幕坐标）
+					const ghostWidth =
+						(currentEndRef.current - currentStartRef.current) * ratio;
+				setDragGhosts([
+					{
+						elementId: id,
+						element,
+						screenX: xy[0] - initialMouseOffsetRef.current.x,
+						screenY: xy[1] - initialMouseOffsetRef.current.y,
+						width: ghostWidth,
+						height: DEFAULT_ELEMENT_HEIGHT,
+						clonedHtml: clonedHtmlRef.current,
+					},
+				]);
+				} else {
+				const ghosts: DragGhostState[] = [];
+				for (const selectedId of nextSelectedIds) {
+					const ghostSource = document.querySelector<HTMLElement>(
+						`[data-element-id="${selectedId}"]`,
+					);
+					if (!ghostSource) continue;
+					const rect = ghostSource.getBoundingClientRect();
+					const clone = ghostSource.cloneNode(true) as HTMLElement;
 					clone.removeAttribute("data-timeline-element");
-					// 重置位置相关样式（将在 ghost 容器中设置）
 					clone.style.position = "relative";
 					clone.style.left = "0";
 					clone.style.top = "0";
 					clone.style.opacity = "1";
-					clonedHtmlRef.current = clone.outerHTML;
-				}
 
-				// 设置初始 ghost（使用屏幕坐标）
-				const ghostWidth =
-					(currentEndRef.current - currentStartRef.current) * ratio;
-				setDragGhost({
-					elementId: id,
-					element,
-					screenX: xy[0] - initialMouseOffsetRef.current.x,
-					screenY: xy[1] - initialMouseOffsetRef.current.y,
-					width: ghostWidth,
-					height: DEFAULT_ELEMENT_HEIGHT,
-					clonedHtml: clonedHtmlRef.current,
-				});
+					const selectedElement = elements.find((el) => el.id === selectedId);
+					if (!selectedElement) continue;
+
+					ghosts.push({
+						elementId: selectedId,
+						element: selectedElement,
+						screenX: rect.left,
+						screenY: rect.top,
+						width: rect.width,
+						height: rect.height,
+						clonedHtml: clone.outerHTML,
+					});
+				}
+				initialGhostsRef.current = ghosts;
+				setDragGhosts(ghosts);
+				}
 			}
 
 			// 计算滚动偏移量（自动滚动导致的额外位移）
 			const scrollDelta = currentScrollLeft - initialScrollLeftRef.current;
 			// 将滚动偏移加入到水平移动量中
 			const adjustedDeltaX = mx + scrollDelta;
-
-			// 先计算基础的拖拽结果（用于时间计算和 fallback）
-			const dragResult = calculateDragResult({
-				deltaX: adjustedDeltaX,
-				deltaY: my,
-				ratio,
-				initialStart: initialStartRef.current,
-				initialEnd: initialEndRef.current,
-				initialTrackY: trackY,
-				initialTrackIndex: initialTrackRef.current,
-				trackHeight,
-				trackCount,
-				elementHeight: DEFAULT_ELEMENT_HEIGHT,
-			});
 
 			// 通用的拖拽目标检测（基于实际 DOM 测量，不依赖 hardcode）
 			const findDropTargetFromScreenPosition = (
@@ -565,6 +622,237 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				return { trackIndex: trackIndex, type: "track" };
 			};
 
+			const isMultiDrag =
+				dragSelectedIdsRef.current.length > 1 &&
+				dragSelectedIdsRef.current.includes(id);
+			if (isMultiDrag) {
+				let deltaTime = adjustedDeltaX / ratio;
+				const minStart = dragMinStartRef.current;
+				if (deltaTime < -minStart) {
+					deltaTime = -minStart;
+				}
+
+				let snapPoint = null;
+				if (snapEnabled) {
+					const baseElements =
+						initialElementsSnapshotRef.current.length > 0
+							? initialElementsSnapshotRef.current
+							: elements;
+					let bestDelta = deltaTime;
+					let bestSnapPoint = null;
+					let bestDistance = Infinity;
+
+					for (const selectedId of dragSelectedIdsRef.current) {
+						const initial = dragInitialElementsRef.current.get(selectedId);
+						if (!initial) continue;
+						const snapPoints = collectSnapPoints(
+							baseElements,
+							currentTime,
+							selectedId,
+						);
+						const snapped = applySnapForDrag(
+							initial.start + deltaTime,
+							initial.end + deltaTime,
+							snapPoints,
+							ratio,
+						);
+						if (!snapped.snapPoint) continue;
+						const snappedDelta = snapped.start - initial.start;
+						if (snappedDelta < -minStart) continue;
+						const distance = Math.abs(snappedDelta - deltaTime);
+						if (distance < bestDistance) {
+							bestDistance = distance;
+							bestDelta = snappedDelta;
+							bestSnapPoint = snapped.snapPoint;
+						}
+					}
+
+					deltaTime = bestDelta;
+					snapPoint = bestSnapPoint;
+				}
+
+				const initialMap = dragInitialElementsRef.current;
+				const draggedInitial = initialMap.get(id);
+				const screenDropTarget = findDropTargetFromScreenPosition(xy[0], xy[1]);
+				const dropTarget = screenDropTarget;
+				const baseElements =
+					initialElementsSnapshotRef.current.length > 0
+						? initialElementsSnapshotRef.current
+						: elements;
+				const baseStart = draggedInitial?.start ?? initialStartRef.current;
+				const baseEnd = draggedInitial?.end ?? initialEndRef.current;
+				const nextStart = baseStart + deltaTime;
+				const nextEnd = baseEnd + deltaTime;
+				const timeRange = {
+					start: nextStart,
+					end: nextEnd,
+				};
+
+				const tempElements = baseElements.map((el) => {
+					const initial = initialMap.get(el.id);
+					if (!initial) return el;
+					return {
+						...el,
+						timeline: {
+							...el.timeline,
+							start: initial.start + deltaTime,
+							end: initial.end + deltaTime,
+							trackIndex: initial.trackIndex,
+						},
+					};
+				});
+
+				const finalTrackResult = calculateFinalTrack(
+					dropTarget,
+					timeRange,
+					tempElements,
+					id,
+					draggedInitial?.trackIndex ?? initialTrackRef.current,
+				);
+				const trackDelta =
+					finalTrackResult.trackIndex -
+					(draggedInitial?.trackIndex ?? initialTrackRef.current);
+				const snapShift = deltaTime * ratio - adjustedDeltaX;
+				const ghostDeltaX = mx + snapShift;
+				const ghostDeltaY = my;
+
+				if (!last) {
+					setDragGhosts(
+						initialGhostsRef.current.map((ghost) => ({
+							...ghost,
+							screenX: ghost.screenX + ghostDeltaX,
+							screenY: ghost.screenY + ghostDeltaY,
+						})),
+					);
+				}
+
+				if (last) {
+					const selectedSet = new Set(dragSelectedIdsRef.current);
+					const baseElementMap = new Map(
+						baseElements.map((el) => [el.id, el]),
+					);
+					const movedChildren = new Map<string, { start: number; end: number }>();
+
+					if (autoAttach && deltaTime !== 0) {
+						for (const parentId of selectedSet) {
+							const parentInitial = initialMap.get(parentId);
+							if (!parentInitial) continue;
+							const isLeavingMainTrack =
+								parentInitial.trackIndex === 0 &&
+								trackDelta !== 0 &&
+								(dropTarget.type === "gap" ||
+									finalTrackResult.trackIndex > 0);
+							if (isLeavingMainTrack) continue;
+							const childIds = attachments.get(parentId) ?? [];
+							for (const childId of childIds) {
+								if (selectedSet.has(childId)) continue;
+								const childBase = baseElementMap.get(childId);
+								if (!childBase) continue;
+								const childNewStart = childBase.timeline.start + deltaTime;
+								const childNewEnd = childBase.timeline.end + deltaTime;
+								if (childNewStart >= 0) {
+									movedChildren.set(childId, {
+										start: childNewStart,
+										end: childNewEnd,
+									});
+								}
+							}
+						}
+					}
+
+					setElements((prev) =>
+						prev.map((el) => {
+							if (selectedSet.has(el.id)) {
+								const initial = initialMap.get(el.id);
+								if (!initial) return el;
+								return {
+									...el,
+									timeline: {
+										...el.timeline,
+										start: initial.start + deltaTime,
+										end: initial.end + deltaTime,
+										trackIndex: Math.max(0, initial.trackIndex + trackDelta),
+									},
+								};
+							}
+
+							const childMove = movedChildren.get(el.id);
+							if (childMove) {
+								return {
+									...el,
+									timeline: {
+										...el.timeline,
+										start: childMove.start,
+										end: childMove.end,
+									},
+								};
+							}
+
+							return el;
+						}),
+					);
+					isDraggingRef.current = false;
+					setIsDragging(false);
+					setActiveSnapPoint(null);
+					setActiveDropTarget(null);
+					setDragGhosts([]);
+					setLocalTrackY(null);
+					stopAutoScroll();
+				} else {
+					setActiveSnapPoint(snapPoint);
+					setActiveDropTarget({
+						type: finalTrackResult.displayType,
+						trackIndex: finalTrackResult.trackIndex,
+						elementId: id,
+						start: timeRange.start,
+						end: timeRange.end,
+						finalTrackIndex: finalTrackResult.trackIndex,
+					});
+
+					// 自动滚动：检查鼠标是否靠近边缘
+					const scrollArea = document.querySelector<HTMLElement>(
+						"[data-timeline-scroll-area]",
+					);
+					if (scrollArea) {
+						const scrollRect = scrollArea.getBoundingClientRect();
+						updateAutoScrollFromPosition(
+							xy[0],
+							scrollRect.left,
+							scrollRect.right,
+						);
+					}
+
+					// 垂直自动滚动：检查鼠标是否靠近上下边缘
+					const verticalScrollArea = document.querySelector<HTMLElement>(
+						"[data-vertical-scroll-area]",
+					);
+					if (verticalScrollArea) {
+						const verticalRect = verticalScrollArea.getBoundingClientRect();
+						updateAutoScrollYFromPosition(
+							xy[1],
+							verticalRect.top,
+							verticalRect.bottom,
+						);
+					}
+				}
+
+				return;
+			}
+
+			// 先计算基础的拖拽结果（用于时间计算和 fallback）
+			const dragResult = calculateDragResult({
+				deltaX: adjustedDeltaX,
+				deltaY: my,
+				ratio,
+				initialStart: initialStartRef.current,
+				initialEnd: initialEndRef.current,
+				initialTrackY: trackY,
+				initialTrackIndex: initialTrackRef.current,
+				trackHeight,
+				trackCount,
+				elementHeight: DEFAULT_ELEMENT_HEIGHT,
+			});
+
 			const screenDropTarget = findDropTargetFromScreenPosition(xy[0], xy[1]);
 			const dropTarget = screenDropTarget;
 			const hasSignificantVerticalMove =
@@ -589,7 +877,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				setIsDragging(false);
 				setActiveSnapPoint(null);
 				setActiveDropTarget(null);
-				setDragGhost(null);
+				setDragGhosts([]);
 				setLocalTrackY(null);
 				stopAutoScroll();
 
@@ -639,15 +927,17 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 
 				// 更新 ghost 位置（使用屏幕坐标）
 				const ghostWidth = (newEnd - newStart) * ratio;
-				setDragGhost({
-					elementId: id,
-					element,
-					screenX: xy[0] - initialMouseOffsetRef.current.x,
-					screenY: xy[1] - initialMouseOffsetRef.current.y,
-					width: ghostWidth,
-					height: DEFAULT_ELEMENT_HEIGHT,
-					clonedHtml: clonedHtmlRef.current,
-				});
+				setDragGhosts([
+					{
+						elementId: id,
+						element,
+						screenX: xy[0] - initialMouseOffsetRef.current.x,
+						screenY: xy[1] - initialMouseOffsetRef.current.y,
+						width: ghostWidth,
+						height: DEFAULT_ELEMENT_HEIGHT,
+						clonedHtml: clonedHtmlRef.current,
+					},
+				]);
 
 				// 计算最终轨道位置用于显示
 				const tempElements = elements.map((el) =>
@@ -713,13 +1003,19 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	const handleClick = useCallback(
 		(e: React.MouseEvent) => {
 			e.stopPropagation();
-			setSelectedElementId(id);
+			const metaPressed = e.shiftKey || e.ctrlKey || e.metaKey;
+			if (metaPressed) {
+				toggleSelect(id);
+				return;
+			}
+			select(id);
 		},
-		[id, setSelectedElementId],
+		[id, select, toggleSelect],
 	);
 
 	// 判断当前元素是否正在被拖拽
-	const isBeingDragged = dragGhost?.elementId === id;
+	const isBeingDragged = dragGhosts.some((ghost) => ghost.elementId === id);
+	const isMultiDragging = dragGhosts.length > 1;
 
 	// 容器样式
 	const containerClassName = useMemo(() => {
@@ -733,6 +1029,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 		<div
 			ref={elementRef}
 			data-timeline-element
+			data-element-id={id}
 			className={containerClassName}
 			style={{
 				left,
@@ -740,7 +1037,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				top: displayY,
 				height: DEFAULT_ELEMENT_HEIGHT,
 				// 拖拽时降低透明度，但保持在 DOM 中以维持拖拽手势
-				opacity: isBeingDragged ? 0 : 1,
+				opacity: isBeingDragged ? (isMultiDragging ? 0.5 : 0) : 1,
 			}}
 			onClick={handleClick}
 		>

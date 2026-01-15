@@ -16,9 +16,9 @@ import {
 	useAutoScroll,
 	useDragging,
 	useElements,
+	useMultiSelect,
 	usePlaybackControl,
 	usePreviewTime,
-	useSelectedElement,
 	useSnap,
 	useTimelineStore,
 	useTrackAssignments,
@@ -33,10 +33,10 @@ const TimelineEditor = () => {
 	const { setPreviewTime } = usePreviewTime();
 	const { isPlaying } = usePlaybackControl();
 	const { elements, setElements } = useElements();
-	const { setSelectedElementId } = useSelectedElement();
+	const { selectedIds, deselectAll, setSelection } = useMultiSelect();
 	const { activeSnapPoint } = useSnap();
 	const { trackAssignments, trackCount } = useTrackAssignments();
-	const { activeDropTarget, dragGhost } = useDragging();
+	const { activeDropTarget, dragGhosts } = useDragging();
 	const { autoScrollSpeed, autoScrollSpeedY } = useAutoScroll();
 
 	// 滚动位置 refs
@@ -45,6 +45,9 @@ const TimelineEditor = () => {
 	const verticalScrollRef = useRef<HTMLDivElement>(null);
 	const scrollLeftRef = useRef(0);
 	const touchStartXRef = useRef(0);
+	const isSelectingRef = useRef(false);
+	const selectionAdditiveRef = useRef(false);
+	const initialSelectedIdsRef = useRef<string[]>([]);
 
 	// 左侧列宽度状态
 	const [leftColumnWidth] = useState(200); // 默认 44 * 4 = 176px (w-44)
@@ -52,6 +55,14 @@ const TimelineEditor = () => {
 	// 时间刻度尺宽度
 	const [rulerWidth, setRulerWidth] = useState(800);
 	const observerRef = useRef<ResizeObserver | null>(null);
+	const [selectionRect, setSelectionRect] = useState({
+		visible: false,
+		x1: 0,
+		y1: 0,
+		x2: 0,
+		y2: 0,
+	});
+	const selectionRectRef = useRef(selectionRect);
 
 	// 使用 callback ref 来监听容器宽度
 	const rulerContainerRef = useCallback((node: HTMLDivElement | null) => {
@@ -133,6 +144,13 @@ const TimelineEditor = () => {
 	// 点击时设置固定时间，并清除选中状态
 	const handleClick = useCallback(
 		(e: React.MouseEvent<HTMLDivElement>) => {
+			if (
+				selectionRect.visible &&
+				selectionRect.x1 !== selectionRect.x2 &&
+				selectionRect.y1 !== selectionRect.y2
+			) {
+				return;
+			}
 			const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
 			const time = Math.max(
 				0,
@@ -140,7 +158,7 @@ const TimelineEditor = () => {
 			);
 			setCurrentTime(time);
 			setPreviewTime(null); // 清除预览时间
-			setSelectedElementId(null); // 清除选中状态
+			deselectAll(); // 清除选中状态
 		},
 		[
 			ratio,
@@ -149,7 +167,8 @@ const TimelineEditor = () => {
 			timelinePaddingLeft,
 			setCurrentTime,
 			setPreviewTime,
-			setSelectedElementId,
+			deselectAll,
+			selectionRect,
 		],
 	);
 
@@ -157,6 +176,140 @@ const TimelineEditor = () => {
 	const handleMouseLeave = useCallback(() => {
 		setPreviewTime(null);
 	}, [setPreviewTime]);
+
+	const handleSelectionMouseDown = useCallback(
+		(e: React.MouseEvent<HTMLDivElement>) => {
+			if (e.button !== 0) return;
+			const target = e.target as HTMLElement;
+			if (target.closest("[data-timeline-element]")) {
+				return;
+			}
+
+			const container = scrollAreaRef.current;
+			if (!container) return;
+			const rect = container.getBoundingClientRect();
+
+			isSelectingRef.current = true;
+			selectionAdditiveRef.current = e.shiftKey || e.ctrlKey || e.metaKey;
+			initialSelectedIdsRef.current = selectedIds;
+
+			const x = e.clientX - rect.left;
+			const y = e.clientY - rect.top;
+			const nextRect = {
+				visible: true,
+				x1: x,
+				y1: y,
+				x2: x,
+				y2: y,
+			};
+			selectionRectRef.current = nextRect;
+			setSelectionRect(nextRect);
+		},
+		[selectedIds],
+	);
+
+	const computeSelectionInRect = useCallback(
+		(rect: { x1: number; y1: number; x2: number; y2: number }) => {
+			const container = scrollAreaRef.current;
+			if (!container) return [];
+			const containerRect = container.getBoundingClientRect();
+			const selBox = {
+				x: Math.min(rect.x1, rect.x2),
+				y: Math.min(rect.y1, rect.y2),
+				width: Math.abs(rect.x2 - rect.x1),
+				height: Math.abs(rect.y2 - rect.y1),
+			};
+
+			const elementsInDom = Array.from(
+				container.querySelectorAll<HTMLElement>("[data-timeline-element]"),
+			);
+			const selected: string[] = [];
+			for (const el of elementsInDom) {
+				const elRect = el.getBoundingClientRect();
+				const elBox = {
+					x: elRect.left - containerRect.left,
+					y: elRect.top - containerRect.top,
+					width: elRect.width,
+					height: elRect.height,
+				};
+
+				if (
+					selBox.x < elBox.x + elBox.width &&
+					selBox.x + selBox.width > elBox.x &&
+					selBox.y < elBox.y + elBox.height &&
+					selBox.y + selBox.height > elBox.y
+				) {
+					const elementId = el.dataset.elementId;
+					if (elementId) {
+						selected.push(elementId);
+					}
+				}
+			}
+
+			return selected;
+		},
+		[],
+	);
+
+	const applyMarqueeSelection = useCallback(
+		(nextRect: { x1: number; y1: number; x2: number; y2: number }) => {
+			const selected = computeSelectionInRect(nextRect);
+			if (selectionAdditiveRef.current) {
+				const merged = Array.from(
+					new Set([...initialSelectedIdsRef.current, ...selected]),
+				);
+				const primary =
+					selected[selected.length - 1] ??
+					initialSelectedIdsRef.current[0] ??
+					null;
+				setSelection(merged, primary);
+			} else {
+				setSelection(selected, selected[0] ?? null);
+			}
+		},
+		[computeSelectionInRect, setSelection],
+	);
+
+	const handleSelectionMouseMove = useCallback(
+		(e: React.MouseEvent<HTMLDivElement>) => {
+			if (!isSelectingRef.current) return;
+			const container = scrollAreaRef.current;
+			if (!container) return;
+			const rect = container.getBoundingClientRect();
+			const x = e.clientX - rect.left;
+			const y = e.clientY - rect.top;
+			const nextRect = {
+				...selectionRectRef.current,
+				x2: x,
+				y2: y,
+			};
+			selectionRectRef.current = nextRect;
+			setSelectionRect(nextRect);
+			applyMarqueeSelection(nextRect);
+		},
+		[applyMarqueeSelection],
+	);
+
+	const handleSelectionMouseUp = useCallback(() => {
+		if (!isSelectingRef.current) return;
+		isSelectingRef.current = false;
+
+		setTimeout(() => {
+			setSelectionRect((prev) => ({ ...prev, visible: false }));
+		}, 0);
+
+		applyMarqueeSelection(selectionRectRef.current);
+	}, [applyMarqueeSelection]);
+
+	useEffect(() => {
+		const handleWindowMouseUp = () => {
+			handleSelectionMouseUp();
+		};
+		window.addEventListener("mouseup", handleWindowMouseUp);
+		return () => {
+			window.removeEventListener("mouseup", handleWindowMouseUp);
+		};
+	}, [handleSelectionMouseUp]);
 
 	// 同步 scrollLeft 到 ref
 	useEffect(() => {
@@ -328,6 +481,14 @@ const TimelineEditor = () => {
 	}, [globalAutoScrollSpeedY]);
 
 	const trackHeight = 60;
+	const selectionBox = useMemo(() => {
+		if (!selectionRect.visible) return null;
+		const x = Math.min(selectionRect.x1, selectionRect.x2);
+		const y = Math.min(selectionRect.y1, selectionRect.y2);
+		const width = Math.abs(selectionRect.x2 - selectionRect.x1);
+		const height = Math.abs(selectionRect.y2 - selectionRect.y1);
+		return { x, y, width, height };
+	}, [selectionRect]);
 
 	const timeStamps = useMemo(() => {
 		return (
@@ -610,31 +771,32 @@ const TimelineEditor = () => {
 
 	// 拖拽 Ghost 元素（使用 Portal 渲染到 body）
 	const ghostElement = useMemo(() => {
-		if (!dragGhost) return null;
+		if (!dragGhosts.length) return null;
 
-		const ghost = (
+		const ghosts = dragGhosts.map((ghost) => (
 			<div
+				key={ghost.elementId}
 				className="fixed pointer-events-none"
 				style={{
-					left: dragGhost.screenX,
-					top: dragGhost.screenY,
-					width: dragGhost.width,
-					height: dragGhost.height,
+					left: ghost.screenX,
+					top: ghost.screenY,
+					width: ghost.width,
+					height: ghost.height,
 					zIndex: 9999,
 				}}
 			>
 				{/* 半透明的元素克隆 */}
 				<div
 					className="absolute inset-0 opacity-60"
-					dangerouslySetInnerHTML={{ __html: dragGhost.clonedHtml }}
+					dangerouslySetInnerHTML={{ __html: ghost.clonedHtml }}
 				/>
 				{/* 蓝色实线边框指示器 */}
 				<div className="absolute inset-0 border-2 border-blue-500 rounded-md shadow-lg shadow-blue-500/30" />
 			</div>
-		);
+		));
 
-		return createPortal(ghost, document.body);
-	}, [dragGhost]);
+		return createPortal(ghosts, document.body);
+	}, [dragGhosts]);
 
 	return (
 		<div className="relative bg-neutral-800 h-full flex flex-col min-h-0 w-full overflow-hidden">
@@ -650,9 +812,26 @@ const TimelineEditor = () => {
 				ref={scrollAreaRef}
 				data-timeline-scroll-area
 				className="relative w-full flex-1 min-h-0 flex flex-col -mt-18 overflow-hidden"
-				onMouseMove={handleMouseMove}
+				onMouseMove={(e) => {
+					handleMouseMove(e);
+					handleSelectionMouseMove(e);
+				}}
+				onMouseDown={handleSelectionMouseDown}
+				onMouseUp={handleSelectionMouseUp}
 				onClick={handleClick}
 			>
+				{selectionBox && selectionBox.width > 0 && selectionBox.height > 0 && (
+					<div
+						className="absolute border border-blue-500/80 bg-blue-500/10 pointer-events-none"
+						style={{
+							left: selectionBox.x,
+							top: selectionBox.y,
+							width: selectionBox.width,
+							height: selectionBox.height,
+							zIndex: 70,
+						}}
+					/>
+				)}
 				<div
 					className="h-full w-full absolute top-0 left-0 pointer-events-none z-60"
 					style={{ marginLeft: leftColumnWidth }}

@@ -22,7 +22,7 @@ import {
 import { componentRegistry } from "@/dsl/model/componentRegistry";
 import { TimelineElement } from "@/dsl/types";
 import { usePreview } from "./contexts/PreviewProvider";
-import { useTimelineStore } from "./contexts/TimelineContext";
+import { useMultiSelect, useTimelineStore } from "./contexts/TimelineContext";
 
 /**
  * Compute visible elements based on current time.
@@ -254,7 +254,7 @@ const LabelLayer: React.FC<LabelLayerProps> = ({
 const Preview = () => {
 	const renderElementsRef = useRef<TimelineElement[]>([]);
 
-	const { getCurrentTime, getDisplayTime, getElements, setElements } = useMemo(
+	const { getDisplayTime, getElements } = useMemo(
 		() => useTimelineStore.getState(),
 		[],
 	);
@@ -265,7 +265,8 @@ const Preview = () => {
 
 	const [hoveredId, setHoveredId] = useState<string | null>(null);
 	const [draggingId, setDraggingId] = useState<string | null>(null);
-	const [selectedIds, setSelectedIds] = useState<string[]>([]);
+	const { selectedIds, select, toggleSelect, deselectAll, setSelection } =
+		useMultiSelect();
 	const [selectionRect, setSelectionRect] = useState({
 		visible: false,
 		x1: 0,
@@ -276,6 +277,13 @@ const Preview = () => {
 	const stageRef = useRef<Konva.Stage>(null);
 	const transformerRef = useRef<Konva.Transformer>(null);
 	const isSelecting = useRef(false);
+	const selectionAdditiveRef = useRef(false);
+	const initialSelectedIdsRef = useRef<string[]>([]);
+	const selectionRectRef = useRef(selectionRect);
+	const dragSelectedIdsRef = useRef<string[]>([]);
+	const dragInitialPositionsRef = useRef<
+		Record<string, { x: number; y: number }>
+	>({});
 
 	const {
 		pictureWidth,
@@ -326,10 +334,34 @@ const Preview = () => {
 		setDraggingId(null);
 	}, []);
 
-	const handleDragStart = useCallback((id: string) => {
-		setDraggingId(id);
-		setHoveredId(id); // 拖拽开始时保持 hover 状态
-	}, []);
+	const handleDragStart = useCallback(
+		(id: string) => {
+			const nextSelectedIds = selectedIds.includes(id) ? selectedIds : [id];
+			if (!selectedIds.includes(id)) {
+				setSelection([id], id);
+			}
+
+			const currentElements = useTimelineStore.getState().elements;
+			const positions: Record<string, { x: number; y: number }> = {};
+			for (const el of currentElements) {
+				if (!nextSelectedIds.includes(el.id)) continue;
+				const renderLayout = transformMetaToRenderLayout(
+					el.transform,
+					canvasConvertOptions.picture,
+					canvasConvertOptions.canvas,
+				);
+				const { x, y } = renderLayoutToTopLeft(renderLayout);
+				positions[el.id] = { x, y };
+			}
+
+			dragSelectedIdsRef.current = nextSelectedIds;
+			dragInitialPositionsRef.current = positions;
+
+			setDraggingId(id);
+			setHoveredId(id); // 拖拽开始时保持 hover 状态
+		},
+		[selectedIds, setSelection, canvasConvertOptions],
+	);
 
 	// 将 Stage 坐标转换为画布坐标（考虑 offset 和缩放）
 	// 新的坐标系：canvas = picture 尺寸，通过 CSS transform scale(zoomLevel) 显示
@@ -377,15 +409,38 @@ const Preview = () => {
 			// 由于 canvas = picture 尺寸，canvas 坐标即 picture 坐标
 			const { canvasX, canvasY } = stageToCanvasCoords(stageX, stageY);
 
+			const dragSelectedIds = dragSelectedIdsRef.current;
+			const initialPositions = dragInitialPositionsRef.current;
+			const isMultiDrag =
+				dragSelectedIds.length > 1 && dragSelectedIds.includes(id);
+			const draggedInitial = initialPositions[id];
+
 			// 直接使用 setState 确保更新被触发
 			const currentElements = useTimelineStore.getState().elements;
 			const newElements = currentElements.map((el) => {
+				const initial = initialPositions[el.id];
+				if (isMultiDrag && initial && draggedInitial) {
+					const deltaX = canvasX - draggedInitial.x;
+					const deltaY = canvasY - draggedInitial.y;
+					const nextCanvasX = initial.x + deltaX;
+					const nextCanvasY = initial.y + deltaY;
+
+					const updatedTransform = {
+						...el.transform,
+						centerX: nextCanvasX + el.transform.width / 2 - pictureWidth / 2,
+						centerY: nextCanvasY + el.transform.height / 2 - pictureHeight / 2,
+					};
+
+					return {
+						...el,
+						transform: updatedTransform,
+						props: { ...el.props, left: nextCanvasX, top: nextCanvasY },
+					};
+				}
+
 				// 使用 el.id 而不是 el.props.id
 				if (el.id !== id) return el;
 
-				// 更新 transform（使用画布中心坐标系统）
-				// canvasX/Y 是左上角坐标（相对于画布左上角）
-				// 需要转换为中心坐标（相对于画布中心）
 				const updatedTransform = {
 					...el.transform,
 					centerX: canvasX + el.transform.width / 2 - pictureWidth / 2,
@@ -426,21 +481,6 @@ const Preview = () => {
 			setHoveredId(null);
 		}
 	}, [draggingId]);
-
-	// 当 renderElements 变化时，清理已消失元素的选中状态
-	useEffect(() => {
-		setSelectedIds((prevSelectedIds) => {
-			const renderElementIds = new Set(renderElements.map((el) => el.id));
-			const validSelectedIds = prevSelectedIds.filter((id) =>
-				renderElementIds.has(id),
-			);
-
-			// 如果有元素被移除，返回新的数组；否则返回原数组以保持引用稳定
-			return validSelectedIds.length !== prevSelectedIds.length
-				? validSelectedIds
-				: prevSelectedIds;
-		});
-	}, [renderElements]);
 
 	// 更新 Transformer 的节点
 	useEffect(() => {
@@ -603,7 +643,7 @@ const Preview = () => {
 
 			// 点击空白区域，取消选择
 			if (e.target === e.target.getStage()) {
-				setSelectedIds([]);
+				deselectAll();
 				return;
 			}
 
@@ -615,20 +655,14 @@ const Preview = () => {
 
 			// 检查是否按下了 Shift 或 Ctrl/Cmd
 			const metaPressed = e.evt.shiftKey || e.evt.ctrlKey || e.evt.metaKey;
-			const isSelected = selectedIds.includes(clickedId);
-
-			if (!metaPressed && !isSelected) {
-				// 没有按修饰键且元素未选中，只选择这一个
-				setSelectedIds([clickedId]);
-			} else if (metaPressed && isSelected) {
-				// 按了修饰键且元素已选中，从选择中移除
-				setSelectedIds((prev) => prev.filter((id) => id !== clickedId));
-			} else if (metaPressed && !isSelected) {
-				// 按了修饰键且元素未选中，添加到选择
-				setSelectedIds((prev) => [...prev, clickedId]);
+			if (metaPressed) {
+				toggleSelect(clickedId);
+				return;
 			}
+
+			select(clickedId);
 		},
-		[selectedIds, selectionRect],
+		[selectionRect, deselectAll, toggleSelect, select],
 	);
 
 	// 处理鼠标按下，开始选择框
@@ -646,15 +680,79 @@ const Preview = () => {
 			const { canvasX, canvasY } = stageToCanvasCoords(pos.x, pos.y);
 
 			isSelecting.current = true;
-			setSelectionRect({
+			selectionAdditiveRef.current =
+				e.evt.shiftKey || e.evt.ctrlKey || e.evt.metaKey;
+			initialSelectedIdsRef.current = selectedIds;
+			const nextRect = {
 				visible: true,
 				x1: canvasX,
 				y1: canvasY,
 				x2: canvasX,
 				y2: canvasY,
-			});
+			};
+			selectionRectRef.current = nextRect;
+			setSelectionRect(nextRect);
 		},
-		[stageToCanvasCoords],
+		[stageToCanvasCoords, selectedIds],
+	);
+
+	const computeSelectedIdsInRect = useCallback(
+		(rect: { x1: number; y1: number; x2: number; y2: number }) => {
+			const selBox = {
+				x: Math.min(rect.x1, rect.x2),
+				y: Math.min(rect.y1, rect.y2),
+				width: Math.abs(rect.x2 - rect.x1),
+				height: Math.abs(rect.y2 - rect.y1),
+			};
+
+			const selected: string[] = [];
+			renderElements.forEach((el) => {
+				const renderLayout = transformMetaToRenderLayout(
+					el.transform,
+					canvasConvertOptions.picture,
+					canvasConvertOptions.canvas,
+				);
+				const { x, y, width, height } = renderLayoutToTopLeft(renderLayout);
+
+				const elBox = {
+					x,
+					y,
+					width,
+					height,
+				};
+
+				if (
+					selBox.x < elBox.x + elBox.width &&
+					selBox.x + selBox.width > elBox.x &&
+					selBox.y < elBox.y + elBox.height &&
+					selBox.y + selBox.height > elBox.y
+				) {
+					selected.push(el.id);
+				}
+			});
+
+			return selected;
+		},
+		[renderElements, canvasConvertOptions],
+	);
+
+	const applyMarqueeSelection = useCallback(
+		(nextRect: { x1: number; y1: number; x2: number; y2: number }) => {
+			const selected = computeSelectedIdsInRect(nextRect);
+			if (selectionAdditiveRef.current) {
+				const merged = Array.from(
+					new Set([...initialSelectedIdsRef.current, ...selected]),
+				);
+				const primary =
+					selected[selected.length - 1] ??
+					initialSelectedIdsRef.current[0] ??
+					null;
+				setSelection(merged, primary);
+			} else {
+				setSelection(selected, selected[0] ?? null);
+			}
+		},
+		[computeSelectedIdsInRect, setSelection],
 	);
 
 	// 处理鼠标移动，更新选择框
@@ -670,13 +768,16 @@ const Preview = () => {
 			// 将 Stage 坐标转换为画布坐标
 			const { canvasX, canvasY } = stageToCanvasCoords(pos.x, pos.y);
 
-			setSelectionRect((prev) => ({
-				...prev,
+			const nextRect = {
+				...selectionRectRef.current,
 				x2: canvasX,
 				y2: canvasY,
-			}));
+			};
+			selectionRectRef.current = nextRect;
+			setSelectionRect(nextRect);
+			applyMarqueeSelection(nextRect);
 		},
-		[stageToCanvasCoords],
+		[stageToCanvasCoords, applyMarqueeSelection],
 	);
 
 	// 处理鼠标抬起，完成选择框
@@ -692,46 +793,26 @@ const Preview = () => {
 			setSelectionRect((prev) => ({ ...prev, visible: false }));
 		}, 0);
 
-		// 计算选择框区域
-		const selBox = {
-			x: Math.min(selectionRect.x1, selectionRect.x2),
-			y: Math.min(selectionRect.y1, selectionRect.y2),
-			width: Math.abs(selectionRect.x2 - selectionRect.x1),
-			height: Math.abs(selectionRect.y2 - selectionRect.y1),
+		applyMarqueeSelection(selectionRectRef.current);
+	}, [applyMarqueeSelection]);
+
+	const selectionStageRect = useMemo(() => {
+		if (!selectionRect.visible) return null;
+		const { stageX: sx1, stageY: sy1 } = canvasToStageCoords(
+			selectionRect.x1,
+			selectionRect.y1,
+		);
+		const { stageX: sx2, stageY: sy2 } = canvasToStageCoords(
+			selectionRect.x2,
+			selectionRect.y2,
+		);
+		return {
+			x: Math.min(sx1, sx2),
+			y: Math.min(sy1, sy2),
+			width: Math.abs(sx2 - sx1),
+			height: Math.abs(sy2 - sy1),
 		};
-
-		// 查找与选择框相交的元素
-		if (!stageRef.current) return;
-
-		const selected: string[] = [];
-		renderElements.forEach((el) => {
-			const renderLayout = transformMetaToRenderLayout(
-				el.transform,
-				canvasConvertOptions.picture,
-				canvasConvertOptions.canvas,
-			);
-			const { x, y, width, height } = renderLayoutToTopLeft(renderLayout);
-
-			const elBox = {
-				x,
-				y,
-				width,
-				height,
-			};
-
-			// 检查是否相交
-			if (
-				selBox.x < elBox.x + elBox.width &&
-				selBox.x + selBox.width > elBox.x &&
-				selBox.y < elBox.y + elBox.height &&
-				selBox.y + selBox.height > elBox.y
-			) {
-				selected.push(el.id);
-			}
-		});
-
-		setSelectedIds(selected);
-	}, [selectionRect, renderElements, canvasConvertOptions]);
+	}, [selectionRect, canvasToStageCoords]);
 
 	const ContextBridge = useContextBridge(QueryClientContext);
 
@@ -986,7 +1067,10 @@ const Preview = () => {
 		const renderSkia = () => {
 			const state = useTimelineStore.getState();
 			const displayTime = state.previewTime ?? state.currentTime;
-			const visibleElements = computeVisibleElements(getElements(), displayTime);
+			const visibleElements = computeVisibleElements(
+				getElements(),
+				displayTime,
+			);
 			const children = buildSkiaChildren(visibleElements);
 
 			const prevElements = renderElementsRef.current;
@@ -1002,8 +1086,14 @@ const Preview = () => {
 		};
 
 		// 同时监听 currentTime 和 previewTime
-		const unsub1 = useTimelineStore.subscribe((state) => state.currentTime, renderSkia);
-		const unsub2 = useTimelineStore.subscribe((state) => state.previewTime, renderSkia);
+		const unsub1 = useTimelineStore.subscribe(
+			(state) => state.currentTime,
+			renderSkia,
+		);
+		const unsub2 = useTimelineStore.subscribe(
+			(state) => state.previewTime,
+			renderSkia,
+		);
 		return () => {
 			unsub1();
 			unsub2();
@@ -1123,6 +1213,20 @@ const Preview = () => {
 				onTouchEnd={handleTouchEnd}
 			>
 				<Layer>
+					{selectionStageRect &&
+						selectionStageRect.width > 0 &&
+						selectionStageRect.height > 0 && (
+							<KonvaRect
+								x={selectionStageRect.x}
+								y={selectionStageRect.y}
+								width={selectionStageRect.width}
+								height={selectionStageRect.height}
+								fill="rgba(59,130,246,0.15)"
+								stroke="rgba(59,130,246,0.8)"
+								strokeWidth={1}
+								dash={[6, 4]}
+							/>
+						)}
 					{renderElements.map((el) => {
 						const { id } = el;
 						const isHovered = hoveredId === id;

@@ -57,7 +57,8 @@ interface TimelineStore {
 	canvasSize: { width: number; height: number };
 	isPlaying: boolean;
 	isDragging: boolean; // 是否正在拖拽元素
-	selectedElementId: string | null; // 当前选中的元素 ID
+	selectedIds: string[]; // 当前选中的元素 ID 列表
+	primarySelectedId: string | null; // 主选中元素 ID
 	// 吸附相关状态
 	snapEnabled: boolean;
 	activeSnapPoint: SnapPoint | null;
@@ -66,7 +67,7 @@ interface TimelineStore {
 	// 拖拽目标指示状态
 	activeDropTarget: ExtendedDropTarget | null;
 	// 拖拽 Ghost 状态
-	dragGhost: DragGhostState | null;
+	dragGhosts: DragGhostState[];
 	// 自动滚动状态
 	autoScrollSpeed: number; // -1 到 1，负数向左，正数向右，0 停止
 	autoScrollSpeedY: number; // 垂直滚动速度，负数向上，正数向下
@@ -89,6 +90,7 @@ interface TimelineStore {
 	togglePlay: () => void;
 	setIsDragging: (isDragging: boolean) => void;
 	setSelectedElementId: (id: string | null) => void;
+	setSelectedIds: (ids: string[], primaryId?: string | null) => void;
 	// 吸附相关方法
 	setSnapEnabled: (enabled: boolean) => void;
 	setActiveSnapPoint: (point: SnapPoint | null) => void;
@@ -97,7 +99,7 @@ interface TimelineStore {
 	// 拖拽目标指示方法
 	setActiveDropTarget: (target: ExtendedDropTarget | null) => void;
 	// 拖拽 Ghost 方法
-	setDragGhost: (ghost: DragGhostState | null) => void;
+	setDragGhosts: (ghosts: DragGhostState[]) => void;
 	// 自动滚动方法
 	setAutoScrollSpeed: (speed: number) => void;
 	setAutoScrollSpeedY: (speed: number) => void;
@@ -113,7 +115,8 @@ export const useTimelineStore = create<TimelineStore>()(
 		canvasSize: { width: 1920, height: 1080 },
 		isPlaying: false,
 		isDragging: false,
-		selectedElementId: null,
+		selectedIds: [],
+		primarySelectedId: null,
 		// 吸附相关状态初始值
 		snapEnabled: true,
 		activeSnapPoint: null,
@@ -122,7 +125,7 @@ export const useTimelineStore = create<TimelineStore>()(
 		// 拖拽目标指示状态初始值
 		activeDropTarget: null,
 		// 拖拽 Ghost 状态初始值
-		dragGhost: null,
+		dragGhosts: [],
 		// 自动滚动状态初始值
 		autoScrollSpeed: 0,
 		autoScrollSpeedY: 0,
@@ -191,7 +194,22 @@ export const useTimelineStore = create<TimelineStore>()(
 		},
 
 		setSelectedElementId: (id: string | null) => {
-			set({ selectedElementId: id });
+			if (!id) {
+				set({ selectedIds: [], primarySelectedId: null });
+				return;
+			}
+			set({ selectedIds: [id], primarySelectedId: id });
+		},
+
+		setSelectedIds: (ids: string[], primaryId?: string | null) => {
+			const uniqueIds = Array.from(new Set(ids));
+			const resolvedPrimary =
+				uniqueIds.length === 0
+					? null
+					: primaryId && uniqueIds.includes(primaryId)
+						? primaryId
+						: uniqueIds[uniqueIds.length - 1];
+			set({ selectedIds: uniqueIds, primarySelectedId: resolvedPrimary });
 		},
 
 		// 吸附相关方法
@@ -214,8 +232,8 @@ export const useTimelineStore = create<TimelineStore>()(
 		},
 
 		// 拖拽 Ghost 方法
-		setDragGhost: (ghost: DragGhostState | null) => {
-			set({ dragGhost: ghost });
+		setDragGhosts: (ghosts: DragGhostState[]) => {
+			set({ dragGhosts: ghosts });
 		},
 
 		// 自动滚动方法
@@ -292,16 +310,16 @@ export const useDragging = () => {
 	const setActiveDropTarget = useTimelineStore(
 		(state) => state.setActiveDropTarget,
 	);
-	const dragGhost = useTimelineStore((state) => state.dragGhost);
-	const setDragGhost = useTimelineStore((state) => state.setDragGhost);
+	const dragGhosts = useTimelineStore((state) => state.dragGhosts);
+	const setDragGhosts = useTimelineStore((state) => state.setDragGhosts);
 
 	return {
 		isDragging,
 		setIsDragging,
 		activeDropTarget,
 		setActiveDropTarget,
-		dragGhost,
-		setDragGhost,
+		dragGhosts,
+		setDragGhosts,
 	};
 };
 
@@ -406,7 +424,7 @@ export const useAutoScroll = () => {
 
 export const useSelectedElement = () => {
 	const selectedElementId = useTimelineStore(
-		(state) => state.selectedElementId,
+		(state) => state.primarySelectedId,
 	);
 	const setSelectedElementId = useTimelineStore(
 		(state) => state.setSelectedElementId,
@@ -1006,16 +1024,10 @@ export const useAttachments = () => {
 };
 
 // ============================================================================
-// 多选支持 (Multi-select Extension Point)
+// 多选支持 (Multi-select)
 // ============================================================================
-
 /**
- * 多选 Hook - 为框选和多元素拖拽预留的扩展点
- *
- * 当前实现基于单选 selectedElementId，多选功能可以在此基础上扩展：
- * 1. 添加 selectedElementIds: string[] 到 store
- * 2. 实现框选逻辑 (marquee selection)
- * 3. 修改拖拽逻辑支持多元素同步移动
+ * 多选 Hook - 统一 Timeline/Preview 的选择状态
  *
  * 相关类型已在 timeline/types.ts 中定义：
  * - SelectionState: 完整的选择状态结构
@@ -1023,18 +1035,10 @@ export const useAttachments = () => {
  * - DragState: 支持 draggedElementIds 数组
  */
 export const useMultiSelect = () => {
-	const selectedElementId = useTimelineStore(
-		(state) => state.selectedElementId,
-	);
-	const setSelectedElementId = useTimelineStore(
-		(state) => state.setSelectedElementId,
-	);
+	const selectedIds = useTimelineStore((state) => state.selectedIds);
+	const primaryId = useTimelineStore((state) => state.primarySelectedId);
+	const setSelectedIds = useTimelineStore((state) => state.setSelectedIds);
 	const elements = useTimelineStore((state) => state.elements);
-
-	// 当前实现：将单选 ID 转换为数组格式，便于未来扩展
-	const selectedIds = useMemo(() => {
-		return selectedElementId ? [selectedElementId] : [];
-	}, [selectedElementId]);
 
 	// 获取选中的元素列表
 	const selectedElements = useMemo(() => {
@@ -1043,48 +1047,63 @@ export const useMultiSelect = () => {
 
 	// 选择单个元素（未来可扩展为 additive 模式）
 	const select = useCallback(
-		(id: string, _additive = false) => {
-			// TODO: 实现 additive 模式（按住 Shift/Ctrl 多选）
-			setSelectedElementId(id);
+		(id: string, additive = false) => {
+			if (additive) {
+				setSelectedIds([...selectedIds, id], id);
+				return;
+			}
+			setSelectedIds([id], id);
 		},
-		[setSelectedElementId],
+		[setSelectedIds, selectedIds],
 	);
 
 	// 取消选择
 	const deselect = useCallback(
 		(id: string) => {
-			if (selectedElementId === id) {
-				setSelectedElementId(null);
-			}
+			setSelectedIds(
+				selectedIds.filter((selectedId) => selectedId !== id),
+				primaryId === id ? null : primaryId,
+			);
 		},
-		[selectedElementId, setSelectedElementId],
+		[primaryId, selectedIds, setSelectedIds],
 	);
 
 	// 清空选择
 	const deselectAll = useCallback(() => {
-		setSelectedElementId(null);
-	}, [setSelectedElementId]);
+		setSelectedIds([], null);
+	}, [setSelectedIds]);
 
 	// 切换选择状态
 	const toggleSelect = useCallback(
 		(id: string) => {
-			if (selectedElementId === id) {
-				setSelectedElementId(null);
-			} else {
-				setSelectedElementId(id);
+			if (selectedIds.includes(id)) {
+				setSelectedIds(
+					selectedIds.filter((selectedId) => selectedId !== id),
+					primaryId === id ? null : primaryId,
+				);
+				return;
 			}
+			setSelectedIds([...selectedIds, id], id);
 		},
-		[selectedElementId, setSelectedElementId],
+		[primaryId, selectedIds, setSelectedIds],
+	);
+
+	const setSelection = useCallback(
+		(ids: string[], nextPrimaryId?: string | null) => {
+			setSelectedIds(ids, nextPrimaryId);
+		},
+		[setSelectedIds],
 	);
 
 	return {
 		selectedIds,
 		selectedElements,
-		primaryId: selectedElementId,
+		primaryId,
 		select,
 		deselect,
 		deselectAll,
 		toggleSelect,
+		setSelection,
 		// 框选相关（预留）
 		isMarqueeSelecting: false,
 		marqueeRect: null as {
