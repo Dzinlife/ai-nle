@@ -4,22 +4,11 @@ import { cn } from "@/lib/utils";
 import { usePreview } from "../contexts/PreviewProvider";
 import {
 	useAttachments,
-	useCurrentTime,
 	usePlaybackControl,
 	useSnap,
 } from "../contexts/TimelineContext";
 
-// 格式化时间为 MM:SS:mmm（输入单位为秒）
-const formatTime = (seconds: number) => {
-	const totalSeconds = Math.floor(seconds);
-	const minutes = Math.floor(totalSeconds / 60);
-	const secs = totalSeconds % 60;
-	const milliseconds = Math.floor((seconds % 1) * 1000);
-	return `${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}:${milliseconds.toString().padStart(3, "0")}`;
-};
-
 const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
-	const { currentTime } = useCurrentTime();
 	const { isPlaying, togglePlay } = usePlaybackControl();
 	const { canvasRef } = usePreview();
 	const [isExporting, setIsExporting] = useState(false);
@@ -68,9 +57,6 @@ const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
 			>
 				{isPlaying ? "⏸" : "▶"}
 			</button>
-			<span className="font-mono text-sm text-neutral-300">
-				{formatTime(currentTime)}
-			</span>
 			{/* 开关按钮组 */}
 			<div className="flex items-center gap-2 ml-4">
 				<button

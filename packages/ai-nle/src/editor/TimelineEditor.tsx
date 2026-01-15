@@ -14,6 +14,7 @@ import TimelineRuler from "./components/TimelineRuler";
 import TimelineToolbar from "./components/TimelineToolbar";
 import {
 	useAutoScroll,
+	useCurrentTime,
 	useDragging,
 	useElements,
 	useMultiSelect,
@@ -25,12 +26,22 @@ import {
 } from "./contexts/TimelineContext";
 import { useDragStore } from "./drag";
 
+// 格式化时间为 MM:SS:mmm（输入单位为秒）
+const formatTime = (seconds: number) => {
+	const totalSeconds = Math.floor(seconds);
+	const minutes = Math.floor(totalSeconds / 60);
+	const secs = totalSeconds % 60;
+	const milliseconds = Math.floor((seconds % 1) * 1000);
+	return `${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}:${milliseconds.toString().padStart(3, "0")}`;
+};
+
 const TimelineEditor = () => {
 	const setCurrentTime = useTimelineStore((state) => state.setCurrentTime);
 	const scrollLeft = useTimelineStore((state) => state.scrollLeft);
 	const setScrollLeft = useTimelineStore((state) => state.setScrollLeft);
 	const { setPreviewTime } = usePreviewTime();
 	const { isPlaying } = usePlaybackControl();
+	const { currentTime } = useCurrentTime();
 	const { elements, setElements } = useElements();
 	const { selectedIds, deselectAll, setSelection } = useMultiSelect();
 	const { activeSnapPoint } = useSnap();
@@ -155,14 +166,7 @@ const TimelineEditor = () => {
 				setPreviewTime(time);
 			});
 		},
-		[
-			ratio,
-			scrollLeft,
-			leftColumnWidth,
-			isPlaying,
-			isDragging,
-			setPreviewTime,
-		],
+		[ratio, scrollLeft, leftColumnWidth, isPlaying, isDragging, setPreviewTime],
 	);
 
 	// 点击时设置固定时间，并清除选中状态
@@ -561,15 +565,18 @@ const TimelineEditor = () => {
 				onClick={handleClick}
 				onMouseLeave={handleMouseLeave}
 			>
-				<div
-					className="bg-neutral-800/10 border border-white/10 rounded-full mx-4 backdrop-blur-2xl border-r overflow-hidden"
-					style={{
-						paddingLeft: leftColumnWidth - 16 - 2,
-					}}
-				>
+				<div className="flex bg-neutral-800/10 border border-white/10 rounded-full mx-4 backdrop-blur-2xl overflow-hidden">
+					<div
+						className="border-r border-white/10"
+						style={{ width: leftColumnWidth - 16 - 1 }}
+					>
+						<div className="h-full text-[11px] flex items-center justify-end pr-6 font-mono text-neutral-300">
+							{formatTime(currentTime)}
+						</div>
+					</div>
 					<div
 						ref={rulerContainerRef}
-						className="overflow-hidden border-l border-white/10 bg-neutral-800/30 flex-1"
+						className="overflow-hidden bg-neutral-800/30 flex-1"
 					>
 						<TimelineRuler
 							scrollLeft={scrollLeft}
@@ -586,6 +593,7 @@ const TimelineEditor = () => {
 		handleMouseMove,
 		handleClick,
 		leftColumnWidth,
+		currentTime,
 		scrollLeft,
 		ratio,
 		rulerWidth,
@@ -803,83 +811,91 @@ const TimelineEditor = () => {
 				<div
 					ref={verticalScrollRef}
 					data-vertical-scroll-area
-					className="flex flex-col pt-18 w-full flex-1 min-h-0 overflow-y-auto"
+					className="w-full flex-1 min-h-0 overflow-y-auto"
 				>
-					{/* 其他轨道区域 */}
-					<div className="flex w-full flex-1">
-						{/* 左侧列，其他轨道标签 */}
+					<div className="relative flex flex-col min-h-full">
 						<div
-							className="text-white z-10 pr-4 flex flex-col bg-neutral-800/80 backdrop-blur-3xl backdrop-saturate-150 border-r border-white/10 pt-10 -mt-10 sticky top-0"
+							className="z-10 absolute left-0 top-0 h-full pointer-events-none bg-neutral-800/80 backdrop-blur-3xl backdrop-saturate-150 border-r border-white/10"
 							style={{ width: leftColumnWidth }}
-						>
-							<div className="flex-1 flex flex-col justify-end">
-								<div className="mt-1.5">{otherTrackLabels}</div>
+						></div>
+						<div className="flex-1 mt-18"></div>
+						{/* 其他轨道区域 */}
+						<div className="flex">
+							{/* 左侧列，其他轨道标签 */}
+							<div
+								className="text-white z-10 pr-4 flex flex-col"
+								style={{ width: leftColumnWidth }}
+							>
+								<div className="flex-1 flex flex-col justify-end">
+									<div className="mt-1.5">{otherTrackLabels}</div>
+								</div>
 							</div>
-						</div>
-						{/* 右侧其他轨道时间线内容 */}
-						<div
-							ref={containerRef}
-							data-track-drop-zone="other"
-							data-track-count={otherTrackCount}
-							data-track-height={trackHeight}
-							className="relative flex-1 overflow-x-hidden pt-1.5 flex flex-col justify-end"
-							style={{
-								paddingLeft: leftColumnWidth,
-								marginLeft: -leftColumnWidth,
-							}}
-						>
-							<div style={{ paddingLeft: timelinePaddingLeft }}>
-								<div
-									className="relative"
-									data-track-content-area="other"
-									data-content-height={otherTrackCount * trackHeight}
-								>
-									{otherTimelineItems}
+							{/* 右侧其他轨道时间线内容 */}
+							<div
+								ref={containerRef}
+								data-track-drop-zone="other"
+								data-track-count={otherTrackCount}
+								data-track-height={trackHeight}
+								className="relative flex-1 overflow-x-hidden pt-1.5 flex flex-col justify-end"
+								style={{
+									paddingLeft: leftColumnWidth,
+									marginLeft: -leftColumnWidth,
+								}}
+							>
+								<div style={{ paddingLeft: timelinePaddingLeft }}>
+									<div
+										className="relative"
+										data-track-content-area="other"
+										data-content-height={otherTrackCount * trackHeight}
+									>
+										{otherTimelineItems}
+									</div>
 								</div>
 							</div>
 						</div>
-					</div>
-					{/* 主轨道区域（sticky 底部） */}
-					<div className="z-10 flex items-start w-full shrink-0 border-t border-b border-white/10 sticky bottom-0 mt-auto *:pt-1.5">
-						{/* 左侧主轨道标签 */}
-						<div
-							className="text-white z-10 pr-4 flex flex-col bg-neutral-900/90 backdrop-blur-2xl border-r border-white/10"
-							style={{ width: leftColumnWidth }}
-						>
-							{mainTrackLabel}
-						</div>
-						{/* 右侧主轨道时间线内容 */}
-						<div
-							data-track-drop-zone="main"
-							data-track-index="0"
-							className="relative flex-1 overflow-x-hidden bg-neutral-900/90 backdrop-blur-2xl"
-							onMouseMove={handleMouseMove}
-							onMouseLeave={handleMouseLeave}
-							onClick={handleClick}
-							style={{
-								paddingLeft: leftColumnWidth,
-								marginLeft: -leftColumnWidth,
-							}}
-						>
-							<div style={{ paddingLeft: timelinePaddingLeft }}>
-								<div className="relative" data-track-content-area="main">
-									{mainTimelineItems}
+						{/* 主轨道区域（sticky 底部） */}
+						<div className="z-10 flex items-start border-t border-b border-white/10 sticky bottom-0 *:pt-1.5">
+							{/* 左侧主轨道标签 */}
+							<div
+								className="text-white z-10 pr-4 flex flex-col bg-neutral-900/90 backdrop-blur-2xl border-r border-white/10"
+								style={{ width: leftColumnWidth }}
+							>
+								{mainTrackLabel}
+							</div>
+							{/* 右侧主轨道时间线内容 */}
+							<div
+								data-track-drop-zone="main"
+								data-track-index="0"
+								className="relative flex-1 overflow-x-hidden bg-neutral-900/90 backdrop-blur-2xl"
+								onMouseMove={handleMouseMove}
+								onMouseLeave={handleMouseLeave}
+								onClick={handleClick}
+								style={{
+									paddingLeft: leftColumnWidth,
+									marginLeft: -leftColumnWidth,
+								}}
+							>
+								<div style={{ paddingLeft: timelinePaddingLeft }}>
+									<div className="relative" data-track-content-area="main">
+										{mainTimelineItems}
+									</div>
 								</div>
 							</div>
 						</div>
-					</div>
-					{/* 音频轨道区域 */}
-					<div className="min-h-12">
-						{/* 左侧音频轨道标签 */}
-						<div
-							className="h-full text-white pr-4 flex flex-col bg-neutral-800/80 backdrop-blur-3xl backdrop-saturate-150 border-r border-white/10"
-							style={{ width: leftColumnWidth }}
-						>
-							<div className="h-12 flex items-center justify-end pr-3 text-xs font-medium text-neutral-400">
-								音频轨道
+						{/* 音频轨道区域 */}
+						<div className="z-10">
+							{/* 左侧音频轨道标签 */}
+							<div
+								className="h-full text-white pr-4 flex flex-col z-10"
+								style={{ width: leftColumnWidth }}
+							>
+								{/* <div className="h-12 flex items-center justify-end pr-3 text-xs font-medium text-neutral-400">
+									音频轨道
+								</div> */}
 							</div>
+							{/* TODO: 右侧音频轨道时间线内容 */}
 						</div>
-						{/* TODO: 右侧音频轨道时间线内容 */}
+						<div className="flex-1"></div>
 					</div>
 				</div>
 				{/* 拖拽 Ghost 层 */}
@@ -890,6 +906,7 @@ const TimelineEditor = () => {
 					scrollLeft={scrollLeft}
 					otherTrackCount={otherTrackCount}
 					trackHeight={trackHeight}
+					timelinePaddingLeft={timelinePaddingLeft}
 				/>
 			</div>
 		</div>

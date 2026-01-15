@@ -1,8 +1,8 @@
 import React, { useMemo } from "react";
 import { createPortal } from "react-dom";
-import { ExtendedDropTarget } from "../timeline/types";
 import { DragGhostState } from "../contexts/TimelineContext";
 import { DEFAULT_ELEMENT_HEIGHT } from "../timeline/trackConfig";
+import { ExtendedDropTarget } from "../timeline/types";
 
 interface TimelineDragOverlayProps {
 	activeDropTarget: ExtendedDropTarget | null;
@@ -11,6 +11,7 @@ interface TimelineDragOverlayProps {
 	scrollLeft: number;
 	otherTrackCount: number;
 	trackHeight: number;
+	timelinePaddingLeft?: number;
 }
 
 const TimelineDragOverlay: React.FC<TimelineDragOverlayProps> = ({
@@ -20,6 +21,7 @@ const TimelineDragOverlay: React.FC<TimelineDragOverlayProps> = ({
 	scrollLeft,
 	otherTrackCount,
 	trackHeight,
+	timelinePaddingLeft = 0,
 }) => {
 	const dropIndicatorPortal = useMemo(() => {
 		if (!activeDropTarget) return null;
@@ -60,16 +62,16 @@ const TimelineDragOverlay: React.FC<TimelineDragOverlayProps> = ({
 					if (activeDropTarget.type === "gap") {
 						const gapY =
 							(otherTrackCount - activeDropTarget.trackIndex + 1) * trackHeight;
-						screenX = contentRect.left;
-						screenY = contentRect.top + gapY - 2;
+						screenX = contentRect.left - timelinePaddingLeft;
+						screenY = contentRect.top + gapY - 3.5;
 
 						const indicator = (
 							<div
-								className="fixed h-1 bg-green-500 z-9998 pointer-events-none rounded-full shadow-lg shadow-green-500/50"
+								className="fixed h-px bg-green-500 z-9998 pointer-events-none rounded-full shadow-lg shadow-green-500/50"
 								style={{
 									left: screenX,
 									top: screenY,
-									width: contentRect.width,
+									width: contentRect.width + timelinePaddingLeft,
 								}}
 							/>
 						);
