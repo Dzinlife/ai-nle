@@ -6,9 +6,9 @@ import React, {
 	useRef,
 	useState,
 } from "react";
-import { createPortal } from "react-dom";
 import { ProgressiveBlur } from "@/components/ui/progressive-blur";
 import TimeIndicatorCanvas from "@/editor/components/TimeIndicatorCanvas";
+import TimelineDragOverlay from "./components/TimelineDragOverlay";
 import TimelineElement from "./components/TimelineElement";
 import TimelineRuler from "./components/TimelineRuler";
 import TimelineToolbar from "./components/TimelineToolbar";
@@ -24,7 +24,6 @@ import {
 	useTrackAssignments,
 } from "./contexts/TimelineContext";
 import { useDragStore } from "./drag";
-import { DEFAULT_ELEMENT_HEIGHT } from "./timeline/trackConfig";
 
 const TimelineEditor = () => {
 	const setCurrentTime = useTimelineStore((state) => state.setCurrentTime);
@@ -681,123 +680,6 @@ const TimelineEditor = () => {
 		timelinePaddingLeft,
 	]);
 
-	// 拖拽目标指示器（渲染到 body，跨区域显示）
-	const dropIndicatorPortal = useMemo(() => {
-		if (!activeDropTarget) return null;
-
-		const elementWidth =
-			(activeDropTarget.end - activeDropTarget.start) * ratio;
-
-		// 查找目标区域的 DOM 元素来计算屏幕坐标
-		let targetZone: HTMLElement | null = null;
-		let screenX = 0;
-		let screenY = 0;
-
-		if (activeDropTarget.finalTrackIndex === 0) {
-			// 主轨道
-			targetZone = document.querySelector<HTMLElement>(
-				'[data-track-drop-zone="main"]',
-			);
-			if (targetZone) {
-				const contentArea = targetZone.querySelector<HTMLElement>(
-					'[data-track-content-area="main"]',
-				);
-				if (contentArea) {
-					const contentRect = contentArea.getBoundingClientRect();
-					// 计算屏幕坐标
-					screenX =
-						contentRect.left + activeDropTarget.start * ratio - scrollLeft;
-					screenY = contentRect.top;
-				}
-			}
-		} else {
-			// 其他轨道
-			targetZone = document.querySelector<HTMLElement>(
-				'[data-track-drop-zone="other"]',
-			);
-			if (targetZone) {
-				const contentArea = targetZone.querySelector<HTMLElement>(
-					'[data-track-content-area="other"]',
-				);
-				if (contentArea) {
-					const contentRect = contentArea.getBoundingClientRect();
-
-					if (activeDropTarget.type === "gap") {
-						// gap 模式 - 显示水平线
-						const gapY =
-							(otherTrackCount - activeDropTarget.trackIndex + 1) * trackHeight;
-						screenX = contentRect.left;
-						screenY = contentRect.top + gapY - 2;
-
-						const indicator = (
-							<div
-								className="fixed h-1 bg-green-500 z-[9998] pointer-events-none rounded-full shadow-lg shadow-green-500/50"
-								style={{
-									left: screenX,
-									top: screenY,
-									width: contentRect.width,
-								}}
-							/>
-						);
-						return createPortal(indicator, document.body);
-					}
-
-					// track 模式
-					const trackY =
-						(otherTrackCount - activeDropTarget.finalTrackIndex) * trackHeight;
-					screenX =
-						contentRect.left + activeDropTarget.start * ratio - scrollLeft;
-					screenY = contentRect.top + trackY;
-				}
-			}
-		}
-
-		if (!targetZone) return null;
-
-		const indicator = (
-			<div
-				className="fixed bg-blue-500/20 border-2 border-blue-500 border-dashed z-9998 pointer-events-none rounded-md box-border"
-				style={{
-					left: screenX,
-					top: screenY,
-					width: elementWidth,
-					height: DEFAULT_ELEMENT_HEIGHT,
-				}}
-			/>
-		);
-
-		return createPortal(indicator, document.body);
-	}, [activeDropTarget, ratio, scrollLeft, otherTrackCount, trackHeight]);
-
-	// 拖拽 Ghost 元素（使用 Portal 渲染到 body）
-	const ghostElement = useMemo(() => {
-		if (!dragGhosts.length) return null;
-
-		const ghosts = dragGhosts.map((ghost) => (
-			<div
-				key={ghost.elementId}
-				className="fixed pointer-events-none"
-				style={{
-					left: ghost.screenX,
-					top: ghost.screenY,
-					width: ghost.width,
-					height: ghost.height,
-					zIndex: 9999,
-				}}
-			>
-				{/* 半透明的元素克隆 */}
-				<div
-					className="absolute inset-0 opacity-60"
-					dangerouslySetInnerHTML={{ __html: ghost.clonedHtml }}
-				/>
-				{/* 蓝色实线边框指示器 */}
-				<div className="absolute inset-0 border-2 border-blue-500 rounded-md shadow-lg shadow-blue-500/30" />
-			</div>
-		));
-
-		return createPortal(ghosts, document.body);
-	}, [dragGhosts]);
-
 	return (
 		<div className="relative bg-neutral-800 h-full flex flex-col min-h-0 w-full overflow-hidden">
 			<div className="pointer-events-none absolute top-0 left-0 w-full h-19 z-50 bg-linear-to-b from-neutral-800 via-neutral-800 via-70% to-transparent"></div>
@@ -935,8 +817,14 @@ const TimelineEditor = () => {
 					</div>
 				</div>
 				{/* 拖拽 Ghost 层 */}
-				{ghostElement}
-				{dropIndicatorPortal}
+				<TimelineDragOverlay
+					activeDropTarget={activeDropTarget}
+					dragGhosts={dragGhosts}
+					ratio={ratio}
+					scrollLeft={scrollLeft}
+					otherTrackCount={otherTrackCount}
+					trackHeight={trackHeight}
+				/>
 			</div>
 		</div>
 	);

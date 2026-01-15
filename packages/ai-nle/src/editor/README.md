@@ -4,11 +4,12 @@
 
 ## 目录结构
 
-```
+```text
 editor/
 ├── components/           # UI 子组件
 │   ├── ElementSettingsPanel.tsx  # 元素属性设置面板
 │   ├── TimeIndicatorCanvas.tsx   # 时间指示器画布（红色竖线）
+│   ├── TimelineDragOverlay.tsx   # 拖拽指示层（ghost + drop 指示）
 │   ├── TimelineElement.tsx       # 时间线元素（可拖拽的轨道元素）
 │   ├── TimelineRuler.tsx         # 时间尺（顶部刻度）
 │   └── TimelineToolbar.tsx       # 工具栏（播放控制、吸附开关等）
@@ -30,6 +31,7 @@ editor/
 │   ├── trackConfig.ts            # 轨道配置（高度、间距等）
 │   ├── types.ts                  # 类型定义
 │   ├── useElementDrag.ts         # 元素拖拽 hook
+│   ├── useTimelineElementDnd.ts  # 元素拖拽逻辑（单选/多选）
 │   └── index.ts
 │
 ├── utils/                # 工具函数
@@ -48,40 +50,52 @@ editor/
 ## 核心组件
 
 ### TimelineEditor.tsx
+
 主时间线编辑器，负责：
+
 - 渲染所有轨道和元素
 - 处理滚动和缩放
 - 管理主轨道（track 0）的特殊行为
+- 渲染拖拽指示层（ghost + drop 指示）
 
 ### PreviewEditor.tsx
+
 预览画布，负责：
+
 - 渲染当前时间点的可见元素
 - 处理画布交互（选择、变换）
 - 导出图片/视频
 
 ### MaterialLibrary.tsx
+
 素材库面板，负责：
+
 - 展示可用素材列表
 - 处理素材拖拽到时间线
 
 ## 状态管理
 
 ### TimelineContext.tsx (Zustand)
+
 核心状态包括：
+
 - `elements`: 所有时间线元素
 - `currentTime`: 当前播放时间
 - `isPlaying`: 播放状态
-- `selectedElementId`: 选中元素
+- `selectedIds`: 选中元素列表
+- `primarySelectedId`: 主选中元素
 - `trackAssignments`: 轨道分配映射
 - `snapEnabled`: 吸附开关
 - `autoAttach`: 自动联动开关
 
 常用 hooks：
+
 ```tsx
 useElements()          // 获取/设置元素列表
 useCurrentTime()       // 获取当前时间
 usePlaybackControl()   // 播放控制
 useSelectedElement()   // 选中元素状态
+useMultiSelect()       // 多选状态与操作
 useTrackAssignments()  // 轨道分配
 useSnap()              // 吸附设置
 useAttachments()       // 联动设置
