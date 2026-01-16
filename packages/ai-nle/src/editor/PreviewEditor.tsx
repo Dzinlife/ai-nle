@@ -336,6 +336,7 @@ const Preview = () => {
 	const transformerRef = useRef<Konva.Transformer>(null);
 	const transformBaseRef = useRef<Record<string, TransformBase>>({});
 	const altPressedRef = useRef(false);
+	const shiftPressedRef = useRef(false);
 	const isSelecting = useRef(false);
 	const selectionAdditiveRef = useRef(false);
 	const initialSelectedIdsRef = useRef<string[]>([]);
@@ -504,6 +505,18 @@ const Preview = () => {
 		transformer.getLayer()?.batchDraw();
 	}, []);
 
+	const updateTransformerRotationSnaps = useCallback((enabled: boolean) => {
+		const transformer = transformerRef.current;
+		if (!transformer) return;
+		if (enabled) {
+			transformer.rotationSnaps([0, 45, 90, 135, 180, 225, 270, 315]);
+			transformer.rotationSnapTolerance(5);
+		} else {
+			transformer.rotationSnaps([]);
+		}
+		transformer.getLayer()?.batchDraw();
+	}, []);
+
 	useEffect(() => {
 		const handleKeyDown = (event: KeyboardEvent) => {
 			if (!event.altKey || altPressedRef.current) return;
@@ -533,6 +546,36 @@ const Preview = () => {
 			window.removeEventListener("blur", handleWindowBlur);
 		};
 	}, [updateTransformerCenteredScaling]);
+
+	useEffect(() => {
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (!event.shiftKey || shiftPressedRef.current) return;
+			shiftPressedRef.current = true;
+			updateTransformerRotationSnaps(true);
+		};
+
+		const handleKeyUp = (event: KeyboardEvent) => {
+			if (event.key !== "Shift" || !shiftPressedRef.current) return;
+			shiftPressedRef.current = false;
+			updateTransformerRotationSnaps(false);
+		};
+
+		const handleWindowBlur = () => {
+			if (!shiftPressedRef.current) return;
+			shiftPressedRef.current = false;
+			updateTransformerRotationSnaps(false);
+		};
+
+		window.addEventListener("keydown", handleKeyDown);
+		window.addEventListener("keyup", handleKeyUp);
+		window.addEventListener("blur", handleWindowBlur);
+
+		return () => {
+			window.removeEventListener("keydown", handleKeyDown);
+			window.removeEventListener("keyup", handleKeyUp);
+			window.removeEventListener("blur", handleWindowBlur);
+		};
+	}, [updateTransformerRotationSnaps]);
 
 	const getElementStageBox = useCallback(
 		(el: TimelineElement) => {
@@ -813,6 +856,9 @@ const Preview = () => {
 
 		transformerRef.current.nodes(nodes);
 		transformerRef.current.centeredScaling(altPressedRef.current);
+		transformerRef.current.rotationSnaps(
+			shiftPressedRef.current ? [0, 45, 90, 135, 180, 225, 270, 315] : [],
+		);
 		transformerRef.current.getLayer()?.batchDraw();
 	}, [selectedIds, renderElements]);
 
@@ -825,6 +871,13 @@ const Preview = () => {
 				if (eventAltPressed !== altPressedRef.current) {
 					altPressedRef.current = eventAltPressed;
 					updateTransformerCenteredScaling(eventAltPressed);
+				}
+			}
+			if ("shiftKey" in e.evt) {
+				const eventShiftPressed = Boolean((e.evt as MouseEvent).shiftKey);
+				if (eventShiftPressed !== shiftPressedRef.current) {
+					shiftPressedRef.current = eventShiftPressed;
+					updateTransformerRotationSnaps(eventShiftPressed);
 				}
 			}
 			const effectiveZoom = getEffectiveZoom();
@@ -843,7 +896,11 @@ const Preview = () => {
 				effectiveZoom,
 			};
 		},
-		[getEffectiveZoom, updateTransformerCenteredScaling],
+		[
+			getEffectiveZoom,
+			updateTransformerCenteredScaling,
+			updateTransformerRotationSnaps,
+		],
 	);
 
 	const handleTransform = useCallback(
