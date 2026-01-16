@@ -263,7 +263,8 @@ export interface TimeRange {
  * 检查两个时间范围是否重叠
  */
 export function isTimeOverlapping(a: TimeRange, b: TimeRange): boolean {
-	return a.start < b.end && a.end > b.start;
+	const epsilon = 1e-4;
+	return a.start < b.end - epsilon && a.end > b.start + epsilon;
 }
 
 /**
