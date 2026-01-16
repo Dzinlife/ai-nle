@@ -1759,50 +1759,225 @@ const Preview = () => {
 					<Transformer
 						ref={transformerRef}
 						boundBoxFunc={(oldBox, newBox) => {
-							// 限制最小尺寸
-							if (newBox.width < 5 || newBox.height < 5) {
-								return oldBox;
-							}
-							if (!snapEnabled) {
+							const activeAnchor = transformerRef.current?.getActiveAnchor?.();
+							if (activeAnchor === "rotater") {
 								clearSnapGuides();
 								return newBox;
 							}
 
-							const leftMoved = newBox.x !== oldBox.x;
+							const isCornerAnchor =
+								activeAnchor === "top-left" ||
+								activeAnchor === "top-right" ||
+								activeAnchor === "bottom-left" ||
+								activeAnchor === "bottom-right";
+
+							const getFixedCorner = () => {
+								switch (activeAnchor) {
+									case "top-left":
+										return {
+											x: oldBox.x + oldBox.width,
+											y: oldBox.y + oldBox.height,
+										};
+									case "top-right":
+										return {
+											x: oldBox.x,
+											y: oldBox.y + oldBox.height,
+										};
+									case "bottom-left":
+										return {
+											x: oldBox.x + oldBox.width,
+											y: oldBox.y,
+										};
+									case "bottom-right":
+										return { x: oldBox.x, y: oldBox.y };
+									default:
+										return { x: oldBox.x, y: oldBox.y };
+								}
+							};
+
+							const getMovingCorner = (box: {
+								x: number;
+								y: number;
+								width: number;
+								height: number;
+							}) => {
+								switch (activeAnchor) {
+									case "top-left":
+										return { x: box.x, y: box.y };
+									case "top-right":
+										return { x: box.x + box.width, y: box.y };
+									case "bottom-left":
+										return { x: box.x, y: box.y + box.height };
+									case "bottom-right":
+										return { x: box.x + box.width, y: box.y + box.height };
+									default:
+										return { x: box.x, y: box.y };
+								}
+							};
+
+							const buildCornerBox = (
+								desiredCorner: { x: number; y: number },
+								snapAxis: "x" | "y" | null,
+							) => {
+								const ratio =
+									oldBox.height === 0 ? 1 : oldBox.width / oldBox.height;
+								const fixed = getFixedCorner();
+								const widthFromCorner = Math.abs(desiredCorner.x - fixed.x);
+								const heightFromCorner = Math.abs(desiredCorner.y - fixed.y);
+
+								let width = 0;
+								let height = 0;
+
+								if (snapAxis === "x") {
+									width = widthFromCorner;
+									height = ratio === 0 ? 0 : width / ratio;
+								} else if (snapAxis === "y") {
+									height = heightFromCorner;
+									width = height * ratio;
+								} else {
+									const denom =
+										oldBox.width * oldBox.width + oldBox.height * oldBox.height;
+									const scale =
+										denom === 0
+											? 1
+											: (oldBox.width * widthFromCorner +
+													oldBox.height * heightFromCorner) /
+												denom;
+									width = oldBox.width * scale;
+									height = oldBox.height * scale;
+								}
+
+								switch (activeAnchor) {
+									case "top-left":
+										return {
+											...newBox,
+											x: fixed.x - width,
+											y: fixed.y - height,
+											width,
+											height,
+										};
+									case "top-right":
+										return {
+											...newBox,
+											x: fixed.x,
+											y: fixed.y - height,
+											width,
+											height,
+										};
+									case "bottom-left":
+										return {
+											...newBox,
+											x: fixed.x - width,
+											y: fixed.y,
+											width,
+											height,
+										};
+									case "bottom-right":
+										return {
+											...newBox,
+											x: fixed.x,
+											y: fixed.y,
+											width,
+											height,
+										};
+									default:
+										return newBox;
+								}
+							};
+
+							let baseBox = newBox;
+							if (isCornerAnchor) {
+								baseBox = buildCornerBox(getMovingCorner(newBox), null);
+							}
+
+							// 限制最小尺寸
+							if (baseBox.width < 5 || baseBox.height < 5) {
+								return oldBox;
+							}
+							if (!snapEnabled) {
+								clearSnapGuides();
+								return baseBox;
+							}
+
+							if (isCornerAnchor) {
+								const movingCorner = getMovingCorner(baseBox);
+								const snapResult = computeSnapResult(baseBox, selectedIds, {
+									movingX: [movingCorner.x],
+									movingY: [movingCorner.y],
+								});
+								const snapX = snapResult.deltaX !== 0;
+								const snapY = snapResult.deltaY !== 0;
+
+								if (!snapX && !snapY) {
+									setSnapGuides(snapResult.guides);
+									return baseBox;
+								}
+
+								let snapAxis: "x" | "y";
+								if (snapX && snapY) {
+									snapAxis =
+										Math.abs(snapResult.deltaX) <= Math.abs(snapResult.deltaY)
+											? "x"
+											: "y";
+								} else {
+									snapAxis = snapX ? "x" : "y";
+								}
+
+								const snappedCorner = {
+									x:
+										movingCorner.x + (snapAxis === "x" ? snapResult.deltaX : 0),
+									y:
+										movingCorner.y + (snapAxis === "y" ? snapResult.deltaY : 0),
+								};
+
+								const snappedBox = buildCornerBox(snappedCorner, snapAxis);
+								if (snappedBox.width < 5 || snappedBox.height < 5) {
+									return oldBox;
+								}
+
+								setSnapGuides({
+									vertical: snapAxis === "x" ? snapResult.guides.vertical : [],
+									horizontal:
+										snapAxis === "y" ? snapResult.guides.horizontal : [],
+								});
+								return snappedBox;
+							}
+
+							const leftMoved = baseBox.x !== oldBox.x;
 							const rightMoved =
-								newBox.x + newBox.width !== oldBox.x + oldBox.width;
-							const topMoved = newBox.y !== oldBox.y;
+								baseBox.x + baseBox.width !== oldBox.x + oldBox.width;
+							const topMoved = baseBox.y !== oldBox.y;
 							const bottomMoved =
-								newBox.y + newBox.height !== oldBox.y + oldBox.height;
+								baseBox.y + baseBox.height !== oldBox.y + oldBox.height;
 
 							const movingX: number[] = [];
 							if (leftMoved && !rightMoved) {
-								movingX.push(newBox.x);
+								movingX.push(baseBox.x);
 							} else if (rightMoved && !leftMoved) {
-								movingX.push(newBox.x + newBox.width);
+								movingX.push(baseBox.x + baseBox.width);
 							} else if (leftMoved && rightMoved) {
-								movingX.push(newBox.x + newBox.width / 2);
+								movingX.push(baseBox.x + baseBox.width / 2);
 							}
 
 							const movingY: number[] = [];
 							if (topMoved && !bottomMoved) {
-								movingY.push(newBox.y);
+								movingY.push(baseBox.y);
 							} else if (bottomMoved && !topMoved) {
-								movingY.push(newBox.y + newBox.height);
+								movingY.push(baseBox.y + baseBox.height);
 							} else if (topMoved && bottomMoved) {
-								movingY.push(newBox.y + newBox.height / 2);
+								movingY.push(baseBox.y + baseBox.height / 2);
 							}
 
-							const snapResult = computeSnapResult(newBox, selectedIds, {
+							const snapResult = computeSnapResult(baseBox, selectedIds, {
 								movingX,
 								movingY,
 							});
 							if (snapResult.deltaX === 0 && snapResult.deltaY === 0) {
 								setSnapGuides(snapResult.guides);
-								return newBox;
+								return baseBox;
 							}
 
-							const nextBox = { ...newBox };
+							const nextBox = { ...baseBox };
 
 							if (snapResult.deltaX !== 0) {
 								if (leftMoved && !rightMoved) {
