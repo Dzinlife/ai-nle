@@ -7,7 +7,13 @@ import React, {
 	useRef,
 	useState,
 } from "react";
-import { Rect as KonvaRect, Layer, Stage, Transformer } from "react-konva";
+import {
+	Line as KonvaLine,
+	Rect as KonvaRect,
+	Layer,
+	Stage,
+	Transformer,
+} from "react-konva";
 import {
 	Canvas,
 	CanvasRef,
@@ -24,6 +30,7 @@ import { TimelineElement } from "@/dsl/types";
 import { usePreview } from "./contexts/PreviewProvider";
 import {
 	useMultiSelect,
+	useSnap,
 	useTimelineStore,
 	useTrackAssignments,
 } from "./contexts/TimelineContext";
@@ -50,6 +57,41 @@ interface PinchState {
 	initialZoom: number;
 	currentZoom: number;
 }
+
+const SNAP_GUIDE_THRESHOLD = 6;
+
+type SnapGuides = {
+	vertical: number[];
+	horizontal: number[];
+};
+
+type AxisSnapResult = {
+	line: number | null;
+	delta: number;
+	distance: number;
+};
+
+const findNearestGuide = (
+	movingValues: number[],
+	guideValues: number[],
+): AxisSnapResult => {
+	let best: AxisSnapResult = {
+		line: null,
+		delta: 0,
+		distance: Infinity,
+	};
+
+	movingValues.forEach((value) => {
+		guideValues.forEach((guide) => {
+			const distance = Math.abs(guide - value);
+			if (distance < best.distance) {
+				best = { line: guide, delta: guide - value, distance };
+			}
+		});
+	});
+
+	return best;
+};
 
 // LabelLayer 组件：从 Konva 节点获取实际位置来显示 label
 interface LabelLayerProps {
@@ -271,6 +313,7 @@ const Preview = () => {
 	const [draggingId, setDraggingId] = useState<string | null>(null);
 	const { selectedIds, select, toggleSelect, deselectAll, setSelection } =
 		useMultiSelect();
+	const { snapEnabled } = useSnap();
 	const { trackAssignments } = useTrackAssignments();
 	const [selectionRect, setSelectionRect] = useState({
 		visible: false,
@@ -289,6 +332,13 @@ const Preview = () => {
 	const dragInitialPositionsRef = useRef<
 		Record<string, { x: number; y: number }>
 	>({});
+	const [snapGuides, setSnapGuides] = useState<SnapGuides>({
+		vertical: [],
+		horizontal: [],
+	});
+	const clearSnapGuides = useCallback(() => {
+		setSnapGuides({ vertical: [], horizontal: [] });
+	}, []);
 
 	const {
 		pictureWidth,
@@ -362,7 +412,8 @@ const Preview = () => {
 
 	const handleMouseUp = useCallback(() => {
 		setDraggingId(null);
-	}, []);
+		clearSnapGuides();
+	}, [clearSnapGuides]);
 
 	const handleDragStart = useCallback(
 		(id: string) => {
@@ -429,15 +480,115 @@ const Preview = () => {
 		[offsetX, offsetY, zoomLevel, pinchState],
 	);
 
+	const getEffectiveZoom = useCallback(
+		() => (pinchState.isPinching ? pinchState.currentZoom : zoomLevel),
+		[pinchState, zoomLevel],
+	);
+
+	const getElementStageBox = useCallback(
+		(el: TimelineElement) => {
+			const renderLayout = transformMetaToRenderLayout(
+				el.transform,
+				canvasConvertOptions.picture,
+				canvasConvertOptions.canvas,
+			);
+			const { x, y, width, height } = renderLayoutToTopLeft(renderLayout);
+			const { stageX, stageY } = canvasToStageCoords(x, y);
+			const effectiveZoom = getEffectiveZoom();
+
+			return {
+				x: stageX,
+				y: stageY,
+				width: width * effectiveZoom,
+				height: height * effectiveZoom,
+			};
+		},
+		[canvasConvertOptions, canvasToStageCoords, getEffectiveZoom],
+	);
+
+	const getCanvasStageRect = useCallback(() => {
+		const effectiveZoom = getEffectiveZoom();
+		const { stageX, stageY } = canvasToStageCoords(0, 0);
+		return {
+			x: stageX,
+			y: stageY,
+			width: canvasWidth * effectiveZoom,
+			height: canvasHeight * effectiveZoom,
+		};
+	}, [canvasToStageCoords, canvasWidth, canvasHeight, getEffectiveZoom]);
+
+	const computeSnapResult = useCallback(
+		(
+			movingBox: { x: number; y: number; width: number; height: number },
+			excludeIds: string[],
+		) => {
+			const guideX: number[] = [];
+			const guideY: number[] = [];
+
+			renderElementsRef.current.forEach((el) => {
+				if (excludeIds.includes(el.id)) return;
+				const box = getElementStageBox(el);
+				guideX.push(box.x, box.x + box.width / 2, box.x + box.width);
+				guideY.push(box.y, box.y + box.height / 2, box.y + box.height);
+			});
+
+			const canvasStageRect = getCanvasStageRect();
+			guideX.push(
+				canvasStageRect.x,
+				canvasStageRect.x + canvasStageRect.width / 2,
+				canvasStageRect.x + canvasStageRect.width,
+			);
+			guideY.push(
+				canvasStageRect.y,
+				canvasStageRect.y + canvasStageRect.height / 2,
+				canvasStageRect.y + canvasStageRect.height,
+			);
+
+			const movingX = [
+				movingBox.x,
+				movingBox.x + movingBox.width / 2,
+				movingBox.x + movingBox.width,
+			];
+			const movingY = [
+				movingBox.y,
+				movingBox.y + movingBox.height / 2,
+				movingBox.y + movingBox.height,
+			];
+
+			const bestX = findNearestGuide(movingX, guideX);
+			const bestY = findNearestGuide(movingY, guideY);
+
+			return {
+				deltaX:
+					bestX.line !== null && bestX.distance <= SNAP_GUIDE_THRESHOLD
+						? bestX.delta
+						: 0,
+				deltaY:
+					bestY.line !== null && bestY.distance <= SNAP_GUIDE_THRESHOLD
+						? bestY.delta
+						: 0,
+				guides: {
+					vertical:
+						bestX.line !== null && bestX.distance <= SNAP_GUIDE_THRESHOLD
+							? [bestX.line]
+							: [],
+					horizontal:
+						bestY.line !== null && bestY.distance <= SNAP_GUIDE_THRESHOLD
+							? [bestY.line]
+							: [],
+				},
+			};
+		},
+		[getElementStageBox, getCanvasStageRect],
+	);
+
 	const handleDrag = useCallback(
 		(id: string, e: Konva.KonvaEventObject<DragEvent>) => {
 			const node = e.target;
 			const stageX = node.x();
 			const stageY = node.y();
-
-			// 将 Stage 坐标转换为画布坐标
-			// 由于 canvas = picture 尺寸，canvas 坐标即 picture 坐标
-			const { canvasX, canvasY } = stageToCanvasCoords(stageX, stageY);
+			const stageWidth = node.width() * node.scaleX();
+			const stageHeight = node.height() * node.scaleY();
 
 			const dragSelectedIds = dragSelectedIdsRef.current;
 			const initialPositions = dragInitialPositionsRef.current;
@@ -445,8 +596,85 @@ const Preview = () => {
 				dragSelectedIds.length > 1 && dragSelectedIds.includes(id);
 			const draggedInitial = initialPositions[id];
 
-			// 直接使用 setState 确保更新被触发
 			const currentElements = useTimelineStore.getState().elements;
+			let adjustedStageX = stageX;
+			let adjustedStageY = stageY;
+
+			if (snapEnabled) {
+				let movingBox = {
+					x: stageX,
+					y: stageY,
+					width: stageWidth,
+					height: stageHeight,
+				};
+
+				if (isMultiDrag && draggedInitial) {
+					const effectiveZoom = getEffectiveZoom();
+					let minX = Infinity;
+					let minY = Infinity;
+					let maxX = -Infinity;
+					let maxY = -Infinity;
+
+					dragSelectedIds.forEach((selectedId) => {
+						const element = currentElements.find((el) => el.id === selectedId);
+						if (!element) return;
+
+						const renderLayout = transformMetaToRenderLayout(
+							element.transform,
+							canvasConvertOptions.picture,
+							canvasConvertOptions.canvas,
+						);
+						const { x, y, width, height } = renderLayoutToTopLeft(renderLayout);
+						const initial = initialPositions[selectedId];
+						const baseX = initial?.x ?? x;
+						const baseY = initial?.y ?? y;
+						const { stageX: elementStageX, stageY: elementStageY } =
+							canvasToStageCoords(baseX, baseY);
+						const elementStageWidth = width * effectiveZoom;
+						const elementStageHeight = height * effectiveZoom;
+
+						minX = Math.min(minX, elementStageX);
+						minY = Math.min(minY, elementStageY);
+						maxX = Math.max(maxX, elementStageX + elementStageWidth);
+						maxY = Math.max(maxY, elementStageY + elementStageHeight);
+					});
+
+					if (minX !== Infinity) {
+						const {
+							stageX: draggedInitialStageX,
+							stageY: draggedInitialStageY,
+						} = canvasToStageCoords(draggedInitial.x, draggedInitial.y);
+						const deltaStageX = stageX - draggedInitialStageX;
+						const deltaStageY = stageY - draggedInitialStageY;
+						movingBox = {
+							x: minX + deltaStageX,
+							y: minY + deltaStageY,
+							width: maxX - minX,
+							height: maxY - minY,
+						};
+					}
+				}
+
+				const snapResult = computeSnapResult(movingBox, dragSelectedIds);
+				adjustedStageX += snapResult.deltaX;
+				adjustedStageY += snapResult.deltaY;
+				setSnapGuides(snapResult.guides);
+			} else {
+				clearSnapGuides();
+			}
+
+			if (adjustedStageX !== stageX || adjustedStageY !== stageY) {
+				node.position({ x: adjustedStageX, y: adjustedStageY });
+			}
+
+			// 将 Stage 坐标转换为画布坐标
+			// 由于 canvas = picture 尺寸，canvas 坐标即 picture 坐标
+			const { canvasX, canvasY } = stageToCanvasCoords(
+				adjustedStageX,
+				adjustedStageY,
+			);
+
+			// 直接使用 setState 确保更新被触发
 			const newElements = currentElements.map((el) => {
 				const initial = initialPositions[el.id];
 				if (isMultiDrag && initial && draggedInitial) {
@@ -486,15 +714,26 @@ const Preview = () => {
 
 			useTimelineStore.setState({ elements: newElements });
 		},
-		[stageToCanvasCoords, pictureWidth, pictureHeight],
+		[
+			stageToCanvasCoords,
+			pictureWidth,
+			pictureHeight,
+			snapEnabled,
+			getEffectiveZoom,
+			canvasConvertOptions,
+			canvasToStageCoords,
+			computeSnapResult,
+			clearSnapGuides,
+		],
 	);
 
 	const handleDragEnd = useCallback(
 		(id: string, e: Konva.KonvaEventObject<DragEvent>) => {
 			handleDrag(id, e);
 			setDraggingId(null);
+			clearSnapGuides();
 		},
-		[handleDrag],
+		[handleDrag, clearSnapGuides],
 	);
 
 	const handleMouseEnter = useCallback(
@@ -1248,6 +1487,26 @@ const Preview = () => {
 								dash={[6, 4]}
 							/>
 						)}
+					{snapGuides.vertical.map((x, index) => (
+						<KonvaLine
+							key={`snap-v-${index}`}
+							points={[x, 0, x, stageHeight]}
+							stroke="rgba(59,130,246,0.8)"
+							strokeWidth={1}
+							dash={[4, 4]}
+							listening={false}
+						/>
+					))}
+					{snapGuides.horizontal.map((y, index) => (
+						<KonvaLine
+							key={`snap-h-${index}`}
+							points={[0, y, stageWidth, y]}
+							stroke="rgba(59,130,246,0.8)"
+							strokeWidth={1}
+							dash={[4, 4]}
+							listening={false}
+						/>
+					))}
 					{renderElements.map((el) => {
 						const { id } = el;
 						const isHovered = hoveredId === id;
