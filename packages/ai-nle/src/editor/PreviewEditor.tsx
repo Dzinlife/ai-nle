@@ -71,6 +71,11 @@ type AxisSnapResult = {
 	distance: number;
 };
 
+type SnapComputeOptions = {
+	movingX?: number[];
+	movingY?: number[];
+};
+
 type TransformBase = {
 	stageWidth: number;
 	stageHeight: number;
@@ -613,6 +618,7 @@ const Preview = () => {
 		(
 			movingBox: { x: number; y: number; width: number; height: number },
 			excludeIds: string[],
+			options?: SnapComputeOptions,
 		) => {
 			const guideX: number[] = [];
 			const guideY: number[] = [];
@@ -636,12 +642,12 @@ const Preview = () => {
 				canvasStageRect.y + canvasStageRect.height,
 			);
 
-			const movingX = [
+			const movingX = options?.movingX ?? [
 				movingBox.x,
 				movingBox.x + movingBox.width / 2,
 				movingBox.x + movingBox.width,
 			];
-			const movingY = [
+			const movingY = options?.movingY ?? [
 				movingBox.y,
 				movingBox.y + movingBox.height / 2,
 				movingBox.y + movingBox.height,
@@ -1046,8 +1052,15 @@ const Preview = () => {
 			useTimelineStore.setState({ elements: newElements });
 
 			delete transformBaseRef.current[id];
+			clearSnapGuides();
 		},
-		[stageToCanvasCoords, getEffectiveZoom, pictureWidth, pictureHeight],
+		[
+			stageToCanvasCoords,
+			getEffectiveZoom,
+			pictureWidth,
+			pictureHeight,
+			clearSnapGuides,
+		],
 	);
 
 	// 处理点击事件，支持选择/取消选择
@@ -1750,7 +1763,75 @@ const Preview = () => {
 							if (newBox.width < 5 || newBox.height < 5) {
 								return oldBox;
 							}
-							return newBox;
+							if (!snapEnabled) {
+								clearSnapGuides();
+								return newBox;
+							}
+
+							const leftMoved = newBox.x !== oldBox.x;
+							const rightMoved =
+								newBox.x + newBox.width !== oldBox.x + oldBox.width;
+							const topMoved = newBox.y !== oldBox.y;
+							const bottomMoved =
+								newBox.y + newBox.height !== oldBox.y + oldBox.height;
+
+							const movingX: number[] = [];
+							if (leftMoved && !rightMoved) {
+								movingX.push(newBox.x);
+							} else if (rightMoved && !leftMoved) {
+								movingX.push(newBox.x + newBox.width);
+							} else if (leftMoved && rightMoved) {
+								movingX.push(newBox.x + newBox.width / 2);
+							}
+
+							const movingY: number[] = [];
+							if (topMoved && !bottomMoved) {
+								movingY.push(newBox.y);
+							} else if (bottomMoved && !topMoved) {
+								movingY.push(newBox.y + newBox.height);
+							} else if (topMoved && bottomMoved) {
+								movingY.push(newBox.y + newBox.height / 2);
+							}
+
+							const snapResult = computeSnapResult(newBox, selectedIds, {
+								movingX,
+								movingY,
+							});
+							if (snapResult.deltaX === 0 && snapResult.deltaY === 0) {
+								setSnapGuides(snapResult.guides);
+								return newBox;
+							}
+
+							const nextBox = { ...newBox };
+
+							if (snapResult.deltaX !== 0) {
+								if (leftMoved && !rightMoved) {
+									nextBox.x += snapResult.deltaX;
+									nextBox.width -= snapResult.deltaX;
+								} else if (rightMoved && !leftMoved) {
+									nextBox.width += snapResult.deltaX;
+								} else if (leftMoved && rightMoved) {
+									nextBox.x += snapResult.deltaX;
+								}
+							}
+
+							if (snapResult.deltaY !== 0) {
+								if (topMoved && !bottomMoved) {
+									nextBox.y += snapResult.deltaY;
+									nextBox.height -= snapResult.deltaY;
+								} else if (bottomMoved && !topMoved) {
+									nextBox.height += snapResult.deltaY;
+								} else if (topMoved && bottomMoved) {
+									nextBox.y += snapResult.deltaY;
+								}
+							}
+
+							if (nextBox.width < 5 || nextBox.height < 5) {
+								return oldBox;
+							}
+
+							setSnapGuides(snapResult.guides);
+							return nextBox;
 						}}
 						anchorFill="black"
 						anchorStroke="rgba(255,0,0,1)"
