@@ -22,7 +22,11 @@ import {
 import { componentRegistry } from "@/dsl/model/componentRegistry";
 import { TimelineElement } from "@/dsl/types";
 import { usePreview } from "./contexts/PreviewProvider";
-import { useMultiSelect, useTimelineStore } from "./contexts/TimelineContext";
+import {
+	useMultiSelect,
+	useTimelineStore,
+	useTrackAssignments,
+} from "./contexts/TimelineContext";
 
 /**
  * Compute visible elements based on current time.
@@ -267,6 +271,7 @@ const Preview = () => {
 	const [draggingId, setDraggingId] = useState<string | null>(null);
 	const { selectedIds, select, toggleSelect, deselectAll, setSelection } =
 		useMultiSelect();
+	const { trackAssignments } = useTrackAssignments();
 	const [selectionRect, setSelectionRect] = useState({
 		visible: false,
 		x1: 0,
@@ -308,6 +313,31 @@ const Preview = () => {
 		// Canvas ref
 		setCanvasRef,
 	} = usePreview();
+
+	const getTrackIndexForElement = useCallback(
+		(el: TimelineElement) =>
+			trackAssignments.get(el.id) ?? el.timeline.trackIndex ?? 0,
+		[trackAssignments],
+	);
+
+	const sortByTrackIndex = useCallback(
+		(items: TimelineElement[]) => {
+			return items
+				.map((el, index) => ({
+					el,
+					index,
+					trackIndex: getTrackIndexForElement(el),
+				}))
+				.sort((a, b) => {
+					if (a.trackIndex !== b.trackIndex) {
+						return a.trackIndex - b.trackIndex;
+					}
+					return a.index - b.index;
+				})
+				.map(({ el }) => el);
+		},
+		[getTrackIndexForElement],
+	);
 
 	// Pinch zoom state - 记录初始双指距离
 	const pinchStartDistanceRef = useRef<number | null>(null);
@@ -1060,15 +1090,16 @@ const Preview = () => {
 				getElements(),
 				displayTime,
 			);
-			const children = buildSkiaChildren(visibleElements);
+			const orderedElements = sortByTrackIndex(visibleElements);
+			const children = buildSkiaChildren(orderedElements);
 
 			const prevElements = renderElementsRef.current;
 			if (
-				prevElements.length !== visibleElements.length ||
-				visibleElements.some((el, i) => prevElements[i] !== el)
+				prevElements.length !== orderedElements.length ||
+				orderedElements.some((el, i) => prevElements[i] !== el)
 			) {
-				renderElementsRef.current = visibleElements;
-				setRenderElements(visibleElements);
+				renderElementsRef.current = orderedElements;
+				setRenderElements(orderedElements);
 
 				skiaCanvasRef.current?.getRoot()?.render(children);
 			}
@@ -1087,7 +1118,7 @@ const Preview = () => {
 			unsub1();
 			unsub2();
 		};
-	}, [buildSkiaChildren]);
+	}, [buildSkiaChildren, getElements, sortByTrackIndex]);
 
 	useEffect(() => {
 		return useTimelineStore.subscribe(
@@ -1098,12 +1129,13 @@ const Preview = () => {
 
 				const time = getDisplayTime();
 				const visibleElements = computeVisibleElements(newElements, time);
-				const children = buildSkiaChildren(visibleElements);
+				const orderedElements = sortByTrackIndex(visibleElements);
+				const children = buildSkiaChildren(orderedElements);
 				root.render(children);
 
 				// Update Konva layer
-				renderElementsRef.current = visibleElements;
-				setRenderElements(visibleElements);
+				renderElementsRef.current = orderedElements;
+				setRenderElements(orderedElements);
 			},
 			{
 				fireImmediately: true,
