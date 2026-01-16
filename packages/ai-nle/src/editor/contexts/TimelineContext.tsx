@@ -1135,14 +1135,37 @@ export const TimelineProvider = ({
 	canvasSize?: { width: number; height: number };
 }) => {
 	const lastTimeRef = useRef<number | null>(null);
+	const applyInitialTrackAssignments = useCallback(
+		(elements: TimelineElement[]) => {
+			if (elements.length === 0) return elements;
+			const assignments = assignTracks(elements);
+			let changed = false;
+			const updated = elements.map((el) => {
+				const assignedTrack = assignments.get(el.id);
+				if (assignedTrack === undefined) return el;
+				if (el.timeline.trackIndex === assignedTrack) return el;
+				changed = true;
+				return {
+					...el,
+					timeline: {
+						...el.timeline,
+						trackIndex: assignedTrack,
+					},
+				};
+			});
+			return changed ? updated : elements;
+		},
+		[],
+	);
 
 	// 在首次渲染前同步设置初始状态
 	// 使用 useLayoutEffect 确保在子组件渲染前执行
 	useLayoutEffect(() => {
 		if (initialElements) {
+			const normalizedElements = applyInitialTrackAssignments(initialElements);
 			useTimelineStore.setState({
 				currentTime: initialCurrentTime ?? 0,
-				elements: initialElements,
+				elements: normalizedElements,
 				canvasSize: initialCanvasSize ?? { width: 1920, height: 1080 },
 			});
 		}
@@ -1151,11 +1174,12 @@ export const TimelineProvider = ({
 	// 后续更新
 	useEffect(() => {
 		if (initialElements) {
+			const normalizedElements = applyInitialTrackAssignments(initialElements);
 			useTimelineStore.setState({
-				elements: initialElements,
+				elements: normalizedElements,
 			});
 		}
-	}, [initialElements]);
+	}, [applyInitialTrackAssignments, initialElements]);
 
 	useEffect(() => {
 		if (initialCurrentTime !== undefined) {
