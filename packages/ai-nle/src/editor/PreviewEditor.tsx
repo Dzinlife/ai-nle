@@ -71,6 +71,16 @@ type AxisSnapResult = {
 	distance: number;
 };
 
+type TransformBase = {
+	stageWidth: number;
+	stageHeight: number;
+	canvasWidth: number;
+	canvasHeight: number;
+	scaleX: number;
+	scaleY: number;
+	effectiveZoom: number;
+};
+
 const findNearestGuide = (
 	movingValues: number[],
 	guideValues: number[],
@@ -324,6 +334,8 @@ const Preview = () => {
 	});
 	const stageRef = useRef<Konva.Stage>(null);
 	const transformerRef = useRef<Konva.Transformer>(null);
+	const transformBaseRef = useRef<Record<string, TransformBase>>({});
+	const altPressedRef = useRef(false);
 	const isSelecting = useRef(false);
 	const selectionAdditiveRef = useRef(false);
 	const initialSelectedIdsRef = useRef<string[]>([]);
@@ -484,6 +496,43 @@ const Preview = () => {
 		() => (pinchState.isPinching ? pinchState.currentZoom : zoomLevel),
 		[pinchState, zoomLevel],
 	);
+
+	const updateTransformerCenteredScaling = useCallback((centered: boolean) => {
+		const transformer = transformerRef.current;
+		if (!transformer) return;
+		transformer.centeredScaling(centered);
+		transformer.getLayer()?.batchDraw();
+	}, []);
+
+	useEffect(() => {
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (!event.altKey || altPressedRef.current) return;
+			altPressedRef.current = true;
+			updateTransformerCenteredScaling(true);
+		};
+
+		const handleKeyUp = (event: KeyboardEvent) => {
+			if (event.key !== "Alt" || !altPressedRef.current) return;
+			altPressedRef.current = false;
+			updateTransformerCenteredScaling(false);
+		};
+
+		const handleWindowBlur = () => {
+			if (!altPressedRef.current) return;
+			altPressedRef.current = false;
+			updateTransformerCenteredScaling(false);
+		};
+
+		window.addEventListener("keydown", handleKeyDown);
+		window.addEventListener("keyup", handleKeyUp);
+		window.addEventListener("blur", handleWindowBlur);
+
+		return () => {
+			window.removeEventListener("keydown", handleKeyDown);
+			window.removeEventListener("keyup", handleKeyUp);
+			window.removeEventListener("blur", handleWindowBlur);
+		};
+	}, [updateTransformerCenteredScaling]);
 
 	const getElementStageBox = useCallback(
 		(el: TimelineElement) => {
@@ -763,36 +812,78 @@ const Preview = () => {
 			.filter((node): node is Konva.Node => Boolean(node));
 
 		transformerRef.current.nodes(nodes);
+		transformerRef.current.centeredScaling(altPressedRef.current);
 		transformerRef.current.getLayer()?.batchDraw();
 	}, [selectedIds, renderElements]);
 
 	// 处理 transform 事件（实时更新）
+	const handleTransformStart = useCallback(
+		(id: string, e: Konva.KonvaEventObject<Event>) => {
+			const node = e.target as Konva.Node;
+			if ("altKey" in e.evt) {
+				const eventAltPressed = Boolean((e.evt as MouseEvent).altKey);
+				if (eventAltPressed !== altPressedRef.current) {
+					altPressedRef.current = eventAltPressed;
+					updateTransformerCenteredScaling(eventAltPressed);
+				}
+			}
+			const effectiveZoom = getEffectiveZoom();
+			const baseScaleX = node.scaleX() || 1;
+			const baseScaleY = node.scaleY() || 1;
+			const baseStageWidth = node.width() * baseScaleX;
+			const baseStageHeight = node.height() * baseScaleY;
+
+			transformBaseRef.current[id] = {
+				stageWidth: baseStageWidth,
+				stageHeight: baseStageHeight,
+				canvasWidth: baseStageWidth / effectiveZoom,
+				canvasHeight: baseStageHeight / effectiveZoom,
+				scaleX: baseScaleX,
+				scaleY: baseScaleY,
+				effectiveZoom,
+			};
+		},
+		[getEffectiveZoom, updateTransformerCenteredScaling],
+	);
+
 	const handleTransform = useCallback(
 		(id: string, e: Konva.KonvaEventObject<Event>) => {
 			const node = e.target as Konva.Node;
-			const scaleX = node.scaleX();
-			const scaleY = node.scaleY();
+			let base = transformBaseRef.current[id];
+			if (!base) {
+				const effectiveZoom = getEffectiveZoom();
+				const baseScaleX = node.scaleX() || 1;
+				const baseScaleY = node.scaleY() || 1;
+				const baseStageWidth = node.width() * baseScaleX;
+				const baseStageHeight = node.height() * baseScaleY;
 
-			// 如果 scale 为 1，说明没有缩放，不需要更新
-			if (scaleX === 1 && scaleY === 1) {
-				return;
+				base = {
+					stageWidth: baseStageWidth,
+					stageHeight: baseStageHeight,
+					canvasWidth: baseStageWidth / effectiveZoom,
+					canvasHeight: baseStageHeight / effectiveZoom,
+					scaleX: baseScaleX,
+					scaleY: baseScaleY,
+					effectiveZoom,
+				};
+				transformBaseRef.current[id] = base;
 			}
+
+			const scaleX = node.scaleX() / base.scaleX;
+			const scaleY = node.scaleY() / base.scaleY;
 
 			const stageX = node.x();
 			const stageY = node.y();
 			// 缩放后的尺寸（在 Stage 坐标系中）
-			const stageWidth_scaled = node.width() * scaleX;
-			const stageHeight_scaled = node.height() * scaleY;
+			const stageWidth_scaled = base.stageWidth * scaleX;
+			const stageHeight_scaled = base.stageHeight * scaleY;
 
 			// 将 Stage 坐标转换为画布/picture 坐标
 			const { canvasX, canvasY } = stageToCanvasCoords(stageX, stageY);
 
 			// 将 Stage 尺寸转换为画布/picture 尺寸
-			const effectiveZoom = pinchState.isPinching
-				? pinchState.currentZoom
-				: zoomLevel;
-			const pictureWidth_scaled = stageWidth_scaled / effectiveZoom;
-			const pictureHeight_scaled = stageHeight_scaled / effectiveZoom;
+			const pictureWidth_scaled = stageWidth_scaled / base.effectiveZoom;
+			const pictureHeight_scaled = stageHeight_scaled / base.effectiveZoom;
 
 			// 只更新元素状态，不修改节点（让 Transformer 继续工作）
 			const rotationDegrees = node.rotation();
@@ -832,15 +923,18 @@ const Preview = () => {
 
 			useTimelineStore.setState({ elements: newElements });
 		},
-		[stageToCanvasCoords, zoomLevel, pinchState, pictureWidth, pictureHeight],
+		[stageToCanvasCoords, getEffectiveZoom, pictureWidth, pictureHeight],
 	);
 
 	// 处理 transform 结束事件
 	const handleTransformEnd = useCallback(
 		(id: string, e: Konva.KonvaEventObject<Event>) => {
 			const node = e.target as Konva.Node;
-			const scaleX = node.scaleX();
-			const scaleY = node.scaleY();
+			const base = transformBaseRef.current[id];
+			const baseScaleX = base?.scaleX ?? 1;
+			const baseScaleY = base?.scaleY ?? 1;
+			const scaleX = node.scaleX() / baseScaleX;
+			const scaleY = node.scaleY() / baseScaleY;
 
 			// 重置 scale，更新 width 和 height
 			node.scaleX(1);
@@ -849,16 +943,16 @@ const Preview = () => {
 			const stageX = node.x();
 			const stageY = node.y();
 			// 缩放后的尺寸（在 Stage 坐标系中）
-			const stageWidth_scaled = node.width() * scaleX;
-			const stageHeight_scaled = node.height() * scaleY;
+			const baseStageWidth = base?.stageWidth ?? node.width() * baseScaleX;
+			const baseStageHeight = base?.stageHeight ?? node.height() * baseScaleY;
+			const stageWidth_scaled = baseStageWidth * scaleX;
+			const stageHeight_scaled = baseStageHeight * scaleY;
 
 			// 将 Stage 坐标转换为画布/picture 坐标
 			const { canvasX, canvasY } = stageToCanvasCoords(stageX, stageY);
 
 			// 将 Stage 尺寸转换为画布/picture 尺寸
-			const effectiveZoom = pinchState.isPinching
-				? pinchState.currentZoom
-				: zoomLevel;
+			const effectiveZoom = base?.effectiveZoom ?? getEffectiveZoom();
 			const pictureWidth_scaled = stageWidth_scaled / effectiveZoom;
 			const pictureHeight_scaled = stageHeight_scaled / effectiveZoom;
 
@@ -893,8 +987,10 @@ const Preview = () => {
 			});
 
 			useTimelineStore.setState({ elements: newElements });
+
+			delete transformBaseRef.current[id];
 		},
-		[stageToCanvasCoords, zoomLevel, pinchState, pictureWidth, pictureHeight],
+		[stageToCanvasCoords, getEffectiveZoom, pictureWidth, pictureHeight],
 	);
 
 	// 处理点击事件，支持选择/取消选择
@@ -1533,8 +1629,11 @@ const Preview = () => {
 						const effectiveZoom = pinchState.isPinching
 							? pinchState.currentZoom
 							: zoomLevel;
-						const stageWidth = canvasWidth_el * effectiveZoom;
-						const stageHeight = canvasHeight_el * effectiveZoom;
+						const baseTransform = transformBaseRef.current[id];
+						const canvasWidth = baseTransform?.canvasWidth ?? canvasWidth_el;
+						const canvasHeight = baseTransform?.canvasHeight ?? canvasHeight_el;
+						const stageWidth = canvasWidth * effectiveZoom;
+						const stageHeight = canvasHeight * effectiveZoom;
 
 						// 将弧度转换为度数（Konva 使用度数）
 						const rotationDegrees = (rotate * 180) / Math.PI;
@@ -1572,6 +1671,9 @@ const Preview = () => {
 									}
 									onTransform={(e: Konva.KonvaEventObject<Event>) =>
 										handleTransform(id, e)
+									}
+									onTransformStart={(e: Konva.KonvaEventObject<Event>) =>
+										handleTransformStart(id, e)
 									}
 									onTransformEnd={(e: Konva.KonvaEventObject<Event>) =>
 										handleTransformEnd(id, e)
