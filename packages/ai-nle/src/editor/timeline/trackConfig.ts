@@ -109,7 +109,7 @@ const elementCategoryMap = new Map<string, TrackCategory>([
  */
 export function registerElementCategory(
 	elementType: string,
-	category: TrackCategory
+	category: TrackCategory,
 ): void {
 	elementCategoryMap.set(elementType, category);
 }
@@ -137,7 +137,7 @@ export function getTrackConfig(category: TrackCategory): TrackConfig {
  */
 export function canElementBeOnTrack(
 	elementType: string,
-	trackCategory: TrackCategory
+	trackCategory: TrackCategory,
 ): boolean {
 	const elementCategory = getElementCategory(elementType);
 	const trackConfig = getTrackConfig(trackCategory);
@@ -149,7 +149,7 @@ export function canElementBeOnTrack(
  */
 export function canElementsCoexist(
 	elementType1: string,
-	elementType2: string
+	elementType2: string,
 ): boolean {
 	const category1 = getElementCategory(elementType1);
 	const category2 = getElementCategory(elementType2);
@@ -178,7 +178,7 @@ export interface TrackLayoutConfig {
 export function calculateTrackLayout(
 	trackIndices: Map<string, number>,
 	_elementTypes: Map<string, string>,
-	config?: TrackLayoutConfig
+	config?: TrackLayoutConfig,
 ): TrackInstance[] {
 	// 暂时使用简化版本，所有轨道使用相同高度
 	// 未来可以根据元素类型计算不同高度
@@ -190,7 +190,8 @@ export function calculateTrackLayout(
 		// 从上到下排列，高索引在上
 		const category: TrackCategory = i === 0 ? "main" : "overlay";
 		const trackConfig = getTrackConfig(category);
-		const height = config?.trackConfigs?.[category]?.height ?? trackConfig.height;
+		const height =
+			config?.trackConfigs?.[category]?.height ?? trackConfig.height;
 
 		tracks.push({
 			id: `track-${i}`,
@@ -212,7 +213,7 @@ export function calculateTrackLayout(
 export function getTrackIndexFromY(
 	y: number,
 	trackHeight: number,
-	totalTracks: number
+	totalTracks: number,
 ): number {
 	const trackFromTop = Math.floor(y / trackHeight);
 	return Math.max(0, totalTracks - 1 - trackFromTop);
@@ -224,7 +225,7 @@ export function getTrackIndexFromY(
 export function getYFromTrackIndex(
 	trackIndex: number,
 	trackHeight: number,
-	totalTracks: number
+	totalTracks: number,
 ): number {
 	return (totalTracks - 1 - trackIndex) * trackHeight;
 }

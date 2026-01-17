@@ -25,6 +25,11 @@ import {
 	useTrackAssignments,
 } from "./contexts/TimelineContext";
 import { useDragStore } from "./drag";
+import {
+	buildTrackLayout,
+	MAIN_TRACK_HEIGHT,
+	OTHER_TRACK_HEIGHT,
+} from "./utils/trackAssignment";
 
 // 格式化时间为 MM:SS:mmm（输入单位为秒）
 const formatTime = (seconds: number) => {
@@ -546,7 +551,32 @@ const TimelineEditor = () => {
 		};
 	}, [globalAutoScrollSpeedY]);
 
-	const trackHeight = 60;
+	const trackLayout = useMemo(() => {
+		return buildTrackLayout(elements, trackAssignments);
+	}, [elements, trackAssignments]);
+
+	const trackLayoutByIndex = useMemo(() => {
+		const map = new Map<number, (typeof trackLayout)[number]>();
+		for (const item of trackLayout) {
+			map.set(item.index, item);
+		}
+		return map;
+	}, [trackLayout]);
+
+	const otherTrackLayout = useMemo(() => {
+		return trackLayout.filter((item) => item.index > 0);
+	}, [trackLayout]);
+
+	const otherTrackHeights = useMemo(() => {
+		return otherTrackLayout.map((item) => item.height);
+	}, [otherTrackLayout]);
+
+	const otherTracksHeight = useMemo(() => {
+		return otherTrackLayout.reduce((sum, item) => sum + item.height, 0);
+	}, [otherTrackLayout]);
+	const mainTrackHeight = useMemo(() => {
+		return trackLayoutByIndex.get(0)?.height ?? MAIN_TRACK_HEIGHT;
+	}, [trackLayoutByIndex]);
 	const selectionBox = useMemo(() => {
 		if (!selectionRect.visible) return null;
 		const x = Math.min(selectionRect.x1, selectionRect.x2);
@@ -622,7 +652,7 @@ const TimelineEditor = () => {
 	const otherTimelineItems = useMemo(() => {
 		if (otherTrackCount === 0) return null;
 
-		const containerHeight = otherTrackCount * trackHeight;
+		const containerHeight = otherTracksHeight;
 
 		return (
 			<div
@@ -634,10 +664,9 @@ const TimelineEditor = () => {
 			>
 				{otherTrackElements.map((element) => {
 					const trackIndex = trackAssignments.get(element.id) ?? 0;
-					// 计算 Y 坐标：在其他轨道区域内，轨道 1 在底部，轨道号越大越靠上
-					// trackIndex 1 -> y = (otherTrackCount - 1) * trackHeight
-					// trackIndex 2 -> y = (otherTrackCount - 2) * trackHeight
-					const y = (otherTrackCount - trackIndex) * trackHeight;
+					const layoutItem = trackLayoutByIndex.get(trackIndex);
+					const y = layoutItem?.y ?? 0;
+					const elementTrackHeight = layoutItem?.height ?? OTHER_TRACK_HEIGHT;
 					return (
 						<TimelineElement
 							key={element.id}
@@ -645,7 +674,7 @@ const TimelineEditor = () => {
 							trackIndex={trackIndex}
 							trackY={y}
 							ratio={ratio}
-							trackHeight={trackHeight}
+							trackHeight={elementTrackHeight}
 							trackCount={trackCount}
 							updateTimeRange={updateTimeRange}
 						/>
@@ -661,20 +690,22 @@ const TimelineEditor = () => {
 		trackAssignments,
 		trackCount,
 		otherTrackCount,
-		trackHeight,
+		otherTracksHeight,
+		trackLayoutByIndex,
 	]);
 
 	// 主轨道的时间线项目
 	const mainTimelineItems = useMemo(() => {
 		// 主轨道在整体布局中的 Y 坐标（用于拖拽计算）
-		const mainTrackYInGlobalLayout = (trackCount - 1) * trackHeight;
+		const mainTrackYInGlobalLayout =
+			trackLayoutByIndex.get(0)?.y ?? otherTracksHeight;
 
 		return (
 			<div
 				className="relative"
 				style={{
 					transform: `translateX(-${scrollLeft}px)`,
-					height: trackHeight,
+					height: mainTrackHeight,
 				}}
 			>
 				{mainTrackElements.map((element) => {
@@ -685,7 +716,7 @@ const TimelineEditor = () => {
 							trackIndex={0}
 							trackY={mainTrackYInGlobalLayout}
 							ratio={ratio}
-							trackHeight={trackHeight}
+							trackHeight={mainTrackHeight}
 							trackCount={trackCount}
 							updateTimeRange={updateTimeRange}
 						/>
@@ -699,40 +730,36 @@ const TimelineEditor = () => {
 		ratio,
 		updateTimeRange,
 		trackCount,
-		trackHeight,
+		trackLayoutByIndex,
+		otherTracksHeight,
+		mainTrackHeight,
 	]);
 
 	// 其他轨道标签（不包括主轨道）
 	const otherTrackLabels = useMemo(() => {
 		if (otherTrackCount === 0) return null;
-		const labels = [];
-		for (let i = 0; i < otherTrackCount; i++) {
-			// 轨道 1 在底部，轨道号越大越靠上
-			const trackIndex = otherTrackCount - i;
-			labels.push(
-				<div
-					key={trackIndex}
-					className="flex items-center justify-end pr-3 text-xs font-medium text-neutral-400"
-					style={{ height: trackHeight }}
-				>
-					{`轨道 ${trackIndex}`}
-				</div>,
-			);
-		}
-		return labels;
-	}, [otherTrackCount, trackHeight]);
+		return otherTrackLayout.map((item) => (
+			<div
+				key={item.index}
+				className="flex items-center justify-end pr-3 text-xs font-medium text-neutral-400"
+				style={{ height: item.height }}
+			>
+				{`轨道 ${item.role}`}
+			</div>
+		));
+	}, [otherTrackCount, otherTrackLayout]);
 
 	// 主轨道标签
 	const mainTrackLabel = useMemo(() => {
 		return (
 			<div
 				className="flex items-center justify-end pr-3 text-xs font-medium text-blue-400"
-				style={{ height: trackHeight }}
+				style={{ height: mainTrackHeight }}
 			>
 				主轨道
 			</div>
 		);
-	}, [trackHeight]);
+	}, [mainTrackHeight]);
 
 	// 吸附指示线
 	const snapIndicator = useMemo(() => {
@@ -835,7 +862,7 @@ const TimelineEditor = () => {
 								ref={containerRef}
 								data-track-drop-zone="other"
 								data-track-count={otherTrackCount}
-								data-track-height={trackHeight}
+								data-track-heights={otherTrackHeights.join(",")}
 								className="relative flex-1 overflow-x-hidden pt-1.5 flex flex-col justify-end"
 								style={{
 									paddingLeft: leftColumnWidth,
@@ -846,7 +873,7 @@ const TimelineEditor = () => {
 									<div
 										className="relative"
 										data-track-content-area="other"
-										data-content-height={otherTrackCount * trackHeight}
+										data-content-height={otherTracksHeight}
 									>
 										{otherTimelineItems}
 									</div>
@@ -905,7 +932,8 @@ const TimelineEditor = () => {
 					ratio={ratio}
 					scrollLeft={scrollLeft}
 					otherTrackCount={otherTrackCount}
-					trackHeight={trackHeight}
+					otherTrackHeights={otherTrackHeights}
+					mainTrackHeight={mainTrackHeight}
 					timelinePaddingLeft={timelinePaddingLeft}
 				/>
 			</div>

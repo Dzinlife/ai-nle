@@ -13,8 +13,14 @@ import {
 	calculateDragResult,
 	calculateFinalTrack,
 	DEFAULT_ELEMENT_HEIGHT,
+	SIGNIFICANT_VERTICAL_MOVE_RATIO,
 } from "./index";
 import { applySnap, applySnapForDrag, collectSnapPoints } from "../utils/snap";
+import {
+	getElementRole,
+	getDropTargetFromHeights,
+	resolveDropTargetForRole,
+} from "../utils/trackAssignment";
 import { useTimelineStore } from "../contexts/TimelineContext";
 
 interface UseTimelineElementDndOptions {
@@ -24,6 +30,7 @@ interface UseTimelineElementDndOptions {
 	ratio: number;
 	trackHeight: number;
 	trackCount: number;
+	trackAssignments: Map<string, number>;
 	maxDuration?: number;
 	elements: TimelineElement[];
 	currentTime: number;
@@ -81,6 +88,13 @@ const findDropTargetFromScreenPosition = (
 	otherTrackCountFallback: number,
 	trackHeightFallback: number,
 ): { trackIndex: number; type: "track" | "gap" } => {
+	const parseTrackHeights = (value?: string): number[] => {
+		if (!value) return [];
+		return value
+			.split(",")
+			.map((part) => parseInt(part, 10))
+			.filter((height) => Number.isFinite(height) && height > 0);
+	};
 	const mainZone = document.querySelector<HTMLElement>(
 		'[data-track-drop-zone="main"]',
 	);
@@ -116,6 +130,7 @@ const findDropTargetFromScreenPosition = (
 		);
 		const zoneTrackHeight =
 			datasetTrackHeight > 0 ? datasetTrackHeight : trackHeightFallback;
+		const trackHeights = parseTrackHeights(otherZone.dataset.trackHeights);
 
 		if (
 			mouseY >= rect.top &&
@@ -134,8 +149,27 @@ const findDropTargetFromScreenPosition = (
 			}
 
 			const contentRelativeY = mouseY - contentTop;
+			if (trackHeights.length > 0) {
+				const dropTarget = getDropTargetFromHeights(
+					contentRelativeY,
+					trackHeights,
+					otherTrackCount,
+				);
+				if (dropTarget) {
+					const maxTrackIndex =
+						dropTarget.type === "gap"
+							? otherTrackCount + 1
+							: otherTrackCount;
+					const targetTrackIndex = Math.max(
+						1,
+						Math.min(maxTrackIndex, dropTarget.trackIndex),
+					);
+					return { ...dropTarget, trackIndex: targetTrackIndex };
+				}
+			}
+
 			if (contentRelativeY < 0) {
-				return { trackIndex: otherTrackCount, type: "track" };
+				return { trackIndex: otherTrackCount + 1, type: "gap" };
 			}
 
 			const trackFromTop = Math.floor(contentRelativeY / zoneTrackHeight);
@@ -201,6 +235,7 @@ export const useTimelineElementDnd = ({
 	ratio,
 	trackHeight,
 	trackCount,
+	trackAssignments,
 	maxDuration,
 	elements,
 	currentTime,
@@ -232,6 +267,8 @@ export const useTimelineElementDnd = ({
 		currentStart: element.timeline.start,
 		currentEnd: element.timeline.end,
 	});
+	const elementRole = getElementRole(element);
+	const elementHeight = Math.min(DEFAULT_ELEMENT_HEIGHT, trackHeight);
 	const dragSelectedIdsRef = useRef<string[]>([]);
 	const dragInitialElementsRef = useRef<
 		Map<string, { start: number; end: number; trackIndex: number }>
@@ -424,7 +461,7 @@ export const useTimelineElementDnd = ({
 							screenX: xy[0] - initialMouseOffsetRef.current.x,
 							screenY: xy[1] - initialMouseOffsetRef.current.y,
 							width: ghostWidth,
-							height: DEFAULT_ELEMENT_HEIGHT,
+							height: elementHeight,
 							clonedHtml: clonedHtmlRef.current,
 						},
 					]);
@@ -497,11 +534,25 @@ export const useTimelineElementDnd = ({
 
 				const initialMap = dragInitialElementsRef.current;
 				const draggedInitial = initialMap.get(element.id);
-				const dropTarget = findDropTargetFromScreenPosition(
-					xy[0],
-					xy[1],
-					otherTrackCount,
-					trackHeight,
+				const hasSignificantVerticalMove =
+					Math.abs(my) > trackHeight * SIGNIFICANT_VERTICAL_MOVE_RATIO;
+				const baseDropTarget = hasSignificantVerticalMove
+					? findDropTargetFromScreenPosition(
+							xy[0],
+							xy[1],
+							otherTrackCount,
+							trackHeight,
+					  )
+					: {
+							trackIndex:
+								draggedInitial?.trackIndex ?? dragRefs.current.initialTrack,
+							type: "track" as const,
+					  };
+				const resolvedDropTarget = resolveDropTargetForRole(
+					baseDropTarget,
+					elementRole,
+					elements,
+					trackAssignments,
 				);
 				const baseElements =
 					initialElementsSnapshotRef.current.length > 0
@@ -528,7 +579,7 @@ export const useTimelineElementDnd = ({
 				});
 
 				const finalTrackResult = calculateFinalTrack(
-					dropTarget,
+					resolvedDropTarget,
 					timeRange,
 					tempElements,
 					element.id,
@@ -553,6 +604,25 @@ export const useTimelineElementDnd = ({
 
 				if (last) {
 					const selectedSet = new Set(dragSelectedIdsRef.current);
+				const selectedTrackIndices = new Set<number>();
+				for (const selectedId of selectedSet) {
+					const initial = initialMap.get(selectedId);
+					if (initial) {
+						selectedTrackIndices.add(initial.trackIndex);
+					}
+				}
+				const singleTrackSelection = selectedTrackIndices.size === 1;
+				const selectedTrackIndex = singleTrackSelection
+					? [...selectedTrackIndices][0]
+					: null;
+				const isFullTrackSelection =
+					singleTrackSelection &&
+					selectedTrackIndex !== null &&
+					baseElements
+						.filter(
+							(el) => (el.timeline.trackIndex ?? 0) === selectedTrackIndex,
+						)
+						.every((el) => selectedSet.has(el.id));
 					const baseElementMap = new Map(
 						baseElements.map((el) => [el.id, el]),
 					);
@@ -564,8 +634,8 @@ export const useTimelineElementDnd = ({
 							if (!parentInitial) continue;
 							const isLeavingMainTrack =
 								parentInitial.trackIndex === 0 &&
-								trackDelta !== 0 &&
-								(dropTarget.type === "gap" ||
+								hasSignificantVerticalMove &&
+								(resolvedDropTarget.type === "gap" ||
 									finalTrackResult.trackIndex > 0);
 							if (isLeavingMainTrack) continue;
 							const childIds = attachments.get(parentId) ?? [];
@@ -585,37 +655,94 @@ export const useTimelineElementDnd = ({
 						}
 					}
 
-					setElements((prev) =>
-						prev.map((el) => {
-							if (selectedSet.has(el.id)) {
-								const initial = initialMap.get(el.id);
-								if (!initial) return el;
-								return {
-									...el,
-									timeline: {
-										...el.timeline,
-										start: initial.start + deltaTime,
-										end: initial.end + deltaTime,
-										trackIndex: Math.max(0, initial.trackIndex + trackDelta),
-									},
-								};
-							}
+				const maxTrackIndex = Math.max(
+					1,
+					...baseElements.map((el) => el.timeline.trackIndex ?? 0),
+				);
+				const rawTargetTrack =
+					resolvedDropTarget.type === "gap"
+						? resolvedDropTarget.trackIndex - 1
+						: resolvedDropTarget.trackIndex;
+				const targetTrackIndex = Math.max(
+					1,
+					Math.min(maxTrackIndex, rawTargetTrack),
+				);
+				const shouldReorderTracks =
+					hasSignificantVerticalMove &&
+					isFullTrackSelection &&
+					selectedTrackIndex !== null;
+				const remapTrackIndex = (trackIndex: number) => {
+					if (!shouldReorderTracks) return trackIndex;
+					if (trackIndex === 0) return 0;
+					if (selectedTrackIndex === targetTrackIndex) return trackIndex;
+					if (trackIndex === selectedTrackIndex) {
+						return targetTrackIndex;
+					}
+					if (targetTrackIndex > selectedTrackIndex) {
+						if (
+							trackIndex > selectedTrackIndex &&
+							trackIndex <= targetTrackIndex
+						) {
+							return trackIndex - 1;
+						}
+					} else if (targetTrackIndex < selectedTrackIndex) {
+						if (
+							trackIndex >= targetTrackIndex &&
+							trackIndex < selectedTrackIndex
+						) {
+							return trackIndex + 1;
+						}
+					}
+					return trackIndex;
+				};
 
-							const childMove = movedChildren.get(el.id);
-							if (childMove) {
-								return {
-									...el,
-									timeline: {
-										...el.timeline,
-										start: childMove.start,
-										end: childMove.end,
-									},
-								};
-							}
+				setElements((prev) =>
+					prev.map((el) => {
+						const baseTrack = el.timeline.trackIndex ?? 0;
+						const nextTrack = remapTrackIndex(baseTrack);
 
-							return el;
-						}),
-					);
+						if (selectedSet.has(el.id)) {
+							const initial = initialMap.get(el.id);
+							if (!initial) return el;
+							return {
+								...el,
+								timeline: {
+									...el.timeline,
+									start: initial.start + deltaTime,
+									end: initial.end + deltaTime,
+									trackIndex: shouldReorderTracks
+										? nextTrack
+										: Math.max(0, initial.trackIndex + trackDelta),
+								},
+							};
+						}
+
+						const childMove = movedChildren.get(el.id);
+						if (childMove) {
+							return {
+								...el,
+								timeline: {
+									...el.timeline,
+									start: childMove.start,
+									end: childMove.end,
+									trackIndex: nextTrack,
+								},
+							};
+						}
+
+						if (nextTrack !== baseTrack) {
+							return {
+								...el,
+								timeline: {
+									...el.timeline,
+									trackIndex: nextTrack,
+								},
+							};
+						}
+
+						return el;
+					}),
+				);
 
 					setIsDragging(false);
 					setActiveSnapPoint(null);
@@ -672,16 +799,25 @@ export const useTimelineElementDnd = ({
 				initialTrackIndex: dragRefs.current.initialTrack,
 				trackHeight,
 				trackCount,
-				elementHeight: DEFAULT_ELEMENT_HEIGHT,
+				elementHeight,
 			});
 
-			const dropTarget = findDropTargetFromScreenPosition(
-				xy[0],
-				xy[1],
-				otherTrackCount,
-				trackHeight,
+			const hasSignificantVerticalMove =
+				Math.abs(my) > trackHeight * SIGNIFICANT_VERTICAL_MOVE_RATIO;
+			const baseDropTarget = hasSignificantVerticalMove
+				? findDropTargetFromScreenPosition(
+						xy[0],
+						xy[1],
+						otherTrackCount,
+						trackHeight,
+				  )
+				: { trackIndex, type: "track" as const };
+			const resolvedDropTarget = resolveDropTargetForRole(
+				baseDropTarget,
+				elementRole,
+				elements,
+				trackAssignments,
 			);
-			const hasSignificantVerticalMove = dropTarget.trackIndex !== trackIndex;
 
 			let { newStart, newEnd } = dragResult;
 			const { newY } = dragResult;
@@ -709,7 +845,8 @@ export const useTimelineElementDnd = ({
 					const isLeavingMainTrack =
 						originalTrackIndex === 0 &&
 						hasSignificantVerticalMove &&
-						(dropTarget.type === "gap" || dropTarget.trackIndex > 0);
+						(resolvedDropTarget.type === "gap" ||
+							resolvedDropTarget.trackIndex > 0);
 
 					const attachedChildren: { id: string; start: number; end: number }[] =
 						[];
@@ -735,7 +872,7 @@ export const useTimelineElementDnd = ({
 						element.id,
 						newStart,
 						newEnd,
-						dropTarget,
+						resolvedDropTarget,
 						attachedChildren,
 					);
 				}
@@ -753,7 +890,7 @@ export const useTimelineElementDnd = ({
 						screenX: xy[0] - initialMouseOffsetRef.current.x,
 						screenY: xy[1] - initialMouseOffsetRef.current.y,
 						width: ghostWidth,
-						height: DEFAULT_ELEMENT_HEIGHT,
+						height: elementHeight,
 						clonedHtml: clonedHtmlRef.current,
 					},
 				]);
@@ -765,7 +902,7 @@ export const useTimelineElementDnd = ({
 				);
 
 				const finalTrackResult = calculateFinalTrack(
-					dropTarget,
+					resolvedDropTarget,
 					{ start: newStart, end: newEnd },
 					tempElements,
 					element.id,
@@ -777,7 +914,7 @@ export const useTimelineElementDnd = ({
 					trackIndex:
 						finalTrackResult.displayType === "gap"
 							? finalTrackResult.trackIndex
-							: dropTarget.trackIndex,
+							: resolvedDropTarget.trackIndex,
 					elementId: element.id,
 					start: newStart,
 					end: newEnd,

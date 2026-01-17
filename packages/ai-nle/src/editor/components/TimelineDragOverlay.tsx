@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { DragGhostState } from "../contexts/TimelineContext";
 import { DEFAULT_ELEMENT_HEIGHT } from "../timeline/trackConfig";
 import { ExtendedDropTarget } from "../timeline/types";
+import { getTrackYFromHeights } from "../utils/trackAssignment";
 
 interface TimelineDragOverlayProps {
 	activeDropTarget: ExtendedDropTarget | null;
@@ -10,7 +11,8 @@ interface TimelineDragOverlayProps {
 	ratio: number;
 	scrollLeft: number;
 	otherTrackCount: number;
-	trackHeight: number;
+	otherTrackHeights: number[];
+	mainTrackHeight: number;
 	timelinePaddingLeft?: number;
 }
 
@@ -20,7 +22,8 @@ const TimelineDragOverlay: React.FC<TimelineDragOverlayProps> = ({
 	ratio,
 	scrollLeft,
 	otherTrackCount,
-	trackHeight,
+	otherTrackHeights,
+	mainTrackHeight,
 	timelinePaddingLeft = 0,
 }) => {
 	const dropIndicatorPortal = useMemo(() => {
@@ -28,6 +31,23 @@ const TimelineDragOverlay: React.FC<TimelineDragOverlayProps> = ({
 
 		const elementWidth =
 			(activeDropTarget.end - activeDropTarget.start) * ratio;
+		const resolveOtherTrackHeight = (trackIndex: number) => {
+			if (otherTrackCount <= 0 || otherTrackHeights.length === 0) {
+				return DEFAULT_ELEMENT_HEIGHT;
+			}
+			const trackFromTop = otherTrackCount - trackIndex;
+			const boundedIndex = Math.max(
+				0,
+				Math.min(otherTrackHeights.length - 1, trackFromTop),
+			);
+			return otherTrackHeights[boundedIndex];
+		};
+		const indicatorHeight = Math.min(
+			DEFAULT_ELEMENT_HEIGHT,
+			activeDropTarget.finalTrackIndex === 0
+				? mainTrackHeight
+				: resolveOtherTrackHeight(activeDropTarget.finalTrackIndex),
+		);
 
 		let targetZone: HTMLElement | null = null;
 		let screenX = 0;
@@ -60,8 +80,11 @@ const TimelineDragOverlay: React.FC<TimelineDragOverlayProps> = ({
 					const contentRect = contentArea.getBoundingClientRect();
 
 					if (activeDropTarget.type === "gap") {
-						const gapY =
-							(otherTrackCount - activeDropTarget.trackIndex + 1) * trackHeight;
+						const gapY = getTrackYFromHeights(
+							activeDropTarget.trackIndex - 1,
+							otherTrackHeights,
+							otherTrackCount,
+						);
 						screenX = contentRect.left - timelinePaddingLeft;
 						screenY = contentRect.top + gapY - 3.5;
 
@@ -78,8 +101,11 @@ const TimelineDragOverlay: React.FC<TimelineDragOverlayProps> = ({
 						return createPortal(indicator, document.body);
 					}
 
-					const trackY =
-						(otherTrackCount - activeDropTarget.finalTrackIndex) * trackHeight;
+					const trackY = getTrackYFromHeights(
+						activeDropTarget.finalTrackIndex,
+						otherTrackHeights,
+						otherTrackCount,
+					);
 					screenX =
 						contentRect.left + activeDropTarget.start * ratio - scrollLeft;
 					screenY = contentRect.top + trackY;
@@ -96,13 +122,20 @@ const TimelineDragOverlay: React.FC<TimelineDragOverlayProps> = ({
 					left: screenX,
 					top: screenY,
 					width: elementWidth,
-					height: DEFAULT_ELEMENT_HEIGHT,
+					height: indicatorHeight,
 				}}
 			/>
 		);
 
 		return createPortal(indicator, document.body);
-	}, [activeDropTarget, ratio, scrollLeft, otherTrackCount, trackHeight]);
+	}, [
+		activeDropTarget,
+		ratio,
+		scrollLeft,
+		otherTrackCount,
+		otherTrackHeights,
+		mainTrackHeight,
+	]);
 
 	const ghostElement = useMemo(() => {
 		if (!dragGhosts.length) return null;

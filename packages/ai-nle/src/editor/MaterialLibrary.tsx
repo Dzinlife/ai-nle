@@ -13,6 +13,10 @@ import {
 	type DropTargetInfo,
 	type MaterialDragData,
 } from "./drag";
+import {
+	getTrackHitFromHeights,
+	getTrackYFromHeights,
+} from "./utils/trackAssignment";
 
 // ============================================================================
 // 类型定义
@@ -154,6 +158,7 @@ const MaterialCard: React.FC<MaterialCardProps> = ({ item, onTimelineDrop, onPre
 				10,
 			);
 			const trackHeight = parseInt(otherZone.dataset.trackHeight || "60", 10);
+			const trackHeights = parseTrackHeights(otherZone.dataset.trackHeights);
 
 			if (
 				mouseY >= rect.top &&
@@ -168,11 +173,27 @@ const MaterialCard: React.FC<MaterialCardProps> = ({ item, onTimelineDrop, onPre
 				if (contentArea) {
 					const contentRect = contentArea.getBoundingClientRect();
 					const contentRelativeY = mouseY - contentRect.top;
-					const trackFromTop = Math.floor(contentRelativeY / trackHeight);
-					const targetTrackIndex = Math.max(
-						1,
-						Math.min(otherTrackCount, otherTrackCount - trackFromTop),
-					);
+					let targetTrackIndex: number | null = null;
+					if (trackHeights.length > 0) {
+						const hit = getTrackHitFromHeights(
+							contentRelativeY,
+							trackHeights,
+							otherTrackCount,
+						);
+						if (hit) {
+							targetTrackIndex = Math.max(
+								1,
+								Math.min(otherTrackCount, hit.trackIndex),
+							);
+						}
+					}
+					if (targetTrackIndex === null) {
+						const trackFromTop = Math.floor(contentRelativeY / trackHeight);
+						targetTrackIndex = Math.max(
+							1,
+							Math.min(otherTrackCount, otherTrackCount - trackFromTop),
+						);
+					}
 
 					const scrollLeft = useDragStore.getState().timelineScrollLeft;
 					const ratio = 50;
@@ -335,6 +356,14 @@ function formatDuration(seconds: number): string {
 	return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
+function parseTrackHeights(value?: string): number[] {
+	if (!value) return [];
+	return value
+		.split(",")
+		.map((part) => parseInt(part, 10))
+		.filter((height) => Number.isFinite(height) && height > 0);
+}
+
 // ============================================================================
 // Ghost 渲染组件
 // ============================================================================
@@ -424,7 +453,7 @@ const MaterialDropIndicator: React.FC = () => {
 	let targetZone: HTMLElement | null = null;
 	let screenX = 0;
 	let screenY = 0;
-	const trackHeight = 60;
+	let indicatorHeight = 40;
 
 	if (trackIndex === 0) {
 		targetZone = document.querySelector<HTMLElement>(
@@ -439,6 +468,7 @@ const MaterialDropIndicator: React.FC = () => {
 				const scrollLeft = useDragStore.getState().timelineScrollLeft;
 				screenX = contentRect.left + time * ratio - scrollLeft;
 				screenY = contentRect.top;
+				indicatorHeight = contentRect.height || indicatorHeight;
 			}
 		}
 	} else {
@@ -453,12 +483,31 @@ const MaterialDropIndicator: React.FC = () => {
 				targetZone.dataset.trackCount || "0",
 				10,
 			);
+			const trackHeights = parseTrackHeights(targetZone.dataset.trackHeights);
+			const fallbackTrackHeight = parseInt(
+				targetZone.dataset.trackHeight || "60",
+				10,
+			);
 			if (contentArea) {
 				const contentRect = contentArea.getBoundingClientRect();
 				const scrollLeft = useDragStore.getState().timelineScrollLeft;
-				const trackY = (otherTrackCount - trackIndex) * trackHeight;
+				const trackFromTop = otherTrackCount - trackIndex;
+				const trackHeightForIndex =
+					trackHeights.length > 0
+						? trackHeights[
+								Math.max(
+									0,
+									Math.min(trackHeights.length - 1, trackFromTop),
+								)
+						  ]
+						: fallbackTrackHeight;
+				const trackY =
+					trackHeights.length > 0
+						? getTrackYFromHeights(trackIndex, trackHeights, otherTrackCount)
+						: (otherTrackCount - trackIndex) * fallbackTrackHeight;
 				screenX = contentRect.left + time * ratio - scrollLeft;
 				screenY = contentRect.top + trackY;
+				indicatorHeight = trackHeightForIndex;
 			}
 		}
 	}
@@ -472,7 +521,7 @@ const MaterialDropIndicator: React.FC = () => {
 				left: screenX,
 				top: screenY,
 				width: elementWidth,
-				height: 40,
+				height: indicatorHeight,
 			}}
 		/>,
 		document.body,

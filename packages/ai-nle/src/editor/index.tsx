@@ -67,33 +67,36 @@ const EditorContent: React.FC = () => {
 	// 处理素材库拖拽放置到时间线
 	const handleTimelineDrop = useCallback(
 		(item: MaterialItem, trackIndex: number, time: number) => {
-			const newElement = {
-				id: `element-${Date.now()}`,
-				type: "Image" as const,
-				name: item.name,
-				props: {
-					uri: item.uri,
-				},
-				transform: {
-					centerX: 0,
-					centerY: 0,
-					width: item.width ?? 1920,
-					height: item.height ?? 1080,
-					rotation: 0,
-				},
-				timeline: {
-					start: time,
-					end: time + 5,
-					trackIndex,
-				},
-				render: {
-					zIndex: 0,
-					visible: true,
-					opacity: 1,
-				},
-			};
+			setElements((prev) => {
+				const newElement: TimelineElement = {
+					id: `element-${Date.now()}`,
+					type: "Image" as const,
+					name: item.name,
+					props: {
+						uri: item.uri,
+					},
+					transform: {
+						centerX: 0,
+						centerY: 0,
+						width: item.width ?? 1920,
+						height: item.height ?? 1080,
+						rotation: 0,
+					},
+					timeline: {
+						start: time,
+						end: time + 5,
+						trackIndex,
+						role: "clip",
+					},
+					render: {
+						zIndex: 0,
+						visible: true,
+						opacity: 1,
+					},
+				};
 
-			setElements((prev) => [...prev, newElement]);
+				return [...prev, newElement];
+			});
 		},
 		[setElements],
 	);
@@ -104,33 +107,36 @@ const EditorContent: React.FC = () => {
 			const elementWidth = item.width ?? 400;
 			const elementHeight = item.height ?? 300;
 
-			const newElement = {
-				id: `element-${Date.now()}`,
-				type: "Image" as const,
-				name: item.name,
-				props: {
-					uri: item.uri,
-				},
-				transform: {
-					centerX: canvasX,
-					centerY: canvasY,
-					width: elementWidth,
-					height: elementHeight,
-					rotation: 0,
-				},
-				timeline: {
-					start: currentTime,
-					end: currentTime + 5,
-					trackIndex: 1, // 默认放到轨道 1（非主轨道）
-				},
-				render: {
-					zIndex: 0,
-					visible: true,
-					opacity: 1,
-				},
-			};
+			setElements((prev) => {
+				const newElement: TimelineElement = {
+					id: `element-${Date.now()}`,
+					type: "Image" as const,
+					name: item.name,
+					props: {
+						uri: item.uri,
+					},
+					transform: {
+						centerX: canvasX,
+						centerY: canvasY,
+						width: elementWidth,
+						height: elementHeight,
+						rotation: 0,
+					},
+					timeline: {
+						start: currentTime,
+						end: currentTime + 5,
+						trackIndex: 1, // 默认放到轨道 1（非主轨道）
+						role: "clip",
+					},
+					render: {
+						zIndex: 0,
+						visible: true,
+						opacity: 1,
+					},
+				};
 
-			setElements((prev) => [...prev, newElement]);
+				return [...prev, newElement];
+			});
 		},
 		[setElements, currentTime],
 	);

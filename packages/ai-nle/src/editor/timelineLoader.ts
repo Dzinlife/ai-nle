@@ -2,6 +2,7 @@ import type {
 	RenderMeta,
 	TimelineElement,
 	TimelineMeta,
+	TrackRole,
 	TransformMeta,
 } from "../dsl/types";
 
@@ -188,9 +189,38 @@ function validateTimelineProps(timeline: any, path: string): TimelineMeta {
 		throw new Error(`${path}.end: must be greater than start`);
 	}
 
+	if (timeline.trackIndex !== undefined) {
+		if (typeof timeline.trackIndex !== "number" || timeline.trackIndex < 0) {
+			throw new Error(`${path}.trackIndex: must be a non-negative number`);
+		}
+	}
+
+	let role: TrackRole | undefined;
+	if (timeline.role !== undefined) {
+		if (typeof timeline.role !== "string") {
+			throw new Error(`${path}.role: must be a string`);
+		}
+		const normalizedRole = timeline.role;
+		if (
+			normalizedRole !== "clip" &&
+			normalizedRole !== "overlay" &&
+			normalizedRole !== "effect" &&
+			normalizedRole !== "audio"
+		) {
+			throw new Error(
+				`${path}.role: must be one of clip | overlay | effect | audio`,
+			);
+		}
+		role = normalizedRole as TrackRole;
+	}
+
 	return {
 		start: timeline.start,
 		end: timeline.end,
+		...(timeline.trackIndex !== undefined
+			? { trackIndex: timeline.trackIndex }
+			: {}),
+		...(role ? { role } : {}),
 	};
 }
 

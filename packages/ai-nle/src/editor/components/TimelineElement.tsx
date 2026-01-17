@@ -97,7 +97,7 @@ const ElementContent: React.FC<ElementContentProps> = ({
 	if (definition?.Timeline && hasModel) {
 		const TimelineComponent = definition.Timeline;
 		return (
-			<div className="size-full h-8 mt-auto text-white">
+			<div className="size-full text-white">
 				<TimelineComponent id={id} {...props} start={startTime} end={endTime} />
 			</div>
 		);
@@ -220,7 +220,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	const { elements, setElements } = useElements();
 	const currentTime = useTimelineStore((state) => state.currentTime);
 	const { attachments, autoAttach } = useAttachments();
-	const { moveWithAttachments } = useTrackAssignments();
+	const { moveWithAttachments, trackAssignments } = useTrackAssignments();
 	const {
 		updateAutoScrollFromPosition,
 		updateAutoScrollYFromPosition,
@@ -260,6 +260,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	const currentDuration = endTime - startTime;
 	const isAtMaxDuration =
 		maxDuration !== undefined && Math.abs(currentDuration - maxDuration) < 0.01;
+	const elementHeight = Math.min(DEFAULT_ELEMENT_HEIGHT, trackHeight);
 
 	const { bindLeftDrag, bindRightDrag, bindBodyDrag } = useTimelineElementDnd({
 		element,
@@ -268,6 +269,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 		ratio,
 		trackHeight,
 		trackCount,
+		trackAssignments,
 		maxDuration,
 		elements,
 		currentTime,
@@ -329,7 +331,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				left,
 				width: width - 1,
 				top: displayY,
-				height: DEFAULT_ELEMENT_HEIGHT,
+				height: elementHeight,
 				// 拖拽时降低透明度，但保持在 DOM 中以维持拖拽手势
 				opacity: isBeingDragged ? (isMultiDragging ? 0.5 : 0) : 1,
 			}}

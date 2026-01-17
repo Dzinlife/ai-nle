@@ -1,9 +1,182 @@
-import { TimelineElement } from "@/dsl/types";
+import { TimelineElement, TrackRole } from "@/dsl/types";
 
 /**
  * 主轨道索引（固定为 0，显示在最底部）
  */
 export const MAIN_TRACK_INDEX = 0;
+
+/**
+ * 轨道高度（基于 role）
+ */
+export const MAIN_TRACK_HEIGHT = 60;
+export const OTHER_TRACK_HEIGHT = 30;
+
+export function getTrackHeightByRole(role: TrackRole): number {
+	return role === "clip" ? MAIN_TRACK_HEIGHT : OTHER_TRACK_HEIGHT;
+}
+
+const elementRoleMap = new Map<string, TrackRole>([
+	["Clip", "clip"],
+	["Image", "clip"],
+	["CloudBackground", "clip"],
+	["ColorFilterLayer", "effect"],
+	["BackdropZoom", "effect"],
+	["Lottie", "overlay"],
+]);
+
+/**
+ * 获取元素 role（缺省时按轨道索引兜底）
+ */
+export function getElementRole(element: TimelineElement): TrackRole {
+	if (element.timeline.role) {
+		return element.timeline.role;
+	}
+
+	const mappedRole = elementRoleMap.get(element.type);
+	if (mappedRole) {
+		return mappedRole;
+	}
+
+	return "clip";
+}
+
+/**
+ * 轨道是否允许该角色
+ */
+export function isRoleCompatibleWithTrack(
+	role: TrackRole,
+	trackIndex: number,
+): boolean {
+	return trackIndex !== MAIN_TRACK_INDEX || role === "clip";
+}
+
+/**
+ * 计算轨道角色映射（基于分配结果）
+ */
+export function getTrackRoleMap(
+	elements: TimelineElement[],
+	assignments: Map<string, number>,
+): Map<number, TrackRole> {
+	const roleMap = new Map<number, TrackRole>();
+
+	for (const el of elements) {
+		const trackIndex = assignments.get(el.id) ?? el.timeline.trackIndex ?? 0;
+		if (trackIndex === MAIN_TRACK_INDEX) {
+			roleMap.set(MAIN_TRACK_INDEX, "clip");
+			continue;
+		}
+		if (!roleMap.has(trackIndex)) {
+			roleMap.set(trackIndex, getElementRole(el));
+		}
+	}
+
+	if (!roleMap.has(MAIN_TRACK_INDEX)) {
+		roleMap.set(MAIN_TRACK_INDEX, "clip");
+	}
+
+	return roleMap;
+}
+
+/**
+ * 计算每个轨道高度（基于角色映射）
+ */
+export function getTrackHeightsByIndex(
+	elements: TimelineElement[],
+	assignments: Map<string, number>,
+): Map<number, number> {
+	const heights = new Map<number, number>();
+	const maxIndex = Math.max(0, ...assignments.values());
+	const roleMap = getTrackRoleMap(elements, assignments);
+
+	for (let i = 0; i <= maxIndex; i++) {
+		const role =
+			roleMap.get(i) ?? (i === MAIN_TRACK_INDEX ? "clip" : "overlay");
+		heights.set(i, getTrackHeightByRole(role));
+	}
+
+	return heights;
+}
+
+export interface TrackLayoutItem {
+	index: number;
+	role: TrackRole;
+	height: number;
+	/** 轨道顶部相对 Y（从最高轨道开始计） */
+	y: number;
+}
+
+/**
+ * 构建轨道布局（从上到下）
+ */
+export function buildTrackLayout(
+	elements: TimelineElement[],
+	assignments: Map<string, number>,
+): TrackLayoutItem[] {
+	const roleMap = getTrackRoleMap(elements, assignments);
+	const maxIndex = Math.max(0, ...assignments.values());
+	const layout: TrackLayoutItem[] = [];
+	let currentY = 0;
+
+	for (let i = maxIndex; i >= 0; i--) {
+		const role =
+			roleMap.get(i) ?? (i === MAIN_TRACK_INDEX ? "clip" : "overlay");
+		const height = getTrackHeightByRole(role);
+		layout.push({
+			index: i,
+			role,
+			height,
+			y: currentY,
+		});
+		currentY += height;
+	}
+
+	return layout;
+}
+
+/**
+ * 检查轨道角色冲突（基于分配结果）
+ */
+export function hasRoleConflictOnTrack(
+	role: TrackRole,
+	trackIndex: number,
+	elements: TimelineElement[],
+	assignments: Map<string, number>,
+	excludeId?: string,
+): boolean {
+	if (!isRoleCompatibleWithTrack(role, trackIndex)) {
+		return true;
+	}
+	for (const el of elements) {
+		if (el.id === excludeId) continue;
+		const elTrack = assignments.get(el.id);
+		if (elTrack !== trackIndex) continue;
+		const elRole = getElementRole(el);
+		if (elRole !== role) return true;
+	}
+	return false;
+}
+
+/**
+ * 检查轨道角色冲突（基于存储的 trackIndex）
+ */
+export function hasRoleConflictOnStoredTrack(
+	role: TrackRole,
+	trackIndex: number,
+	elements: TimelineElement[],
+	excludeId?: string,
+): boolean {
+	if (!isRoleCompatibleWithTrack(role, trackIndex)) {
+		return true;
+	}
+	for (const el of elements) {
+		if (el.id === excludeId) continue;
+		const elTrack = el.timeline.trackIndex ?? 0;
+		if (elTrack !== trackIndex) continue;
+		const elRole = getElementRole(el);
+		if (elRole !== role) return true;
+	}
+	return false;
+}
 
 /**
  * 检查两个时间范围是否重叠
@@ -120,6 +293,7 @@ export function findAvailableTrack(
 	start: number,
 	end: number,
 	targetTrack: number,
+	role: TrackRole,
 	elements: TimelineElement[],
 	assignments: Map<string, number>,
 	excludeId: string,
@@ -127,7 +301,12 @@ export function findAvailableTrack(
 ): number {
 	// 从目标轨道开始向上寻找
 	for (let track = targetTrack; track < trackCount + 1; track++) {
-		if (!hasOverlapOnTrack(start, end, track, elements, assignments, excludeId)) {
+		if (hasRoleConflictOnTrack(role, track, elements, assignments, excludeId)) {
+			continue;
+		}
+		if (
+			!hasOverlapOnTrack(start, end, track, elements, assignments, excludeId)
+		) {
 			return track;
 		}
 	}
@@ -142,9 +321,7 @@ export function findAvailableTrack(
  * @param elements 所有时间线元素
  * @returns Map<elementId, trackIndex>
  */
-export function assignTracks(
-	elements: TimelineElement[],
-): Map<string, number> {
+export function assignTracks(elements: TimelineElement[]): Map<string, number> {
 	if (elements.length === 0) {
 		return new Map();
 	}
@@ -170,6 +347,7 @@ export function assignTracks(
 
 	for (const element of sorted) {
 		const { start, end, trackIndex } = element.timeline;
+		const role = getElementRole(element);
 		const targetTrack = trackIndex ?? MAIN_TRACK_INDEX;
 
 		// 找到合适的轨道（如果目标轨道有重叠则向上寻找）
@@ -177,6 +355,7 @@ export function assignTracks(
 			start,
 			end,
 			targetTrack,
+			role,
 			elements,
 			assignments,
 			element.id,
@@ -299,6 +478,212 @@ export interface DropTarget {
 	trackIndex: number; // 对于 track 类型：目标轨道；对于 gap 类型：间隙上方的轨道
 }
 
+export interface TrackHitResult {
+	trackIndex: number;
+	trackTop: number;
+	trackHeight: number;
+	positionInTrack: number;
+	trackFromTop: number;
+	totalHeight: number;
+}
+
+/**
+ * 根据可变轨道高度计算命中的轨道信息（用于其他轨道区域）
+ */
+export function getTrackHitFromHeights(
+	y: number,
+	trackHeights: number[],
+	maxTrackIndex: number,
+): TrackHitResult | null {
+	if (maxTrackIndex <= 0) return null;
+	if (trackHeights.length === 0) return null;
+
+	const heights = [...trackHeights];
+	if (heights.length < maxTrackIndex) {
+		const missing = maxTrackIndex - heights.length;
+		for (let i = 0; i < missing; i++) {
+			heights.push(OTHER_TRACK_HEIGHT);
+		}
+	}
+	if (heights.length > maxTrackIndex) {
+		heights.length = maxTrackIndex;
+	}
+
+	const totalHeight = heights.reduce((sum, height) => sum + height, 0);
+	if (y <= 0) {
+		return {
+			trackIndex: maxTrackIndex,
+			trackTop: 0,
+			trackHeight: heights[0],
+			positionInTrack: 0,
+			trackFromTop: 0,
+			totalHeight,
+		};
+	}
+
+	let cumulative = 0;
+	for (let i = 0; i < heights.length; i++) {
+		const height = heights[i];
+		if (y < cumulative + height) {
+			return {
+				trackIndex: maxTrackIndex - i,
+				trackTop: cumulative,
+				trackHeight: height,
+				positionInTrack: Math.max(0, y - cumulative),
+				trackFromTop: i,
+				totalHeight,
+			};
+		}
+		cumulative += height;
+	}
+
+	const lastIndex = heights.length - 1;
+	const lastHeight = heights[lastIndex];
+	return {
+		trackIndex: Math.max(1, maxTrackIndex - lastIndex),
+		trackTop: Math.max(0, totalHeight - lastHeight),
+		trackHeight: lastHeight,
+		positionInTrack: lastHeight,
+		trackFromTop: lastIndex,
+		totalHeight,
+	};
+}
+
+/**
+ * 通过可变高度获取轨道顶部 Y（用于其他轨道区域）
+ */
+export function getTrackYFromHeights(
+	trackIndex: number,
+	trackHeights: number[],
+	maxTrackIndex: number,
+): number {
+	const hit = getTrackHitFromHeights(0, trackHeights, maxTrackIndex);
+	if (!hit) return 0;
+
+	const normalizedIndex = Math.min(Math.max(trackIndex, 0), maxTrackIndex);
+	if (normalizedIndex === 0) {
+		return hit.totalHeight;
+	}
+	const trackFromTop = maxTrackIndex - normalizedIndex;
+	const heights = [...trackHeights];
+	if (heights.length < maxTrackIndex) {
+		const missing = maxTrackIndex - heights.length;
+		for (let i = 0; i < missing; i++) {
+			heights.push(OTHER_TRACK_HEIGHT);
+		}
+	}
+	if (heights.length > maxTrackIndex) {
+		heights.length = maxTrackIndex;
+	}
+
+	let offset = 0;
+	for (let i = 0; i < trackFromTop && i < heights.length; i++) {
+		offset += heights[i];
+	}
+	return offset;
+}
+
+/**
+ * 根据可变轨道高度判断拖拽目标（轨道或间隙）
+ */
+export function getDropTargetFromHeights(
+	y: number,
+	trackHeights: number[],
+	maxTrackIndex: number,
+): DropTarget | null {
+	const hit = getTrackHitFromHeights(y, trackHeights, maxTrackIndex);
+	if (!hit) return null;
+
+	const { trackIndex, positionInTrack, trackHeight } = hit;
+	const isInUpperGap = positionInTrack < GAP_THRESHOLD;
+	const isInLowerGap = positionInTrack > trackHeight - GAP_THRESHOLD;
+
+	if (isInUpperGap) {
+		return { type: "gap", trackIndex: trackIndex + 1 };
+	}
+
+	if (isInLowerGap && trackIndex > 0) {
+		return { type: "gap", trackIndex };
+	}
+
+	return { type: "track", trackIndex };
+}
+
+function pickNearestTrackIndex(
+	targetIndex: number,
+	candidates: number[],
+): number | null {
+	if (candidates.length === 0) return null;
+	let best: number | null = null;
+	let bestDistance = Infinity;
+	for (const candidate of candidates) {
+		const distance = Math.abs(candidate - targetIndex);
+		if (distance < bestDistance) {
+			bestDistance = distance;
+			best = candidate;
+		} else if (distance === bestDistance && best !== null) {
+			best = Math.min(best, candidate);
+		}
+	}
+	return best;
+}
+
+/**
+ * 根据 role 调整拖拽目标（同角色优先，其次空轨道，否则插入新轨道）
+ */
+export function resolveDropTargetForRole(
+	dropTarget: DropTarget,
+	role: TrackRole,
+	elements: TimelineElement[],
+	assignments: Map<string, number>,
+): DropTarget {
+	if (dropTarget.type === "gap") {
+		if (role !== "clip" && dropTarget.trackIndex <= MAIN_TRACK_INDEX) {
+			return { type: "gap", trackIndex: MAIN_TRACK_INDEX + 1 };
+		}
+		return dropTarget;
+	}
+
+	const maxIndex = Math.max(0, ...assignments.values());
+	const roleMap = getTrackRoleMap(elements, assignments);
+	const isCompatible = (index: number) =>
+		isRoleCompatibleWithTrack(role, index) &&
+		(!roleMap.has(index) || roleMap.get(index) === role);
+
+	if (isCompatible(dropTarget.trackIndex)) {
+		return dropTarget;
+	}
+
+	const indices = Array.from({ length: maxIndex + 1 }, (_, i) => i).filter(
+		(index) => role === "clip" || index !== MAIN_TRACK_INDEX,
+	);
+	const sameRoleCandidates = indices.filter(
+		(index) => roleMap.get(index) === role,
+	);
+	const nearestSameRole = pickNearestTrackIndex(
+		dropTarget.trackIndex,
+		sameRoleCandidates,
+	);
+	if (nearestSameRole !== null) {
+		return { type: "track", trackIndex: nearestSameRole };
+	}
+
+	const emptyCandidates = indices.filter((index) => !roleMap.has(index));
+	const nearestEmpty = pickNearestTrackIndex(
+		dropTarget.trackIndex,
+		emptyCandidates,
+	);
+	if (nearestEmpty !== null) {
+		return { type: "track", trackIndex: nearestEmpty };
+	}
+
+	const insertIndex =
+		role === "clip"
+			? dropTarget.trackIndex
+			: Math.max(MAIN_TRACK_INDEX + 1, dropTarget.trackIndex);
+	return { type: "gap", trackIndex: insertIndex };
+}
+
 /**
  * 根据 Y 坐标判断拖拽目标（轨道或间隙）
  *
@@ -327,9 +712,9 @@ export function getDropTarget(
 	// 转换为轨道索引（从底部开始计数）
 	const trackIndex = Math.max(0, totalTracks - 1 - trackFromTop);
 
-	if (isInUpperGap && trackFromTop > 0) {
+	if (isInUpperGap) {
 		// 在轨道上边缘 - 这是当前轨道和上方轨道之间的间隙
-		// 间隙位于 trackIndex 和 trackIndex + 1 之间
+		// 顶部轨道也允许插入到最上方
 		return {
 			type: "gap",
 			trackIndex: trackIndex + 1, // 新轨道将插入到这个位置

@@ -20,7 +20,7 @@
 				"start": 0,
 				"end": 6,
 				"trackIndex": 0,
-				"role": "main"
+				"role": "clip"
 			},
 			"render": {
 				"zIndex": 0
@@ -44,7 +44,7 @@
 				"start": 6,
 				"end": 16,
 				"trackIndex": 0,
-				"role": "main"
+				"role": "clip"
 			},
 			"render": {
 				"zIndex": 0
@@ -71,7 +71,7 @@
 				"start": 16,
 				"end": 24,
 				"trackIndex": 0,
-				"role": "main"
+				"role": "clip"
 			},
 			"render": {
 				"zIndex": 0

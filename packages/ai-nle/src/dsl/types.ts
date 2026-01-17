@@ -20,7 +20,7 @@ export interface TransformMeta {
  * 为 agent 操作提供语义基础
  */
 export type TrackRole =
-	| "main" // 主轨道：主要内容（视频、音频主体）
+	| "clip" // 片段轨道：主要内容（视频、音频主体）
 	| "overlay" // 叠加层：贴纸、字幕、水印等
 	| "effect" // 效果层：滤镜、转场、特效等
 	| "audio"; // 音频轨：背景音乐、音效等

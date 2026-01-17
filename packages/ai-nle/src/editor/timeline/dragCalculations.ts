@@ -15,6 +15,10 @@ import {
 	SIGNIFICANT_VERTICAL_MOVE_RATIO,
 	DEFAULT_ELEMENT_HEIGHT,
 } from "./trackConfig";
+import {
+	getElementRole,
+	hasRoleConflictOnStoredTrack,
+} from "../utils/trackAssignment";
 
 // ============================================================================
 // 拖拽目标计算
@@ -38,7 +42,7 @@ export function calculateDropTarget(
 	// 转换为轨道索引（从底部开始计数）
 	const trackIndex = Math.max(0, totalTracks - 1 - trackFromTop);
 
-	if (isInUpperGap && trackFromTop > 0) {
+	if (isInUpperGap) {
 		return {
 			type: "gap",
 			trackIndex: trackIndex + 1,
@@ -148,6 +152,8 @@ export function calculateFinalTrack(
 	elementId: string,
 	originalTrackIndex: number
 ): FinalTrackResult {
+	const element = elements.find((el) => el.id === elementId);
+	const elementRole = element ? getElementRole(element) : "overlay";
 	const maxStoredTrack = Math.max(
 		0,
 		...elements.map((el) => el.timeline.trackIndex ?? 0)
@@ -160,7 +166,8 @@ export function calculateFinalTrack(
 			elements,
 			elementId,
 			originalTrackIndex,
-			maxStoredTrack
+			maxStoredTrack,
+			elementRole
 		);
 	}
 
@@ -169,7 +176,8 @@ export function calculateFinalTrack(
 		timeRange,
 		elements,
 		elementId,
-		maxStoredTrack
+		maxStoredTrack,
+		elementRole
 	);
 }
 
@@ -182,7 +190,8 @@ function calculateFinalTrackForGap(
 	elements: TimelineElement[],
 	elementId: string,
 	_originalTrackIndex: number,
-	maxStoredTrack: number
+	maxStoredTrack: number,
+	elementRole: ReturnType<typeof getElementRole>
 ): FinalTrackResult {
 	const gapTrackIndex = dropTarget.trackIndex;
 	const belowTrack = gapTrackIndex - 1;
@@ -191,11 +200,13 @@ function calculateFinalTrackForGap(
 	// 检查下方轨道是否有空位
 	const belowHasSpace =
 		belowTrack >= 0 &&
+		!hasRoleConflictOnStoredTrack(elementRole, belowTrack, elements, elementId) &&
 		!hasOverlapOnTrack(timeRange, belowTrack, elements, elementId);
 
 	// 检查上方轨道是否有空位
 	const aboveHasSpace =
 		aboveTrack <= maxStoredTrack &&
+		!hasRoleConflictOnStoredTrack(elementRole, aboveTrack, elements, elementId) &&
 		!hasOverlapOnTrack(timeRange, aboveTrack, elements, elementId);
 
 	if (belowHasSpace) {
@@ -230,17 +241,15 @@ function calculateFinalTrackForTrack(
 	timeRange: TimeRange,
 	elements: TimelineElement[],
 	elementId: string,
-	maxStoredTrack: number
+	maxStoredTrack: number,
+	elementRole: ReturnType<typeof getElementRole>
 ): FinalTrackResult {
 	const targetTrack = dropTarget.trackIndex;
 
 	// 检查目标轨道是否有重叠
-	const targetHasOverlap = hasOverlapOnTrack(
-		timeRange,
-		targetTrack,
-		elements,
-		elementId
-	);
+	const targetHasOverlap =
+		hasRoleConflictOnStoredTrack(elementRole, targetTrack, elements, elementId) ||
+		hasOverlapOnTrack(timeRange, targetTrack, elements, elementId);
 
 	if (!targetHasOverlap) {
 		return {
@@ -254,7 +263,8 @@ function calculateFinalTrackForTrack(
 	const aboveTrack = targetTrack + 1;
 	const aboveHasOverlap =
 		aboveTrack <= maxStoredTrack &&
-		hasOverlapOnTrack(timeRange, aboveTrack, elements, elementId);
+		(hasRoleConflictOnStoredTrack(elementRole, aboveTrack, elements, elementId) ||
+			hasOverlapOnTrack(timeRange, aboveTrack, elements, elementId));
 
 	if (!aboveHasOverlap && aboveTrack <= maxStoredTrack) {
 		return {
