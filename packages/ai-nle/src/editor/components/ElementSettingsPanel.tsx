@@ -75,6 +75,8 @@ const ElementSettingsPanel: React.FC = () => {
 						<div>ID: {selectedElement.id}</div>
 						<div>Track Index: {selectedElement.timeline.trackIndex}</div>
 						<div>Role: {selectedElement.timeline.role}</div>
+						<div>Start: {selectedElement.timeline.start}</div>
+						<div>End: {selectedElement.timeline.end}</div>
 					</div>
 				</div>
 			</div>

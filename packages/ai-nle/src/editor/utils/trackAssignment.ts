@@ -428,6 +428,49 @@ export function normalizeTrackAssignments(
 }
 
 /**
+ * 基于存储的 trackIndex 压缩空轨道（不重新分配）
+ * 返回更新后的元素数组（无变化则返回原数组引用）
+ */
+export function normalizeStoredTrackIndices(
+	elements: TimelineElement[],
+): TimelineElement[] {
+	if (elements.length === 0) {
+		return elements;
+	}
+
+	const usedTracks = new Set<number>();
+	for (const el of elements) {
+		usedTracks.add(el.timeline.trackIndex ?? MAIN_TRACK_INDEX);
+	}
+	usedTracks.add(MAIN_TRACK_INDEX);
+
+	const sortedTracks = [...usedTracks].sort((a, b) => a - b);
+	const trackMapping = new Map<number, number>();
+	sortedTracks.forEach((oldTrack, newIndex) => {
+		trackMapping.set(oldTrack, newIndex);
+	});
+
+	let didChange = false;
+	const normalized = elements.map((el) => {
+		const oldTrack = el.timeline.trackIndex ?? MAIN_TRACK_INDEX;
+		const newTrack = trackMapping.get(oldTrack) ?? oldTrack;
+		if (newTrack === oldTrack) {
+			return el;
+		}
+		didChange = true;
+		return {
+			...el,
+			timeline: {
+				...el.timeline,
+				trackIndex: newTrack,
+			},
+		};
+	});
+
+	return didChange ? normalized : elements;
+}
+
+/**
  * 根据 Y 坐标计算目标轨道索引
  * 注意：轨道 0（主轨道）在底部，轨道号越大位置越靠上
  *

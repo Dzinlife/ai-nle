@@ -4,12 +4,21 @@ import { ModelManager } from "@/dsl/model";
 import { TimelineElement } from "@/dsl/types";
 import ElementSettingsPanel from "./components/ElementSettingsPanel";
 import PreviewProvider from "./contexts/PreviewProvider";
-import { TimelineProvider, useTimelineStore } from "./contexts/TimelineContext";
+import {
+	TimelineProvider,
+	useAttachments,
+	useMainTrackMagnet,
+	useTimelineStore,
+} from "./contexts/TimelineContext";
 import MaterialLibrary, { type MaterialItem } from "./MaterialLibrary";
 import PreviewEditor from "./PreviewEditor";
 import TimelineEditor from "./TimelineEditor";
 import timelineData from "./timeline.json";
 import { loadTimelineFromObject } from "./timelineLoader";
+import {
+	finalizeTimelineElements,
+	insertElementIntoMainTrack,
+} from "./utils/mainTrackMagnet";
 
 // 导入所有组件以触发注册
 import "@/dsl/BackdropZoom";
@@ -28,6 +37,8 @@ console.log("[Editor] Registered components:", componentRegistry.getTypes());
 const EditorContent: React.FC = () => {
 	const setElements = useTimelineStore((state) => state.setElements);
 	const currentTime = useTimelineStore((state) => state.currentTime);
+	const { attachments, autoAttach } = useAttachments();
+	const { mainTrackMagnetEnabled } = useMainTrackMagnet();
 
 	// Timeline 高度状态和拖拽逻辑
 	const [timelineMaxHeight, setTimelineMaxHeight] = useState(300);
@@ -95,10 +106,29 @@ const EditorContent: React.FC = () => {
 					},
 				};
 
-				return [...prev, newElement];
+				const postProcessOptions = {
+					mainTrackMagnetEnabled,
+					attachments,
+					autoAttach,
+				};
+
+				if (mainTrackMagnetEnabled && trackIndex === 0) {
+					return insertElementIntoMainTrack(
+						prev,
+						newElement.id,
+						time,
+						postProcessOptions,
+						newElement,
+					);
+				}
+
+				return finalizeTimelineElements(
+					[...prev, newElement],
+					postProcessOptions,
+				);
 			});
 		},
-		[setElements],
+		[setElements, mainTrackMagnetEnabled, attachments, autoAttach],
 	);
 
 	// 处理素材库拖拽放置到预览画布

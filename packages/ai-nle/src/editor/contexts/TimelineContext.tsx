@@ -26,6 +26,7 @@ import {
 	normalizeTrackAssignments,
 	resolveDropTargetForRole,
 } from "../utils/trackAssignment";
+import { finalizeTimelineElements } from "../utils/mainTrackMagnet";
 
 // Ghost 元素状态类型
 export interface DragGhostState {
@@ -67,6 +68,8 @@ interface TimelineStore {
 	activeSnapPoint: SnapPoint | null;
 	// 层叠关联相关状态
 	autoAttach: boolean;
+	// 主轨道磁吸模式
+	mainTrackMagnetEnabled: boolean;
 	// 拖拽目标指示状态
 	activeDropTarget: ExtendedDropTarget | null;
 	// 拖拽 Ghost 状态
@@ -99,6 +102,8 @@ interface TimelineStore {
 	setActiveSnapPoint: (point: SnapPoint | null) => void;
 	// 层叠关联相关方法
 	setAutoAttach: (enabled: boolean) => void;
+	// 主轨道磁吸模式方法
+	setMainTrackMagnetEnabled: (enabled: boolean) => void;
 	// 拖拽目标指示方法
 	setActiveDropTarget: (target: ExtendedDropTarget | null) => void;
 	// 拖拽 Ghost 方法
@@ -125,6 +130,8 @@ export const useTimelineStore = create<TimelineStore>()(
 		activeSnapPoint: null,
 		// 层叠关联相关状态初始值
 		autoAttach: true,
+		// 主轨道磁吸模式初始值
+		mainTrackMagnetEnabled: false,
 		// 拖拽目标指示状态初始值
 		activeDropTarget: null,
 		// 拖拽 Ghost 状态初始值
@@ -227,6 +234,11 @@ export const useTimelineStore = create<TimelineStore>()(
 		// 层叠关联相关方法
 		setAutoAttach: (enabled: boolean) => {
 			set({ autoAttach: enabled });
+		},
+
+		// 主轨道磁吸模式方法
+		setMainTrackMagnetEnabled: (enabled: boolean) => {
+			set({ mainTrackMagnetEnabled: enabled });
 		},
 
 		// 拖拽目标指示方法
@@ -461,9 +473,27 @@ export const useSnap = () => {
 	};
 };
 
+export const useMainTrackMagnet = () => {
+	const mainTrackMagnetEnabled = useTimelineStore(
+		(state) => state.mainTrackMagnetEnabled,
+	);
+	const setMainTrackMagnetEnabled = useTimelineStore(
+		(state) => state.setMainTrackMagnetEnabled,
+	);
+
+	return {
+		mainTrackMagnetEnabled,
+		setMainTrackMagnetEnabled,
+	};
+};
+
 export const useTrackAssignments = () => {
 	const elements = useTimelineStore((state) => state.elements);
 	const setElements = useTimelineStore((state) => state.setElements);
+	const mainTrackMagnetEnabled = useTimelineStore(
+		(state) => state.mainTrackMagnetEnabled,
+	);
+	const { attachments, autoAttach } = useAttachments();
 
 	// 基于 elements 计算轨道分配
 	const trackAssignments = useMemo(() => {
@@ -733,31 +763,14 @@ export const useTrackAssignments = () => {
 					return el;
 				});
 
-				// 直接基于存储的 trackIndex 压缩空轨道（不重新分配）
-				const usedTracks = new Set<number>();
-				for (const el of updated) {
-					usedTracks.add(el.timeline.trackIndex ?? 0);
-				}
-				usedTracks.add(0); // 主轨道始终存在
-
-				const sortedTracks = [...usedTracks].sort((a, b) => a - b);
-				const trackMapping = new Map<number, number>();
-				sortedTracks.forEach((oldTrack, newIndex) => {
-					trackMapping.set(oldTrack, newIndex);
+				return finalizeTimelineElements(updated, {
+					mainTrackMagnetEnabled,
+					attachments,
+					autoAttach,
 				});
-
-				return updated.map((el) => ({
-					...el,
-					timeline: {
-						...el.timeline,
-						trackIndex:
-							trackMapping.get(el.timeline.trackIndex ?? 0) ??
-							el.timeline.trackIndex,
-					},
-				}));
 			});
 		},
-		[setElements],
+		[setElements, mainTrackMagnetEnabled, attachments, autoAttach],
 	);
 
 	// 移动元素及其附属元素（用于拖拽结束，处理层叠关联）
@@ -1017,31 +1030,14 @@ export const useTrackAssignments = () => {
 					}
 				}
 
-				// 直接基于存储的 trackIndex 压缩空轨道（不重新分配）
-				const usedTracks = new Set<number>();
-				for (const el of updated) {
-					usedTracks.add(el.timeline.trackIndex ?? 0);
-				}
-				usedTracks.add(0); // 主轨道始终存在
-
-				const sortedTracks = [...usedTracks].sort((a, b) => a - b);
-				const trackMapping = new Map<number, number>();
-				sortedTracks.forEach((oldTrack, newIndex) => {
-					trackMapping.set(oldTrack, newIndex);
+				return finalizeTimelineElements(updated, {
+					mainTrackMagnetEnabled,
+					attachments,
+					autoAttach,
 				});
-
-				return updated.map((el) => ({
-					...el,
-					timeline: {
-						...el.timeline,
-						trackIndex:
-							trackMapping.get(el.timeline.trackIndex ?? 0) ??
-							el.timeline.trackIndex,
-					},
-				}));
 			});
 		},
-		[setElements],
+		[setElements, mainTrackMagnetEnabled, attachments, autoAttach],
 	);
 
 	return {

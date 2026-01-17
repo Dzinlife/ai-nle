@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { usePreview } from "../contexts/PreviewProvider";
 import {
 	useAttachments,
+	useMainTrackMagnet,
 	usePlaybackControl,
 	useSnap,
 } from "../contexts/TimelineContext";
@@ -14,6 +15,8 @@ const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
 	const [isExporting, setIsExporting] = useState(false);
 	const { snapEnabled, setSnapEnabled } = useSnap();
 	const { autoAttach, setAutoAttach } = useAttachments();
+	const { mainTrackMagnetEnabled, setMainTrackMagnetEnabled } =
+		useMainTrackMagnet();
 
 	// 全局空格键播放/暂停
 	useEffect(() => {
@@ -82,6 +85,18 @@ const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
 					title="主轴联动"
 				>
 					联动
+				</button>
+				<button
+					onClick={() => setMainTrackMagnetEnabled(!mainTrackMagnetEnabled)}
+					className={cn(
+						"px-2 py-1 text-xs rounded transition-colors",
+						mainTrackMagnetEnabled
+							? "bg-green-600 text-white"
+							: "bg-neutral-700 text-neutral-400 hover:bg-neutral-600",
+					)}
+					title="主轨道磁吸"
+				>
+					主轨磁吸
 				</button>
 			</div>
 			<div className="flex-1" />

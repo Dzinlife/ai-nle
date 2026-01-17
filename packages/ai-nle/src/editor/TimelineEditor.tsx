@@ -13,10 +13,12 @@ import TimelineElement from "./components/TimelineElement";
 import TimelineRuler from "./components/TimelineRuler";
 import TimelineToolbar from "./components/TimelineToolbar";
 import {
+	useAttachments,
 	useAutoScroll,
 	useCurrentTime,
 	useDragging,
 	useElements,
+	useMainTrackMagnet,
 	useMultiSelect,
 	usePlaybackControl,
 	usePreviewTime,
@@ -25,6 +27,7 @@ import {
 	useTrackAssignments,
 } from "./contexts/TimelineContext";
 import { useDragStore } from "./drag";
+import { finalizeTimelineElements } from "./utils/mainTrackMagnet";
 import {
 	buildTrackLayout,
 	getTrackHeightByRole,
@@ -52,6 +55,10 @@ const TimelineEditor = () => {
 	const { trackAssignments, trackCount } = useTrackAssignments();
 	const { activeDropTarget, dragGhosts, isDragging } = useDragging();
 	const { autoScrollSpeed, autoScrollSpeedY } = useAutoScroll();
+	const { attachments, autoAttach } = useAttachments();
+	const { mainTrackMagnetEnabled } = useMainTrackMagnet();
+
+	const mainTrackMagnetRef = useRef(mainTrackMagnetEnabled);
 
 	// 滚动位置 refs
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -86,6 +93,19 @@ const TimelineEditor = () => {
 		y2: 0,
 	});
 	const selectionRectRef = useRef(selectionRect);
+
+	useEffect(() => {
+		if (mainTrackMagnetEnabled && !mainTrackMagnetRef.current) {
+			setElements((prev) =>
+				finalizeTimelineElements(prev, {
+					mainTrackMagnetEnabled: true,
+					attachments,
+					autoAttach,
+				}),
+			);
+		}
+		mainTrackMagnetRef.current = mainTrackMagnetEnabled;
+	}, [mainTrackMagnetEnabled, setElements, attachments, autoAttach]);
 
 	// 使用 callback ref 来监听容器宽度
 	const rulerContainerRef = useCallback((node: HTMLDivElement | null) => {

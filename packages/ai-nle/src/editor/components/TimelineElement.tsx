@@ -20,6 +20,7 @@ import {
 	useAutoScroll,
 	useDragging,
 	useElements,
+	useMainTrackMagnet,
 	useMultiSelect,
 	useSnap,
 	useTimelineStore,
@@ -218,6 +219,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	const { elements, setElements } = useElements();
 	const currentTime = useTimelineStore((state) => state.currentTime);
 	const { attachments, autoAttach } = useAttachments();
+	const { mainTrackMagnetEnabled } = useMainTrackMagnet();
 	const { moveWithAttachments, trackAssignments } = useTrackAssignments();
 	const {
 		updateAutoScrollFromPosition,
@@ -273,6 +275,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 		currentTime,
 		snapEnabled,
 		autoAttach,
+		mainTrackMagnetEnabled,
 		attachments,
 		selectedIds,
 		select,
