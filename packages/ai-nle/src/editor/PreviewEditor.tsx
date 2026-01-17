@@ -59,14 +59,6 @@ interface PinchState {
 }
 
 const SNAP_GUIDE_THRESHOLD = 6;
-const CANVAS_NEAR_INTEGER_EPSILON = 1e-3;
-
-const normalizeCanvasValue = (value: number) => {
-	const rounded = Math.round(value);
-	return Math.abs(value - rounded) < CANVAS_NEAR_INTEGER_EPSILON
-		? rounded
-		: value;
-};
 
 type SnapGuides = {
 	vertical: number[];
@@ -590,7 +582,7 @@ const Preview = () => {
 		};
 	}, [updateTransformerRotationSnaps]);
 
-	const getElementCanvasBox = useCallback(
+	const getElementStageBox = useCallback(
 		(el: TimelineElement) => {
 			const renderLayout = transformMetaToRenderLayout(
 				el.transform,
@@ -598,47 +590,56 @@ const Preview = () => {
 				canvasConvertOptions.canvas,
 			);
 			const { x, y, width, height } = renderLayoutToTopLeft(renderLayout);
-			return { x, y, width, height };
+			const { stageX, stageY } = canvasToStageCoords(x, y);
+			const effectiveZoom = getEffectiveZoom();
+
+			return {
+				x: stageX,
+				y: stageY,
+				width: width * effectiveZoom,
+				height: height * effectiveZoom,
+			};
 		},
-		[canvasConvertOptions],
+		[canvasConvertOptions, canvasToStageCoords, getEffectiveZoom],
 	);
 
-	const getCanvasRect = useCallback(() => {
+	const getCanvasStageRect = useCallback(() => {
+		const effectiveZoom = getEffectiveZoom();
+		const { stageX, stageY } = canvasToStageCoords(0, 0);
 		return {
-			x: 0,
-			y: 0,
-			width: canvasWidth,
-			height: canvasHeight,
+			x: stageX,
+			y: stageY,
+			width: canvasWidth * effectiveZoom,
+			height: canvasHeight * effectiveZoom,
 		};
-	}, [canvasWidth, canvasHeight]);
+	}, [canvasToStageCoords, canvasWidth, canvasHeight, getEffectiveZoom]);
 
-	const computeSnapResultCanvas = useCallback(
+	const computeSnapResult = useCallback(
 		(
 			movingBox: { x: number; y: number; width: number; height: number },
 			excludeIds: string[],
 			options?: SnapComputeOptions,
 		) => {
-			const snapThresholdCanvas = SNAP_GUIDE_THRESHOLD / getEffectiveZoom();
 			const guideX: number[] = [];
 			const guideY: number[] = [];
 
 			renderElementsRef.current.forEach((el) => {
 				if (excludeIds.includes(el.id)) return;
-				const box = getElementCanvasBox(el);
+				const box = getElementStageBox(el);
 				guideX.push(box.x, box.x + box.width / 2, box.x + box.width);
 				guideY.push(box.y, box.y + box.height / 2, box.y + box.height);
 			});
 
-			const canvasRect = getCanvasRect();
+			const canvasStageRect = getCanvasStageRect();
 			guideX.push(
-				canvasRect.x,
-				canvasRect.x + canvasRect.width / 2,
-				canvasRect.x + canvasRect.width,
+				canvasStageRect.x,
+				canvasStageRect.x + canvasStageRect.width / 2,
+				canvasStageRect.x + canvasStageRect.width,
 			);
 			guideY.push(
-				canvasRect.y,
-				canvasRect.y + canvasRect.height / 2,
-				canvasRect.y + canvasRect.height,
+				canvasStageRect.y,
+				canvasStageRect.y + canvasStageRect.height / 2,
+				canvasStageRect.y + canvasStageRect.height,
 			);
 
 			const movingX = options?.movingX ?? [
@@ -654,71 +655,29 @@ const Preview = () => {
 
 			const bestX = findNearestGuide(movingX, guideX);
 			const bestY = findNearestGuide(movingY, guideY);
-			const snapX =
-				bestX.line !== null && bestX.distance <= snapThresholdCanvas;
-			const snapY =
-				bestY.line !== null && bestY.distance <= snapThresholdCanvas;
 
 			return {
-				deltaX: snapX ? bestX.delta : 0,
-				deltaY: snapY ? bestY.delta : 0,
+				deltaX:
+					bestX.line !== null && bestX.distance <= SNAP_GUIDE_THRESHOLD
+						? bestX.delta
+						: 0,
+				deltaY:
+					bestY.line !== null && bestY.distance <= SNAP_GUIDE_THRESHOLD
+						? bestY.delta
+						: 0,
 				guides: {
-					vertical: snapX ? [bestX.line as number] : [],
-					horizontal: snapY ? [bestY.line as number] : [],
+					vertical:
+						bestX.line !== null && bestX.distance <= SNAP_GUIDE_THRESHOLD
+							? [bestX.line]
+							: [],
+					horizontal:
+						bestY.line !== null && bestY.distance <= SNAP_GUIDE_THRESHOLD
+							? [bestY.line]
+							: [],
 				},
 			};
 		},
-		[getCanvasRect, getElementCanvasBox, getEffectiveZoom],
-	);
-
-	const computeSnapResult = useCallback(
-		(
-			movingBox: { x: number; y: number; width: number; height: number },
-			excludeIds: string[],
-			options?: SnapComputeOptions,
-		) => {
-			const effectiveZoom = getEffectiveZoom();
-			const stageToCanvasX = (stageX: number) =>
-				(stageX - offsetX) / effectiveZoom;
-			const stageToCanvasY = (stageY: number) =>
-				(stageY - offsetY) / effectiveZoom;
-			const canvasToStageX = (canvasX: number) =>
-				canvasX * effectiveZoom + offsetX;
-			const canvasToStageY = (canvasY: number) =>
-				canvasY * effectiveZoom + offsetY;
-			const movingBoxCanvas = {
-				x: stageToCanvasX(movingBox.x),
-				y: stageToCanvasY(movingBox.y),
-				width: movingBox.width / effectiveZoom,
-				height: movingBox.height / effectiveZoom,
-			};
-			const movingX =
-				options?.movingX !== undefined
-					? options.movingX.map(stageToCanvasX)
-					: undefined;
-			const movingY =
-				options?.movingY !== undefined
-					? options.movingY.map(stageToCanvasY)
-					: undefined;
-			const snapResultCanvas = computeSnapResultCanvas(
-				movingBoxCanvas,
-				excludeIds,
-				{
-					movingX,
-					movingY,
-				},
-			);
-
-			return {
-				deltaX: snapResultCanvas.deltaX * effectiveZoom,
-				deltaY: snapResultCanvas.deltaY * effectiveZoom,
-				guides: {
-					vertical: snapResultCanvas.guides.vertical.map(canvasToStageX),
-					horizontal: snapResultCanvas.guides.horizontal.map(canvasToStageY),
-				},
-			};
-		},
-		[computeSnapResultCanvas, getEffectiveZoom, offsetX, offsetY],
+		[getElementStageBox, getCanvasStageRect],
 	);
 
 	const handleDrag = useCallback(
@@ -1053,25 +1012,16 @@ const Preview = () => {
 			const stageHeight_scaled = baseStageHeight * scaleY;
 
 			// 将 Stage 坐标转换为画布/picture 坐标
-			const { canvasX: rawCanvasX, canvasY: rawCanvasY } = stageToCanvasCoords(
-				stageX,
-				stageY,
-			);
+			const { canvasX, canvasY } = stageToCanvasCoords(stageX, stageY);
 
 			// 将 Stage 尺寸转换为画布/picture 尺寸
 			const effectiveZoom = base?.effectiveZoom ?? getEffectiveZoom();
 			const pictureWidth_scaled = stageWidth_scaled / effectiveZoom;
 			const pictureHeight_scaled = stageHeight_scaled / effectiveZoom;
-			const canvasX = normalizeCanvasValue(rawCanvasX);
-			const canvasY = normalizeCanvasValue(rawCanvasY);
-			const normalizedWidth = normalizeCanvasValue(pictureWidth_scaled);
-			const normalizedHeight = normalizeCanvasValue(pictureHeight_scaled);
-			const normalizedStageWidth = normalizedWidth * effectiveZoom;
-			const normalizedStageHeight = normalizedHeight * effectiveZoom;
 
 			// 更新节点的 width 和 height（使用 Stage 坐标系的尺寸）
-			node.width(normalizedStageWidth);
-			node.height(normalizedStageHeight);
+			node.width(stageWidth_scaled);
+			node.height(stageHeight_scaled);
 
 			const rotationDegrees = node.rotation();
 			const rotationRadians = (rotationDegrees * Math.PI) / 180;
@@ -1086,10 +1036,10 @@ const Preview = () => {
 				// canvasX/Y 是左上角坐标（相对于画布左上角）
 				// 需要转换为中心坐标（相对于画布中心）
 				const updatedTransform = {
-					centerX: canvasX + normalizedWidth / 2 - pictureWidth / 2,
-					centerY: canvasY + normalizedHeight / 2 - pictureHeight / 2,
-					width: normalizedWidth,
-					height: normalizedHeight,
+					centerX: canvasX + pictureWidth_scaled / 2 - pictureWidth / 2,
+					centerY: canvasY + pictureHeight_scaled / 2 - pictureHeight / 2,
+					width: pictureWidth_scaled,
+					height: pictureHeight_scaled,
 					rotation: rotationRadians,
 				};
 
@@ -1807,55 +1757,14 @@ const Preview = () => {
 					})}
 					{/* Transformer 用于缩放和旋转 */}
 					<Transformer
-						ref={transformerRef}
 						ignoreStroke
+						ref={transformerRef}
 						boundBoxFunc={(oldBox, newBox) => {
 							const activeAnchor = transformerRef.current?.getActiveAnchor?.();
 							if (activeAnchor === "rotater") {
 								clearSnapGuides();
 								return newBox;
 							}
-
-							const effectiveZoom = getEffectiveZoom();
-							const stageToCanvasBox = (box: {
-								x: number;
-								y: number;
-								width: number;
-								height: number;
-								rotation?: number;
-							}) => {
-								const { canvasX, canvasY } = stageToCanvasCoords(box.x, box.y);
-								return {
-									x: canvasX,
-									y: canvasY,
-									width: box.width / effectiveZoom,
-									height: box.height / effectiveZoom,
-									rotation: box.rotation,
-								};
-							};
-							const canvasToStageBox = (box: {
-								x: number;
-								y: number;
-								width: number;
-								height: number;
-								rotation?: number;
-							}) => {
-								const { stageX, stageY } = canvasToStageCoords(box.x, box.y);
-								return {
-									...box,
-									x: stageX,
-									y: stageY,
-									width: box.width * effectiveZoom,
-									height: box.height * effectiveZoom,
-									rotation: box.rotation ?? newBox.rotation ?? oldBox.rotation,
-								};
-							};
-							const canvasToStageX = (canvasX: number) =>
-								canvasX * effectiveZoom + offsetX;
-							const canvasToStageY = (canvasY: number) =>
-								canvasY * effectiveZoom + offsetY;
-							const oldBoxCanvas = stageToCanvasBox(oldBox);
-							const newBoxCanvas = stageToCanvasBox(newBox);
 
 							const isCornerAnchor =
 								activeAnchor === "top-left" ||
@@ -1867,23 +1776,23 @@ const Preview = () => {
 								switch (activeAnchor) {
 									case "top-left":
 										return {
-											x: oldBoxCanvas.x + oldBoxCanvas.width,
-											y: oldBoxCanvas.y + oldBoxCanvas.height,
+											x: oldBox.x + oldBox.width,
+											y: oldBox.y + oldBox.height,
 										};
 									case "top-right":
 										return {
-											x: oldBoxCanvas.x,
-											y: oldBoxCanvas.y + oldBoxCanvas.height,
+											x: oldBox.x,
+											y: oldBox.y + oldBox.height,
 										};
 									case "bottom-left":
 										return {
-											x: oldBoxCanvas.x + oldBoxCanvas.width,
-											y: oldBoxCanvas.y,
+											x: oldBox.x + oldBox.width,
+											y: oldBox.y,
 										};
 									case "bottom-right":
-										return { x: oldBoxCanvas.x, y: oldBoxCanvas.y };
+										return { x: oldBox.x, y: oldBox.y };
 									default:
-										return { x: oldBoxCanvas.x, y: oldBoxCanvas.y };
+										return { x: oldBox.x, y: oldBox.y };
 								}
 							};
 
@@ -1912,9 +1821,7 @@ const Preview = () => {
 								snapAxis: "x" | "y" | null,
 							) => {
 								const ratio =
-									oldBoxCanvas.height === 0
-										? 1
-										: oldBoxCanvas.width / oldBoxCanvas.height;
+									oldBox.height === 0 ? 1 : oldBox.width / oldBox.height;
 								const fixed = getFixedCorner();
 								const widthFromCorner = Math.abs(desiredCorner.x - fixed.x);
 								const heightFromCorner = Math.abs(desiredCorner.y - fixed.y);
@@ -1930,22 +1837,21 @@ const Preview = () => {
 									width = height * ratio;
 								} else {
 									const denom =
-										oldBoxCanvas.width * oldBoxCanvas.width +
-										oldBoxCanvas.height * oldBoxCanvas.height;
+										oldBox.width * oldBox.width + oldBox.height * oldBox.height;
 									const scale =
 										denom === 0
 											? 1
-											: (oldBoxCanvas.width * widthFromCorner +
-													oldBoxCanvas.height * heightFromCorner) /
+											: (oldBox.width * widthFromCorner +
+													oldBox.height * heightFromCorner) /
 												denom;
-									width = oldBoxCanvas.width * scale;
-									height = oldBoxCanvas.height * scale;
+									width = oldBox.width * scale;
+									height = oldBox.height * scale;
 								}
 
 								switch (activeAnchor) {
 									case "top-left":
 										return {
-											...newBoxCanvas,
+											...newBox,
 											x: fixed.x - width,
 											y: fixed.y - height,
 											width,
@@ -1953,7 +1859,7 @@ const Preview = () => {
 										};
 									case "top-right":
 										return {
-											...newBoxCanvas,
+											...newBox,
 											x: fixed.x,
 											y: fixed.y - height,
 											width,
@@ -1961,7 +1867,7 @@ const Preview = () => {
 										};
 									case "bottom-left":
 										return {
-											...newBoxCanvas,
+											...newBox,
 											x: fixed.x - width,
 											y: fixed.y,
 											width,
@@ -1969,20 +1875,20 @@ const Preview = () => {
 										};
 									case "bottom-right":
 										return {
-											...newBoxCanvas,
+											...newBox,
 											x: fixed.x,
 											y: fixed.y,
 											width,
 											height,
 										};
 									default:
-										return newBoxCanvas;
+										return newBox;
 								}
 							};
 
-							let baseBox = newBoxCanvas;
+							let baseBox = newBox;
 							if (isCornerAnchor) {
-								baseBox = buildCornerBox(getMovingCorner(newBoxCanvas), null);
+								baseBox = buildCornerBox(getMovingCorner(newBox), null);
 							}
 
 							// 限制最小尺寸
@@ -1991,29 +1897,21 @@ const Preview = () => {
 							}
 							if (!snapEnabled) {
 								clearSnapGuides();
-								return canvasToStageBox(baseBox);
+								return baseBox;
 							}
 
 							if (isCornerAnchor) {
 								const movingCorner = getMovingCorner(baseBox);
-								const snapResult = computeSnapResultCanvas(
-									baseBox,
-									selectedIds,
-									{
-										movingX: [movingCorner.x],
-										movingY: [movingCorner.y],
-									},
-								);
+								const snapResult = computeSnapResult(baseBox, selectedIds, {
+									movingX: [movingCorner.x],
+									movingY: [movingCorner.y],
+								});
 								const snapX = snapResult.deltaX !== 0;
 								const snapY = snapResult.deltaY !== 0;
 
 								if (!snapX && !snapY) {
-									setSnapGuides({
-										vertical: snapResult.guides.vertical.map(canvasToStageX),
-										horizontal:
-											snapResult.guides.horizontal.map(canvasToStageY),
-									});
-									return canvasToStageBox(baseBox);
+									setSnapGuides(snapResult.guides);
+									return baseBox;
 								}
 
 								let snapAxis: "x" | "y";
@@ -2039,26 +1937,19 @@ const Preview = () => {
 								}
 
 								setSnapGuides({
-									vertical:
-										snapAxis === "x"
-											? snapResult.guides.vertical.map(canvasToStageX)
-											: [],
+									vertical: snapAxis === "x" ? snapResult.guides.vertical : [],
 									horizontal:
-										snapAxis === "y"
-											? snapResult.guides.horizontal.map(canvasToStageY)
-											: [],
+										snapAxis === "y" ? snapResult.guides.horizontal : [],
 								});
-								return canvasToStageBox(snappedBox);
+								return snappedBox;
 							}
 
-							const leftMoved = baseBox.x !== oldBoxCanvas.x;
+							const leftMoved = baseBox.x !== oldBox.x;
 							const rightMoved =
-								baseBox.x + baseBox.width !==
-								oldBoxCanvas.x + oldBoxCanvas.width;
-							const topMoved = baseBox.y !== oldBoxCanvas.y;
+								baseBox.x + baseBox.width !== oldBox.x + oldBox.width;
+							const topMoved = baseBox.y !== oldBox.y;
 							const bottomMoved =
-								baseBox.y + baseBox.height !==
-								oldBoxCanvas.y + oldBoxCanvas.height;
+								baseBox.y + baseBox.height !== oldBox.y + oldBox.height;
 
 							const movingX: number[] = [];
 							if (leftMoved && !rightMoved) {
@@ -2078,16 +1969,13 @@ const Preview = () => {
 								movingY.push(baseBox.y + baseBox.height / 2);
 							}
 
-							const snapResult = computeSnapResultCanvas(baseBox, selectedIds, {
+							const snapResult = computeSnapResult(baseBox, selectedIds, {
 								movingX,
 								movingY,
 							});
 							if (snapResult.deltaX === 0 && snapResult.deltaY === 0) {
-								setSnapGuides({
-									vertical: snapResult.guides.vertical.map(canvasToStageX),
-									horizontal: snapResult.guides.horizontal.map(canvasToStageY),
-								});
-								return canvasToStageBox(baseBox);
+								setSnapGuides(snapResult.guides);
+								return baseBox;
 							}
 
 							const nextBox = { ...baseBox };
@@ -2118,11 +2006,8 @@ const Preview = () => {
 								return oldBox;
 							}
 
-							setSnapGuides({
-								vertical: snapResult.guides.vertical.map(canvasToStageX),
-								horizontal: snapResult.guides.horizontal.map(canvasToStageY),
-							});
-							return canvasToStageBox(nextBox);
+							setSnapGuides(snapResult.guides);
+							return nextBox;
 						}}
 						anchorFill="black"
 						anchorStroke="rgba(255,0,0,1)"
