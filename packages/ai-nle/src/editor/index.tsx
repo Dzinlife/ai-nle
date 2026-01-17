@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ModelManager } from "@/dsl/model";
-import { TimelineElement } from "@/dsl/types";
+import { TimelineElement, TrackRole } from "@/dsl/types";
 import { clampFrame, secondsToFrames } from "@/utils/timecode";
 import ElementSettingsPanel from "./components/ElementSettingsPanel";
 import PreviewProvider from "./contexts/PreviewProvider";
@@ -22,6 +22,11 @@ import {
 	insertElementIntoMainTrack,
 } from "./utils/mainTrackMagnet";
 import { buildTimelineMeta } from "./utils/timelineTime";
+import {
+	assignTracks,
+	findAvailableTrack,
+	getTrackCount,
+} from "./utils/trackAssignment";
 
 // 导入所有组件以触发注册
 import "@/dsl/BackdropZoom";
@@ -35,6 +40,17 @@ import "@/dsl/Lottie";
 import { componentRegistry } from "@/dsl/model/componentRegistry";
 
 console.log("[Editor] Registered components:", componentRegistry.getTypes());
+
+const getMaterialRole = (item: MaterialItem): TrackRole => {
+	switch (item.type) {
+		case "audio":
+			return "audio";
+		case "text":
+			return "overlay";
+		default:
+			return "clip";
+	}
+};
 
 // 内部编辑器内容组件（可以使用 hooks）
 const EditorContent: React.FC = () => {
@@ -81,10 +97,18 @@ const EditorContent: React.FC = () => {
 
 	// 处理素材库拖拽放置到时间线
 	const handleTimelineDrop = useCallback(
-		(item: MaterialItem, trackIndex: number, time: number) => {
+		(
+			item: MaterialItem,
+			trackIndex: number,
+			time: number,
+			dropTargetType: "track" | "gap" = "track",
+		) => {
 			setElements((prev) => {
 				const durationFrames = secondsToFrames(5, fps);
 				const startFrame = clampFrame(time);
+				const role = getMaterialRole(item);
+				const insertIndex =
+					dropTargetType === "gap" ? Math.max(1, trackIndex) : trackIndex;
 				const newElement: TimelineElement = {
 					id: `element-${Date.now()}`,
 					type: "Image" as const,
@@ -103,8 +127,8 @@ const EditorContent: React.FC = () => {
 						{
 							start: startFrame,
 							end: startFrame + durationFrames,
-							trackIndex,
-							role: "clip",
+							trackIndex: insertIndex,
+							role,
 						},
 						fps,
 					),
@@ -121,6 +145,26 @@ const EditorContent: React.FC = () => {
 					autoAttach,
 					fps,
 				};
+
+				if (dropTargetType === "gap") {
+					const shifted = prev.map((el) => {
+						const currentTrack = el.timeline.trackIndex ?? 0;
+						if (currentTrack >= insertIndex) {
+							return {
+								...el,
+								timeline: {
+									...el.timeline,
+									trackIndex: currentTrack + 1,
+								},
+							};
+						}
+						return el;
+					});
+					return finalizeTimelineElements(
+						[...shifted, newElement],
+						postProcessOptions,
+					);
+				}
 
 				if (mainTrackMagnetEnabled && trackIndex === 0) {
 					return insertElementIntoMainTrack(
@@ -146,12 +190,28 @@ const EditorContent: React.FC = () => {
 		(item: MaterialItem, canvasX: number, canvasY: number) => {
 			const elementWidth = item.width ?? 400;
 			const elementHeight = item.height ?? 300;
+			const role = getMaterialRole(item);
 
 			setElements((prev) => {
 				const durationFrames = secondsToFrames(5, fps);
 				const startFrame = clampFrame(currentTime);
+				const endFrame = startFrame + durationFrames;
+				const newId = `element-${Date.now()}`;
+				const trackAssignments = assignTracks(prev);
+				const trackCount = getTrackCount(trackAssignments);
+				const targetTrackIndex = 1; // 预览投放默认非主轨
+				const finalTrack = findAvailableTrack(
+					startFrame,
+					endFrame,
+					targetTrackIndex,
+					role,
+					prev,
+					trackAssignments,
+					newId,
+					trackCount,
+				);
 				const newElement: TimelineElement = {
-					id: `element-${Date.now()}`,
+					id: newId,
 					type: "Image" as const,
 					name: item.name,
 					props: {
@@ -167,9 +227,9 @@ const EditorContent: React.FC = () => {
 					timeline: buildTimelineMeta(
 						{
 							start: startFrame,
-							end: startFrame + durationFrames,
-							trackIndex: 1, // 默认放到轨道 1（非主轨道）
-							role: "clip",
+							end: endFrame,
+							trackIndex: finalTrack,
+							role,
 						},
 						fps,
 					),

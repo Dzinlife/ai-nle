@@ -4,26 +4,34 @@
  */
 
 import { useDrag } from "@use-gesture/react";
-import React, { useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { TimelineElement, TrackRole } from "@/dsl/types";
 import {
 	clampFrame,
 	framesToTimecode,
 	secondsToFrames,
 } from "@/utils/timecode";
-import { useFps } from "./contexts/TimelineContext";
+import { useFps, useTimelineStore } from "./contexts/TimelineContext";
 import {
 	calculateAutoScrollSpeed,
 	type DragGhostInfo,
 	type DropTargetInfo,
+	isMaterialDragData,
 	type MaterialDragData,
 	useDragStore,
 } from "./drag";
 import { getElementHeightForTrack } from "./timeline/trackConfig";
 import { getPixelsPerFrame } from "./utils/timelineScale";
 import {
-	getTrackHitFromHeights,
+	assignTracks,
+	getDropTarget,
+	getDropTargetFromHeights,
+	getTrackRoleMap,
 	getTrackYFromHeights,
+	hasOverlapOnTrack,
+	isRoleCompatibleWithTrack,
+	MAIN_TRACK_INDEX,
 } from "./utils/trackAssignment";
 
 // ============================================================================
@@ -32,7 +40,7 @@ import {
 
 interface MaterialItem {
 	id: string;
-	type: "image" | "video";
+	type: "image" | "video" | "audio" | "text";
 	name: string;
 	uri: string;
 	thumbnailUrl: string;
@@ -48,12 +56,16 @@ interface MaterialCardProps {
 		item: MaterialItem,
 		trackIndex: number,
 		time: number,
+		dropTargetType?: "track" | "gap",
 	) => void;
 	onPreviewDrop?: (
 		item: MaterialItem,
 		canvasX: number,
 		canvasY: number,
 	) => void;
+	elements: TimelineElement[];
+	trackAssignments: Map<string, number>;
+	trackRoleMap: Map<number, TrackRole>;
 }
 
 // ============================================================================
@@ -64,10 +76,21 @@ const MaterialCard: React.FC<MaterialCardProps> = ({
 	item,
 	onTimelineDrop,
 	onPreviewDrop,
+	elements,
+	trackAssignments,
+	trackRoleMap,
 }) => {
 	const cardRef = useRef<HTMLDivElement>(null);
 	const { fps } = useFps();
 	const ratio = getPixelsPerFrame(fps);
+	const defaultDurationFrames = secondsToFrames(5, fps);
+	const materialDurationFrames =
+		Number.isFinite(item.duration) && (item.duration ?? 0) > 0
+			? (item.duration as number)
+			: defaultDurationFrames;
+	const mainTrackMagnetEnabled = useTimelineStore(
+		(state) => state.mainTrackMagnetEnabled,
+	);
 	const {
 		startDrag,
 		updateGhost,
@@ -83,6 +106,29 @@ const MaterialCard: React.FC<MaterialCardProps> = ({
 
 	// 记录初始鼠标偏移
 	const initialOffsetRef = useRef({ x: 0, y: 0 });
+	const materialRole = getMaterialRole(item);
+	const resolveTrackRole = (trackIndex: number): TrackRole => {
+		if (trackIndex === MAIN_TRACK_INDEX) return "clip";
+		return trackRoleMap.get(trackIndex) ?? "overlay";
+	};
+	const shouldForceGapInsert = (
+		trackIndex: number,
+		start: number,
+		end: number,
+	): boolean => {
+		if (!isRoleCompatibleWithTrack(materialRole, trackIndex)) return true;
+		if (resolveTrackRole(trackIndex) !== materialRole) return true;
+		if (trackIndex === MAIN_TRACK_INDEX && mainTrackMagnetEnabled) return false;
+		return hasOverlapOnTrack(
+			start,
+			end,
+			trackIndex,
+			elements,
+			trackAssignments,
+		);
+	};
+	const normalizeGapIndex = (trackIndex: number): number =>
+		Math.max(MAIN_TRACK_INDEX + 1, trackIndex);
 
 	// 检测时间线拖拽目标
 	const detectDropTarget = (
@@ -164,10 +210,21 @@ const MaterialCard: React.FC<MaterialCardProps> = ({
 					const time = clampFrame(
 						(mouseX - contentRect.left + scrollLeft) / ratio,
 					);
+					const dropEnd = time + materialDurationFrames;
+					const shouldGapInsert = shouldForceGapInsert(
+						MAIN_TRACK_INDEX,
+						time,
+						dropEnd,
+					);
+					const targetType = shouldGapInsert ? "gap" : "track";
+					const targetIndex = shouldGapInsert
+						? normalizeGapIndex(MAIN_TRACK_INDEX)
+						: MAIN_TRACK_INDEX;
 
 					return {
 						zone: "timeline",
-						trackIndex: 0,
+						type: targetType,
+						trackIndex: targetIndex,
 						time,
 						canDrop: true,
 					};
@@ -195,36 +252,63 @@ const MaterialCard: React.FC<MaterialCardProps> = ({
 				if (contentArea) {
 					const contentRect = contentArea.getBoundingClientRect();
 					const contentRelativeY = mouseY - contentRect.top;
-					let targetTrackIndex: number | null = null;
-					if (trackHeights.length > 0) {
-						const hit = getTrackHitFromHeights(
+					let dropTarget =
+						trackHeights.length > 0
+							? getDropTargetFromHeights(
+									contentRelativeY,
+									trackHeights,
+									otherTrackCount,
+								)
+							: null;
+					if (!dropTarget) {
+						const fallbackTarget = getDropTarget(
 							contentRelativeY,
-							trackHeights,
+							trackHeight,
 							otherTrackCount,
 						);
-						if (hit) {
-							targetTrackIndex = Math.max(
-								1,
-								Math.min(otherTrackCount, hit.trackIndex),
-							);
-						}
+						dropTarget = {
+							...fallbackTarget,
+							trackIndex: fallbackTarget.trackIndex + 1,
+						};
 					}
-					if (targetTrackIndex === null) {
-						const trackFromTop = Math.floor(contentRelativeY / trackHeight);
-						targetTrackIndex = Math.max(
+					if (dropTarget) {
+						const maxTrackIndex =
+							dropTarget.type === "gap" ? otherTrackCount + 1 : otherTrackCount;
+						const targetTrackIndex = Math.max(
 							1,
-							Math.min(otherTrackCount, otherTrackCount - trackFromTop),
+							Math.min(maxTrackIndex, dropTarget.trackIndex),
 						);
+						dropTarget = { ...dropTarget, trackIndex: targetTrackIndex };
 					}
+					if (!dropTarget) return null;
 
 					const scrollLeft = useDragStore.getState().timelineScrollLeft;
 					const time = clampFrame(
 						(mouseX - contentRect.left + scrollLeft) / ratio,
 					);
+					const dropEnd = time + materialDurationFrames;
+
+					let resolvedDropTarget =
+						dropTarget.type === "gap"
+							? {
+									...dropTarget,
+									trackIndex: normalizeGapIndex(dropTarget.trackIndex),
+								}
+							: dropTarget;
+					if (
+						resolvedDropTarget.type === "track" &&
+						shouldForceGapInsert(resolvedDropTarget.trackIndex, time, dropEnd)
+					) {
+						resolvedDropTarget = {
+							type: "gap",
+							trackIndex: normalizeGapIndex(resolvedDropTarget.trackIndex),
+						};
+					}
 
 					return {
 						zone: "timeline",
-						trackIndex: targetTrackIndex,
+						type: resolvedDropTarget.type,
+						trackIndex: resolvedDropTarget.trackIndex,
 						time,
 						canDrop: true,
 					};
@@ -287,6 +371,7 @@ const MaterialCard: React.FC<MaterialCardProps> = ({
 							item,
 							currentDropTarget.trackIndex,
 							currentDropTarget.time,
+							currentDropTarget.type ?? "track",
 						);
 					} else if (
 						currentDropTarget.zone === "preview" &&
@@ -362,7 +447,7 @@ const MaterialCard: React.FC<MaterialCardProps> = ({
 				className="w-full h-20 object-cover"
 				draggable={false}
 			/>
-			<div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2">
+			<div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/80 to-transparent p-2">
 				<div className="text-xs text-white truncate">{item.name}</div>
 			</div>
 			{item.type === "video" && item.duration && (
@@ -388,6 +473,17 @@ function parseTrackHeights(value?: string): number[] {
 		.split(",")
 		.map((part) => parseInt(part, 10))
 		.filter((height) => Number.isFinite(height) && height > 0);
+}
+
+function getMaterialRole(item: MaterialItem): TrackRole {
+	switch (item.type) {
+		case "audio":
+			return "audio";
+		case "text":
+			return "overlay";
+		default:
+			return "clip";
+	}
 }
 
 // ============================================================================
@@ -460,6 +556,7 @@ const DragGhost: React.FC = () => {
 
 const MaterialDropIndicator: React.FC = () => {
 	const { isDragging, dragSource, dropTarget } = useDragStore();
+	const dragData = useDragStore((state) => state.dragData);
 	const { fps } = useFps();
 	const ratio = getPixelsPerFrame(fps);
 
@@ -472,15 +569,71 @@ const MaterialDropIndicator: React.FC = () => {
 	}
 
 	// 查找目标区域的 DOM 元素
+	const targetType = dropTarget.type ?? "track";
 	const trackIndex = dropTarget.trackIndex ?? 0;
 	const time = dropTarget.time ?? 0;
 	const defaultDurationFrames = secondsToFrames(5, fps);
-	const elementWidth = defaultDurationFrames * ratio;
+	const materialDurationFrames =
+		dragData &&
+		isMaterialDragData(dragData) &&
+		Number.isFinite(dragData.duration) &&
+		(dragData.duration ?? 0) > 0
+			? (dragData.duration as number)
+			: defaultDurationFrames;
+	const elementWidth = materialDurationFrames * ratio;
 
 	let targetZone: HTMLElement | null = null;
 	let screenX = 0;
 	let screenY = 0;
 	let indicatorHeight = 40;
+
+	if (targetType === "gap") {
+		targetZone = document.querySelector<HTMLElement>(
+			'[data-track-drop-zone="other"]',
+		);
+		if (!targetZone) return null;
+		const contentArea = targetZone.querySelector<HTMLElement>(
+			'[data-track-content-area="other"]',
+		);
+		if (!contentArea) return null;
+
+		const contentRect = contentArea.getBoundingClientRect();
+		const otherTrackCount = parseInt(targetZone.dataset.trackCount || "0", 10);
+		const trackHeights = parseTrackHeights(targetZone.dataset.trackHeights);
+		const fallbackTrackHeight = parseInt(
+			targetZone.dataset.trackHeight || "60",
+			10,
+		);
+		const gapIndex = Math.max(1, trackIndex);
+		const gapBaseTrack = Math.min(gapIndex - 1, Math.max(otherTrackCount, 0));
+		const gapY =
+			trackHeights.length > 0
+				? getTrackYFromHeights(
+						gapBaseTrack,
+						trackHeights,
+						Math.max(otherTrackCount, gapBaseTrack),
+					)
+				: Math.max(0, otherTrackCount - gapBaseTrack) * fallbackTrackHeight;
+		const paddingLeft = contentArea.parentElement
+			? parseFloat(
+					getComputedStyle(contentArea.parentElement).paddingLeft || "0",
+				)
+			: 0;
+		screenX = contentRect.left - paddingLeft;
+		screenY = contentRect.top + gapY - 3.5;
+
+		return createPortal(
+			<div
+				className="fixed h-px bg-green-500 z-[9998] pointer-events-none rounded-full shadow-lg shadow-green-500/50"
+				style={{
+					left: screenX,
+					top: screenY,
+					width: contentRect.width + paddingLeft,
+				}}
+			/>,
+			document.body,
+		);
+	}
 
 	if (trackIndex === 0) {
 		targetZone = document.querySelector<HTMLElement>(
@@ -588,6 +741,7 @@ interface MaterialLibraryProps {
 		item: MaterialItem,
 		trackIndex: number,
 		time: number,
+		dropTargetType?: "track" | "gap",
 	) => void;
 	onPreviewDrop?: (
 		item: MaterialItem,
@@ -602,6 +756,12 @@ const MaterialLibrary: React.FC<MaterialLibraryProps> = ({
 	onPreviewDrop,
 }) => {
 	const [isOpen, setIsOpen] = useState(true);
+	const elements = useTimelineStore((state) => state.elements);
+	const trackAssignments = useMemo(() => assignTracks(elements), [elements]);
+	const trackRoleMap = useMemo(
+		() => getTrackRoleMap(elements, trackAssignments),
+		[elements, trackAssignments],
+	);
 
 	return (
 		<>
@@ -628,6 +788,9 @@ const MaterialLibrary: React.FC<MaterialLibraryProps> = ({
 								item={item}
 								onTimelineDrop={onTimelineDrop}
 								onPreviewDrop={onPreviewDrop}
+								elements={elements}
+								trackAssignments={trackAssignments}
+								trackRoleMap={trackRoleMap}
 							/>
 						))}
 					</div>
