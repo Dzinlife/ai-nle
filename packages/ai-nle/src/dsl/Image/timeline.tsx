@@ -18,11 +18,11 @@ export const ImageTimeline: React.FC<ImageTimelineProps> = ({ id }) => {
 	);
 
 	return (
-		<div className="absolute inset-0 rounded-md overflow-hidden bg-linear-to-b from-indigo-800 to-indigo-700 border border-indigo-700 p-1">
+		<div className="absolute inset-0 p-1 bg-indigo-700">
 			<div className="flex gap-1">
 				{uri && (
 					<div
-						className="rounded size-4 bg-cover"
+						className="rounded-xs size-4.5 bg-cover"
 						style={{
 							backgroundImage: `url(${uri})`,
 						}}

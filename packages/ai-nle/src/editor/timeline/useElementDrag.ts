@@ -3,15 +3,12 @@
  * 封装时间线元素拖拽的核心逻辑
  */
 
-import { useRef } from "react";
 import { useDrag } from "@use-gesture/react";
+import { useRef } from "react";
 import { TimelineElement } from "@/dsl/types";
+import { calculateDragResult, calculateFinalTrack } from "./dragCalculations";
+import { getElementHeightForTrack } from "./trackConfig";
 import { DropTarget, ExtendedDropTarget, SnapPoint } from "./types";
-import {
-	calculateDragResult,
-	calculateFinalTrack,
-} from "./dragCalculations";
-import { DEFAULT_ELEMENT_HEIGHT } from "./trackConfig";
 
 // ============================================================================
 // 类型定义
@@ -44,14 +41,14 @@ export interface UseElementDragOptions {
 	collectSnapPoints: (
 		elements: TimelineElement[],
 		currentTime: number,
-		excludeId: string
+		excludeId: string,
 	) => SnapPoint[];
 	/** 应用吸附函数 */
 	applySnapForDrag: (
 		start: number,
 		end: number,
 		snapPoints: SnapPoint[],
-		ratio: number
+		ratio: number,
 	) => { start: number; end: number; snapPoint: SnapPoint | null };
 	/** 回调函数 */
 	callbacks: {
@@ -121,7 +118,7 @@ export function useElementBodyDrag(options: UseElementDragOptions) {
 		ratio,
 		trackHeight,
 		trackCount,
-		elementHeight = DEFAULT_ELEMENT_HEIGHT,
+		elementHeight,
 		elements,
 		currentTime,
 		snapEnabled,
@@ -131,6 +128,8 @@ export function useElementBodyDrag(options: UseElementDragOptions) {
 		applySnapForDrag,
 		callbacks,
 	} = options;
+	const resolvedElementHeight =
+		elementHeight ?? getElementHeightForTrack(trackHeight);
 
 	const dragRefs = useDragRefs();
 
@@ -165,7 +164,7 @@ export function useElementBodyDrag(options: UseElementDragOptions) {
 				initialTrackIndex: dragRefs.current.initialTrack,
 				trackHeight,
 				trackCount,
-				elementHeight,
+				elementHeight: resolvedElementHeight,
 			});
 
 			let { newStart, newEnd } = dragResult;
@@ -235,8 +234,11 @@ export function useElementBodyDrag(options: UseElementDragOptions) {
 				// 计算最终轨道位置
 				const tempElements = elements.map((el) =>
 					el.id === id
-						? { ...el, timeline: { ...el.timeline, start: newStart, end: newEnd } }
-						: el
+						? {
+								...el,
+								timeline: { ...el.timeline, start: newStart, end: newEnd },
+							}
+						: el,
 				);
 
 				const finalTrackResult = calculateFinalTrack(
@@ -244,7 +246,7 @@ export function useElementBodyDrag(options: UseElementDragOptions) {
 					{ start: newStart, end: newEnd },
 					tempElements,
 					id,
-					timeline.trackIndex ?? 0
+					timeline.trackIndex ?? 0,
 				);
 
 				const moveState: DragMoveState = {
@@ -273,7 +275,7 @@ export function useElementBodyDrag(options: UseElementDragOptions) {
 				callbacks.onDragMove?.(moveState);
 			}
 		},
-		{ filterTaps: true }
+		{ filterTaps: true },
 	);
 
 	return bindDrag;
@@ -300,13 +302,13 @@ export interface UseEdgeDragOptions {
 	collectSnapPoints: (
 		elements: TimelineElement[],
 		currentTime: number,
-		excludeId: string
+		excludeId: string,
 	) => SnapPoint[];
 	/** 应用吸附函数 */
 	applySnap: (
 		time: number,
 		snapPoints: SnapPoint[],
-		ratio: number
+		ratio: number,
 	) => { time: number; snapPoint: SnapPoint | null };
 	/** 回调函数 */
 	callbacks: {
@@ -361,8 +363,8 @@ export function useLeftEdgeDrag(options: UseEdgeDragOptions) {
 				0,
 				Math.min(
 					dragRefs.current.initialStart + deltaTime,
-					dragRefs.current.initialEnd - 0.1
-				)
+					dragRefs.current.initialEnd - 0.1,
+				),
 			);
 
 			// 最大时长约束
@@ -398,7 +400,7 @@ export function useLeftEdgeDrag(options: UseEdgeDragOptions) {
 				callbacks.setActiveSnapPoint(snapPoint);
 			}
 		},
-		{ axis: "x", filterTaps: true }
+		{ axis: "x", filterTaps: true },
 	);
 
 	return bindDrag;
@@ -444,7 +446,7 @@ export function useRightEdgeDrag(options: UseEdgeDragOptions) {
 			const deltaTime = mx / ratio;
 			let newEnd = Math.max(
 				dragRefs.current.initialStart + 0.1,
-				dragRefs.current.initialEnd + deltaTime
+				dragRefs.current.initialEnd + deltaTime,
 			);
 
 			// 最大时长约束
@@ -479,7 +481,7 @@ export function useRightEdgeDrag(options: UseEdgeDragOptions) {
 				callbacks.setActiveSnapPoint(snapPoint);
 			}
 		},
-		{ axis: "x", filterTaps: true }
+		{ axis: "x", filterTaps: true },
 	);
 
 	return bindDrag;

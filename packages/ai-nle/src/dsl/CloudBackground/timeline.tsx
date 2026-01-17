@@ -13,7 +13,7 @@ export const CloudBackgroundTimeline: React.FC<
 	);
 
 	return (
-		<div className="absolute inset-0 rounded-md overflow-hidden bg-linear-to-b from-sky-800 to-sky-700 border border-sky-700 p-1">
+		<div className="absolute inset-0 p-1">
 			<div className="flex gap-1">
 				<span>{name || "Cloud Background"}</span>
 			</div>

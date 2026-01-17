@@ -225,7 +225,7 @@ export const ClipTimeline: React.FC<ClipTimelineProps> = ({
 	}, [isLoading, videoSink, videoDuration, generateThumbnails]);
 
 	return (
-		<div className="absolute inset-0 rounded-md overflow-hidden">
+		<div className="absolute inset-0 overflow-hidden">
 			{/* 时长显示 */}
 			<div className="absolute top-1 left-1 px-1 rounded bg-white/50 backdrop-blur-sm text-black/80 text-xs z-10">
 				{clipDuration.toFixed(1)}s

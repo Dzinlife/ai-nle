@@ -12,9 +12,9 @@ export const LottieTimeline: React.FC<LottieTimelineProps> = ({ id }) => {
 	);
 
 	return (
-		<div className="absolute inset-0 rounded-md overflow-hidden p-1">
+		<div className="absolute inset-0 p-1">
 			<div className="flex gap-1">
-				<div className="rounded size-4 overflow-clip">
+				<div className="rounded-xs size-4.5 overflow-clip">
 					<LottieIcon className="size-full" />
 				</div>
 				<span>{name || "Lottie"}</span>

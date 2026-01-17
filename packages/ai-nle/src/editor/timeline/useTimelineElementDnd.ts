@@ -1,27 +1,24 @@
 /**
  * Timeline element drag-and-drop behavior (single + multi).
  */
-import { useRef } from "react";
+
 import { useDrag } from "@use-gesture/react";
+import { useRef } from "react";
 import { TimelineElement } from "@/dsl/types";
+import { DragGhostState, useTimelineStore } from "../contexts/TimelineContext";
+import { applySnap, applySnapForDrag, collectSnapPoints } from "../utils/snap";
 import {
-	DragGhostState,
-	ExtendedDropTarget,
-	SnapPoint,
-} from "./types";
+	getDropTargetFromHeights,
+	getElementRole,
+	resolveDropTargetForRole,
+} from "../utils/trackAssignment";
 import {
 	calculateDragResult,
 	calculateFinalTrack,
-	DEFAULT_ELEMENT_HEIGHT,
 	SIGNIFICANT_VERTICAL_MOVE_RATIO,
 } from "./index";
-import { applySnap, applySnapForDrag, collectSnapPoints } from "../utils/snap";
-import {
-	getElementRole,
-	getDropTargetFromHeights,
-	resolveDropTargetForRole,
-} from "../utils/trackAssignment";
-import { useTimelineStore } from "../contexts/TimelineContext";
+import { getElementHeightForTrack } from "./trackConfig";
+import { ExtendedDropTarget, SnapPoint } from "./types";
 
 interface UseTimelineElementDndOptions {
 	element: TimelineElement;
@@ -116,10 +113,7 @@ const findDropTargetFromScreenPosition = (
 
 	if (otherZone) {
 		const rect = otherZone.getBoundingClientRect();
-		const datasetTrackCount = parseInt(
-			otherZone.dataset.trackCount || "0",
-			10,
-		);
+		const datasetTrackCount = parseInt(otherZone.dataset.trackCount || "0", 10);
 		const otherTrackCount =
 			datasetTrackCount > 0
 				? datasetTrackCount
@@ -157,9 +151,7 @@ const findDropTargetFromScreenPosition = (
 				);
 				if (dropTarget) {
 					const maxTrackIndex =
-						dropTarget.type === "gap"
-							? otherTrackCount + 1
-							: otherTrackCount;
+						dropTarget.type === "gap" ? otherTrackCount + 1 : otherTrackCount;
 					const targetTrackIndex = Math.max(
 						1,
 						Math.min(maxTrackIndex, dropTarget.trackIndex),
@@ -268,7 +260,7 @@ export const useTimelineElementDnd = ({
 		currentEnd: element.timeline.end,
 	});
 	const elementRole = getElementRole(element);
-	const elementHeight = Math.min(DEFAULT_ELEMENT_HEIGHT, trackHeight);
+	const elementHeight = getElementHeightForTrack(trackHeight);
 	const dragSelectedIdsRef = useRef<string[]>([]);
 	const dragInitialElementsRef = useRef<
 		Map<string, { start: number; end: number; trackIndex: number }>
@@ -306,7 +298,10 @@ export const useTimelineElementDnd = ({
 			);
 
 			if (maxDuration !== undefined) {
-				newStart = Math.max(newStart, dragRefs.current.initialEnd - maxDuration);
+				newStart = Math.max(
+					newStart,
+					dragRefs.current.initialEnd - maxDuration,
+				);
 			}
 
 			let snapPoint = null;
@@ -453,7 +448,8 @@ export const useTimelineElementDnd = ({
 					}
 
 					const ghostWidth =
-						(dragRefs.current.currentEnd - dragRefs.current.currentStart) * ratio;
+						(dragRefs.current.currentEnd - dragRefs.current.currentStart) *
+						ratio;
 					setDragGhosts([
 						{
 							elementId: element.id,
@@ -542,12 +538,12 @@ export const useTimelineElementDnd = ({
 							xy[1],
 							otherTrackCount,
 							trackHeight,
-					  )
+						)
 					: {
 							trackIndex:
 								draggedInitial?.trackIndex ?? dragRefs.current.initialTrack,
 							type: "track" as const,
-					  };
+						};
 				const resolvedDropTarget = resolveDropTargetForRole(
 					baseDropTarget,
 					elementRole,
@@ -558,7 +554,8 @@ export const useTimelineElementDnd = ({
 					initialElementsSnapshotRef.current.length > 0
 						? initialElementsSnapshotRef.current
 						: elements;
-				const baseStart = draggedInitial?.start ?? dragRefs.current.initialStart;
+				const baseStart =
+					draggedInitial?.start ?? dragRefs.current.initialStart;
 				const baseEnd = draggedInitial?.end ?? dragRefs.current.initialEnd;
 				const nextStart = baseStart + deltaTime;
 				const nextEnd = baseEnd + deltaTime;
@@ -604,29 +601,30 @@ export const useTimelineElementDnd = ({
 
 				if (last) {
 					const selectedSet = new Set(dragSelectedIdsRef.current);
-				const selectedTrackIndices = new Set<number>();
-				for (const selectedId of selectedSet) {
-					const initial = initialMap.get(selectedId);
-					if (initial) {
-						selectedTrackIndices.add(initial.trackIndex);
+					const selectedTrackIndices = new Set<number>();
+					for (const selectedId of selectedSet) {
+						const initial = initialMap.get(selectedId);
+						if (initial) {
+							selectedTrackIndices.add(initial.trackIndex);
+						}
 					}
-				}
-				const singleTrackSelection = selectedTrackIndices.size === 1;
-				const selectedTrackIndex = singleTrackSelection
-					? [...selectedTrackIndices][0]
-					: null;
-				const isFullTrackSelection =
-					singleTrackSelection &&
-					selectedTrackIndex !== null &&
-					baseElements
-						.filter(
-							(el) => (el.timeline.trackIndex ?? 0) === selectedTrackIndex,
-						)
-						.every((el) => selectedSet.has(el.id));
-					const baseElementMap = new Map(
-						baseElements.map((el) => [el.id, el]),
-					);
-					const movedChildren = new Map<string, { start: number; end: number }>();
+					const singleTrackSelection = selectedTrackIndices.size === 1;
+					const selectedTrackIndex = singleTrackSelection
+						? [...selectedTrackIndices][0]
+						: null;
+					const isFullTrackSelection =
+						singleTrackSelection &&
+						selectedTrackIndex !== null &&
+						baseElements
+							.filter(
+								(el) => (el.timeline.trackIndex ?? 0) === selectedTrackIndex,
+							)
+							.every((el) => selectedSet.has(el.id));
+					const baseElementMap = new Map(baseElements.map((el) => [el.id, el]));
+					const movedChildren = new Map<
+						string,
+						{ start: number; end: number }
+					>();
 
 					if (autoAttach && deltaTime !== 0) {
 						for (const parentId of selectedSet) {
@@ -655,94 +653,94 @@ export const useTimelineElementDnd = ({
 						}
 					}
 
-				const maxTrackIndex = Math.max(
-					1,
-					...baseElements.map((el) => el.timeline.trackIndex ?? 0),
-				);
-				const rawTargetTrack =
-					resolvedDropTarget.type === "gap"
-						? resolvedDropTarget.trackIndex - 1
-						: resolvedDropTarget.trackIndex;
-				const targetTrackIndex = Math.max(
-					1,
-					Math.min(maxTrackIndex, rawTargetTrack),
-				);
-				const shouldReorderTracks =
-					hasSignificantVerticalMove &&
-					isFullTrackSelection &&
-					selectedTrackIndex !== null;
-				const remapTrackIndex = (trackIndex: number) => {
-					if (!shouldReorderTracks) return trackIndex;
-					if (trackIndex === 0) return 0;
-					if (selectedTrackIndex === targetTrackIndex) return trackIndex;
-					if (trackIndex === selectedTrackIndex) {
-						return targetTrackIndex;
-					}
-					if (targetTrackIndex > selectedTrackIndex) {
-						if (
-							trackIndex > selectedTrackIndex &&
-							trackIndex <= targetTrackIndex
-						) {
-							return trackIndex - 1;
+					const maxTrackIndex = Math.max(
+						1,
+						...baseElements.map((el) => el.timeline.trackIndex ?? 0),
+					);
+					const rawTargetTrack =
+						resolvedDropTarget.type === "gap"
+							? resolvedDropTarget.trackIndex - 1
+							: resolvedDropTarget.trackIndex;
+					const targetTrackIndex = Math.max(
+						1,
+						Math.min(maxTrackIndex, rawTargetTrack),
+					);
+					const shouldReorderTracks =
+						hasSignificantVerticalMove &&
+						isFullTrackSelection &&
+						selectedTrackIndex !== null;
+					const remapTrackIndex = (trackIndex: number) => {
+						if (!shouldReorderTracks) return trackIndex;
+						if (trackIndex === 0) return 0;
+						if (selectedTrackIndex === targetTrackIndex) return trackIndex;
+						if (trackIndex === selectedTrackIndex) {
+							return targetTrackIndex;
 						}
-					} else if (targetTrackIndex < selectedTrackIndex) {
-						if (
-							trackIndex >= targetTrackIndex &&
-							trackIndex < selectedTrackIndex
-						) {
-							return trackIndex + 1;
+						if (targetTrackIndex > selectedTrackIndex) {
+							if (
+								trackIndex > selectedTrackIndex &&
+								trackIndex <= targetTrackIndex
+							) {
+								return trackIndex - 1;
+							}
+						} else if (targetTrackIndex < selectedTrackIndex) {
+							if (
+								trackIndex >= targetTrackIndex &&
+								trackIndex < selectedTrackIndex
+							) {
+								return trackIndex + 1;
+							}
 						}
-					}
-					return trackIndex;
-				};
+						return trackIndex;
+					};
 
-				setElements((prev) =>
-					prev.map((el) => {
-						const baseTrack = el.timeline.trackIndex ?? 0;
-						const nextTrack = remapTrackIndex(baseTrack);
+					setElements((prev) =>
+						prev.map((el) => {
+							const baseTrack = el.timeline.trackIndex ?? 0;
+							const nextTrack = remapTrackIndex(baseTrack);
 
-						if (selectedSet.has(el.id)) {
-							const initial = initialMap.get(el.id);
-							if (!initial) return el;
-							return {
-								...el,
-								timeline: {
-									...el.timeline,
-									start: initial.start + deltaTime,
-									end: initial.end + deltaTime,
-									trackIndex: shouldReorderTracks
-										? nextTrack
-										: Math.max(0, initial.trackIndex + trackDelta),
-								},
-							};
-						}
+							if (selectedSet.has(el.id)) {
+								const initial = initialMap.get(el.id);
+								if (!initial) return el;
+								return {
+									...el,
+									timeline: {
+										...el.timeline,
+										start: initial.start + deltaTime,
+										end: initial.end + deltaTime,
+										trackIndex: shouldReorderTracks
+											? nextTrack
+											: Math.max(0, initial.trackIndex + trackDelta),
+									},
+								};
+							}
 
-						const childMove = movedChildren.get(el.id);
-						if (childMove) {
-							return {
-								...el,
-								timeline: {
-									...el.timeline,
-									start: childMove.start,
-									end: childMove.end,
-									trackIndex: nextTrack,
-								},
-							};
-						}
+							const childMove = movedChildren.get(el.id);
+							if (childMove) {
+								return {
+									...el,
+									timeline: {
+										...el.timeline,
+										start: childMove.start,
+										end: childMove.end,
+										trackIndex: nextTrack,
+									},
+								};
+							}
 
-						if (nextTrack !== baseTrack) {
-							return {
-								...el,
-								timeline: {
-									...el.timeline,
-									trackIndex: nextTrack,
-								},
-							};
-						}
+							if (nextTrack !== baseTrack) {
+								return {
+									...el,
+									timeline: {
+										...el.timeline,
+										trackIndex: nextTrack,
+									},
+								};
+							}
 
-						return el;
-					}),
-				);
+							return el;
+						}),
+					);
 
 					setIsDragging(false);
 					setActiveSnapPoint(null);
@@ -810,7 +808,7 @@ export const useTimelineElementDnd = ({
 						xy[1],
 						otherTrackCount,
 						trackHeight,
-				  )
+					)
 				: { trackIndex, type: "track" as const };
 			const resolvedDropTarget = resolveDropTargetForRole(
 				baseDropTarget,
@@ -897,7 +895,10 @@ export const useTimelineElementDnd = ({
 
 				const tempElements = elements.map((el) =>
 					el.id === element.id
-						? { ...el, timeline: { ...el.timeline, start: newStart, end: newEnd } }
+						? {
+								...el,
+								timeline: { ...el.timeline, start: newStart, end: newEnd },
+							}
 						: el,
 				);
 

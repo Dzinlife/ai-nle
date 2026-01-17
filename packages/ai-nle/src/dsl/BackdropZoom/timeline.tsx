@@ -6,7 +6,7 @@ interface BackdropZoomTimelineProps extends TimelineProps {
 
 export const BackdropZoomTimeline: React.FC<BackdropZoomTimelineProps> = () => {
 	return (
-		<div className="absolute inset-0 rounded-md overflow-hidden bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-xs">
+		<div className="absolute inset-0 flex items-center justify-center text-white text-xs">
 			Backdrop Zoom
 		</div>
 	);

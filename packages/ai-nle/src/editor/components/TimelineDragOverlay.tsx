@@ -1,7 +1,10 @@
 import React, { useMemo } from "react";
 import { createPortal } from "react-dom";
 import { DragGhostState } from "../contexts/TimelineContext";
-import { DEFAULT_ELEMENT_HEIGHT } from "../timeline/trackConfig";
+import {
+	DEFAULT_TRACK_HEIGHT,
+	getElementHeightForTrack,
+} from "../timeline/trackConfig";
 import { ExtendedDropTarget } from "../timeline/types";
 import { getTrackYFromHeights } from "../utils/trackAssignment";
 
@@ -33,7 +36,7 @@ const TimelineDragOverlay: React.FC<TimelineDragOverlayProps> = ({
 			(activeDropTarget.end - activeDropTarget.start) * ratio;
 		const resolveOtherTrackHeight = (trackIndex: number) => {
 			if (otherTrackCount <= 0 || otherTrackHeights.length === 0) {
-				return DEFAULT_ELEMENT_HEIGHT;
+				return DEFAULT_TRACK_HEIGHT;
 			}
 			const trackFromTop = otherTrackCount - trackIndex;
 			const boundedIndex = Math.max(
@@ -42,8 +45,7 @@ const TimelineDragOverlay: React.FC<TimelineDragOverlayProps> = ({
 			);
 			return otherTrackHeights[boundedIndex];
 		};
-		const indicatorHeight = Math.min(
-			DEFAULT_ELEMENT_HEIGHT,
+		const indicatorHeight = getElementHeightForTrack(
 			activeDropTarget.finalTrackIndex === 0
 				? mainTrackHeight
 				: resolveOtherTrackHeight(activeDropTarget.finalTrackIndex),

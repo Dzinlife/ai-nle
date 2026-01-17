@@ -27,8 +27,7 @@ import {
 import { useDragStore } from "./drag";
 import {
 	buildTrackLayout,
-	MAIN_TRACK_HEIGHT,
-	OTHER_TRACK_HEIGHT,
+	getTrackHeightByRole,
 } from "./utils/trackAssignment";
 
 // 格式化时间为 MM:SS:mmm（输入单位为秒）
@@ -575,7 +574,7 @@ const TimelineEditor = () => {
 		return otherTrackLayout.reduce((sum, item) => sum + item.height, 0);
 	}, [otherTrackLayout]);
 	const mainTrackHeight = useMemo(() => {
-		return trackLayoutByIndex.get(0)?.height ?? MAIN_TRACK_HEIGHT;
+		return trackLayoutByIndex.get(0)?.height ?? getTrackHeightByRole("clip");
 	}, [trackLayoutByIndex]);
 	const selectionBox = useMemo(() => {
 		if (!selectionRect.visible) return null;
@@ -666,7 +665,8 @@ const TimelineEditor = () => {
 					const trackIndex = trackAssignments.get(element.id) ?? 0;
 					const layoutItem = trackLayoutByIndex.get(trackIndex);
 					const y = layoutItem?.y ?? 0;
-					const elementTrackHeight = layoutItem?.height ?? OTHER_TRACK_HEIGHT;
+					const elementTrackHeight =
+						layoutItem?.height ?? getTrackHeightByRole("overlay");
 					return (
 						<TimelineElement
 							key={element.id}
@@ -845,9 +845,8 @@ const TimelineEditor = () => {
 							className="z-10 absolute left-0 top-0 h-full pointer-events-none bg-neutral-800/80 backdrop-blur-3xl backdrop-saturate-150 border-r border-white/10"
 							style={{ width: leftColumnWidth }}
 						></div>
-						<div className="flex-1 mt-18"></div>
 						{/* 其他轨道区域 */}
-						<div className="flex">
+						<div className="flex flex-1 mt-18">
 							{/* 左侧列，其他轨道标签 */}
 							<div
 								className="text-white z-10 pr-4 flex flex-col"
@@ -910,7 +909,7 @@ const TimelineEditor = () => {
 							</div>
 						</div>
 						{/* 音频轨道区域 */}
-						<div className="z-10">
+						<div className="z-10 flex-1">
 							{/* 左侧音频轨道标签 */}
 							<div
 								className="h-full text-white pr-4 flex flex-col z-10"
@@ -922,7 +921,6 @@ const TimelineEditor = () => {
 							</div>
 							{/* TODO: 右侧音频轨道时间线内容 */}
 						</div>
-						<div className="flex-1"></div>
 					</div>
 				</div>
 				{/* 拖拽 Ghost 层 */}

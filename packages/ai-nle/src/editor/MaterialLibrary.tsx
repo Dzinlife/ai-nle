@@ -13,6 +13,7 @@ import {
 	type DropTargetInfo,
 	type MaterialDragData,
 } from "./drag";
+import { getElementHeightForTrack } from "./timeline/trackConfig";
 import {
 	getTrackHitFromHeights,
 	getTrackYFromHeights,
@@ -468,7 +469,9 @@ const MaterialDropIndicator: React.FC = () => {
 				const scrollLeft = useDragStore.getState().timelineScrollLeft;
 				screenX = contentRect.left + time * ratio - scrollLeft;
 				screenY = contentRect.top;
-				indicatorHeight = contentRect.height || indicatorHeight;
+				indicatorHeight = getElementHeightForTrack(
+					contentRect.height || indicatorHeight,
+				);
 			}
 		}
 	} else {
@@ -507,7 +510,7 @@ const MaterialDropIndicator: React.FC = () => {
 						: (otherTrackCount - trackIndex) * fallbackTrackHeight;
 				screenX = contentRect.left + time * ratio - scrollLeft;
 				screenY = contentRect.top + trackY;
-				indicatorHeight = trackHeightForIndex;
+				indicatorHeight = getElementHeightForTrack(trackHeightForIndex);
 			}
 		}
 	}

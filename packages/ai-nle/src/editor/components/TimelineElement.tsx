@@ -25,7 +25,7 @@ import {
 	useTimelineStore,
 	useTrackAssignments,
 } from "../contexts/TimelineContext";
-import { DEFAULT_ELEMENT_HEIGHT } from "../timeline/index";
+import { getElementHeightForTrack } from "../timeline/index";
 import { useTimelineElementDnd } from "../timeline/useTimelineElementDnd";
 
 // ============================================================================
@@ -103,9 +103,7 @@ const ElementContent: React.FC<ElementContentProps> = ({
 		);
 	}
 
-	return (
-		<div className="text-white rounded w-full">{element.name || type}</div>
-	);
+	return <div className="text-white">{element.name || type}</div>;
 };
 
 // ============================================================================
@@ -260,7 +258,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	const currentDuration = endTime - startTime;
 	const isAtMaxDuration =
 		maxDuration !== undefined && Math.abs(currentDuration - maxDuration) < 0.01;
-	const elementHeight = Math.min(DEFAULT_ELEMENT_HEIGHT, trackHeight);
+	const elementHeight = getElementHeightForTrack(trackHeight);
 
 	const { bindLeftDrag, bindRightDrag, bindBodyDrag } = useTimelineElementDnd({
 		element,
@@ -315,10 +313,10 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 
 	// 容器样式
 	const containerClassName = useMemo(() => {
-		const base = "absolute flex rounded-md group";
-		if (isSelected) return `${base} ring-2 ring-blue-500 bg-blue-900/50`;
-		if (isAtMaxDuration) return `${base} bg-amber-700 ring-1 ring-amber-500`;
-		return `${base} bg-neutral-700`;
+		return cn("absolute flex rounded group overflow-hidden bg-neutral-700", {
+			"ring-1 ring-blue-500 bg-blue-900/50": isSelected,
+			"bg-amber-700 ring-1 ring-amber-500": isAtMaxDuration,
+		});
 	}, [isSelected, isAtMaxDuration]);
 
 	return (

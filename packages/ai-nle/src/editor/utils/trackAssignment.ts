@@ -1,18 +1,22 @@
 import { TimelineElement, TrackRole } from "@/dsl/types";
+import { getTrackConfig } from "../timeline/trackConfig";
+import { TrackCategory } from "../timeline/types";
 
 /**
  * 主轨道索引（固定为 0，显示在最底部）
  */
 export const MAIN_TRACK_INDEX = 0;
 
-/**
- * 轨道高度（基于 role）
- */
-export const MAIN_TRACK_HEIGHT = 60;
-export const OTHER_TRACK_HEIGHT = 30;
+const roleCategoryMap: Record<TrackRole, TrackCategory> = {
+	clip: "main",
+	overlay: "overlay",
+	effect: "filter",
+	audio: "audio",
+};
 
 export function getTrackHeightByRole(role: TrackRole): number {
-	return role === "clip" ? MAIN_TRACK_HEIGHT : OTHER_TRACK_HEIGHT;
+	const category = roleCategoryMap[role] ?? "overlay";
+	return getTrackConfig(category).height;
 }
 
 const elementRoleMap = new Map<string, TrackRole>([
@@ -502,7 +506,7 @@ export function getTrackHitFromHeights(
 	if (heights.length < maxTrackIndex) {
 		const missing = maxTrackIndex - heights.length;
 		for (let i = 0; i < missing; i++) {
-			heights.push(OTHER_TRACK_HEIGHT);
+			heights.push(getTrackHeightByRole("overlay"));
 		}
 	}
 	if (heights.length > maxTrackIndex) {
@@ -569,7 +573,7 @@ export function getTrackYFromHeights(
 	if (heights.length < maxTrackIndex) {
 		const missing = maxTrackIndex - heights.length;
 		for (let i = 0; i < missing; i++) {
-			heights.push(OTHER_TRACK_HEIGHT);
+			heights.push(getTrackHeightByRole("overlay"));
 		}
 	}
 	if (heights.length > maxTrackIndex) {

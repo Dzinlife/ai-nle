@@ -15,9 +15,18 @@ import { TrackCategory, TrackConfig, TrackInstance } from "./types";
 export const DEFAULT_TRACK_HEIGHT = 60;
 
 /**
+ * 轨道内容与边界的统一间隙
+ */
+export const TRACK_CONTENT_GAP = 6;
+
+/**
  * 元素默认高度
  */
-export const DEFAULT_ELEMENT_HEIGHT = 54;
+export const DEFAULT_ELEMENT_HEIGHT = DEFAULT_TRACK_HEIGHT - TRACK_CONTENT_GAP;
+
+export function getElementHeightForTrack(trackHeight: number): number {
+	return Math.max(0, trackHeight - TRACK_CONTENT_GAP);
+}
 
 /**
  * 间隙检测阈值（像素）
@@ -35,7 +44,7 @@ export const SIGNIFICANT_VERTICAL_MOVE_RATIO = 0.5;
 export const DEFAULT_TRACK_CONFIGS: Record<TrackCategory, TrackConfig> = {
 	main: {
 		category: "main",
-		height: 60,
+		height: 64,
 		compatibleWith: ["main"], // 主轨道只能放主要内容
 		canCreateNew: false, // 主轨道不能创建新的
 		minTracks: 1,
@@ -43,7 +52,7 @@ export const DEFAULT_TRACK_CONFIGS: Record<TrackCategory, TrackConfig> = {
 	},
 	overlay: {
 		category: "overlay",
-		height: 60,
+		height: 32,
 		compatibleWith: ["overlay"], // 贴纸、水印等可以共存
 		canCreateNew: true,
 		minTracks: 0,
@@ -51,7 +60,7 @@ export const DEFAULT_TRACK_CONFIGS: Record<TrackCategory, TrackConfig> = {
 	},
 	subtitle: {
 		category: "subtitle",
-		height: 48, // 字幕轨道可以矮一些
+		height: 32,
 		compatibleWith: ["subtitle"],
 		canCreateNew: true,
 		minTracks: 0,
@@ -59,7 +68,7 @@ export const DEFAULT_TRACK_CONFIGS: Record<TrackCategory, TrackConfig> = {
 	},
 	filter: {
 		category: "filter",
-		height: 40, // 滤镜轨道更矮
+		height: 32,
 		compatibleWith: ["filter"],
 		canCreateNew: true,
 		minTracks: 0,
@@ -67,7 +76,7 @@ export const DEFAULT_TRACK_CONFIGS: Record<TrackCategory, TrackConfig> = {
 	},
 	transition: {
 		category: "transition",
-		height: 40,
+		height: 32,
 		compatibleWith: ["transition"],
 		canCreateNew: true,
 		minTracks: 0,
@@ -75,7 +84,7 @@ export const DEFAULT_TRACK_CONFIGS: Record<TrackCategory, TrackConfig> = {
 	},
 	audio: {
 		category: "audio",
-		height: 50,
+		height: 32,
 		compatibleWith: ["audio"],
 		canCreateNew: true,
 		minTracks: 0,
