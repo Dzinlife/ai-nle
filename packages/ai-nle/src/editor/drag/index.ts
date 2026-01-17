@@ -13,3 +13,16 @@ export {
 	type DropTargetInfo,
 	type AutoScrollConfig,
 } from "./dragStore";
+export { default as MaterialDragOverlay } from "./MaterialDragOverlay";
+export {
+	useMaterialDnd,
+	useMaterialDndContext,
+	type MaterialDndContext,
+	type MaterialDndItem,
+} from "./materialDnd";
+export {
+	findTimelineDropTargetFromScreenPosition,
+	getPreviewDropTargetFromScreenPosition,
+	getTimelineDropTimeFromScreenX,
+	parseTrackHeights,
+} from "./timelineDropTargets";

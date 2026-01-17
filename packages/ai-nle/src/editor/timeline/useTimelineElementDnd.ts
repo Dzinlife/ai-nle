@@ -6,6 +6,7 @@ import { useDrag } from "@use-gesture/react";
 import { useRef } from "react";
 import { TimelineElement } from "@/dsl/types";
 import { DragGhostState, useTimelineStore } from "../contexts/TimelineContext";
+import { findTimelineDropTargetFromScreenPosition } from "../drag/timelineDropTargets";
 import {
 	finalizeTimelineElements,
 	insertElementIntoMainTrack,
@@ -13,11 +14,7 @@ import {
 	shiftMainTrackElementsAfter,
 } from "../utils/mainTrackMagnet";
 import { applySnap, applySnapForDrag, collectSnapPoints } from "../utils/snap";
-import {
-	getDropTargetFromHeights,
-	getElementRole,
-	resolveDropTargetForRole,
-} from "../utils/trackAssignment";
+import { getElementRole, resolveDropTargetForRole } from "../utils/trackAssignment";
 import {
 	calculateDragResult,
 	calculateFinalTrack,
@@ -87,123 +84,6 @@ interface DragRefs {
 	currentEnd: number;
 }
 
-const findDropTargetFromScreenPosition = (
-	mouseX: number,
-	mouseY: number,
-	otherTrackCountFallback: number,
-	trackHeightFallback: number,
-): { trackIndex: number; type: "track" | "gap" } => {
-	const parseTrackHeights = (value?: string): number[] => {
-		if (!value) return [];
-		return value
-			.split(",")
-			.map((part) => parseInt(part, 10))
-			.filter((height) => Number.isFinite(height) && height > 0);
-	};
-	const mainZone = document.querySelector<HTMLElement>(
-		'[data-track-drop-zone="main"]',
-	);
-	const otherZone = document.querySelector<HTMLElement>(
-		'[data-track-drop-zone="other"]',
-	);
-
-	if (mainZone) {
-		const rect = mainZone.getBoundingClientRect();
-		if (
-			mouseY >= rect.top &&
-			mouseY <= rect.bottom &&
-			mouseX >= rect.left &&
-			mouseX <= rect.right
-		) {
-			return { trackIndex: 0, type: "track" };
-		}
-	}
-
-	if (otherZone) {
-		const rect = otherZone.getBoundingClientRect();
-		const datasetTrackCount = parseInt(otherZone.dataset.trackCount || "0", 10);
-		const otherTrackCount =
-			datasetTrackCount > 0
-				? datasetTrackCount
-				: Math.max(otherTrackCountFallback, 0);
-		const datasetTrackHeight = parseInt(
-			otherZone.dataset.trackHeight || "0",
-			10,
-		);
-		const zoneTrackHeight =
-			datasetTrackHeight > 0 ? datasetTrackHeight : trackHeightFallback;
-		const trackHeights = parseTrackHeights(otherZone.dataset.trackHeights);
-
-		if (
-			mouseY >= rect.top &&
-			mouseY <= rect.bottom &&
-			mouseX >= rect.left &&
-			mouseX <= rect.right &&
-			otherTrackCount > 0
-		) {
-			const contentArea = otherZone.querySelector<HTMLElement>(
-				'[data-track-content-area="other"]',
-			);
-			let contentTop = rect.top;
-			if (contentArea) {
-				const contentRect = contentArea.getBoundingClientRect();
-				contentTop = contentRect.top;
-			}
-
-			const contentRelativeY = mouseY - contentTop;
-			if (trackHeights.length > 0) {
-				const dropTarget = getDropTargetFromHeights(
-					contentRelativeY,
-					trackHeights,
-					otherTrackCount,
-				);
-				if (dropTarget) {
-					const maxTrackIndex =
-						dropTarget.type === "gap" ? otherTrackCount + 1 : otherTrackCount;
-					const targetTrackIndex = Math.max(
-						1,
-						Math.min(maxTrackIndex, dropTarget.trackIndex),
-					);
-					return { ...dropTarget, trackIndex: targetTrackIndex };
-				}
-			}
-
-			if (contentRelativeY < 0) {
-				return { trackIndex: otherTrackCount + 1, type: "gap" };
-			}
-
-			const trackFromTop = Math.floor(contentRelativeY / zoneTrackHeight);
-			const targetTrackIndex = Math.max(
-				1,
-				Math.min(otherTrackCount, otherTrackCount - trackFromTop),
-			);
-			return { trackIndex: targetTrackIndex, type: "track" };
-		}
-	}
-
-	if (mainZone && otherZone) {
-		const mainRect = mainZone.getBoundingClientRect();
-		const otherRect = otherZone.getBoundingClientRect();
-
-		if (mouseY > mainRect.top) {
-			return { trackIndex: 0, type: "track" };
-		}
-
-		if (mouseY < otherRect.top) {
-			const datasetTrackCount = parseInt(
-				otherZone.dataset.trackCount || "0",
-				10,
-			);
-			const otherTrackCount =
-				datasetTrackCount > 0
-					? datasetTrackCount
-					: Math.max(otherTrackCountFallback, 0);
-			return { trackIndex: Math.max(1, otherTrackCount), type: "track" };
-		}
-	}
-
-	return { trackIndex: 0, type: "track" };
-};
 
 const createGhostFromNode = (
 	ghostSource: HTMLElement,
@@ -760,7 +640,7 @@ export const useTimelineElementDnd = ({
 				const hasSignificantVerticalMove =
 					Math.abs(my) > trackHeight * SIGNIFICANT_VERTICAL_MOVE_RATIO;
 				const baseDropTarget = hasSignificantVerticalMove
-					? findDropTargetFromScreenPosition(
+					? findTimelineDropTargetFromScreenPosition(
 							xy[0],
 							xy[1],
 							otherTrackCount,
@@ -1294,7 +1174,7 @@ export const useTimelineElementDnd = ({
 			const hasSignificantVerticalMove =
 				Math.abs(my) > trackHeight * SIGNIFICANT_VERTICAL_MOVE_RATIO;
 			const baseDropTarget = hasSignificantVerticalMove
-				? findDropTargetFromScreenPosition(
+				? findTimelineDropTargetFromScreenPosition(
 						xy[0],
 						xy[1],
 						otherTrackCount,
