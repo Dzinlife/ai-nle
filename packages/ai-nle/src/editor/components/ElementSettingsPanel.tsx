@@ -1,9 +1,16 @@
-import React, { useEffect, useState } from "react";
-import { useElements, useSelectedElement } from "../contexts/TimelineContext";
+import React, { useEffect, useMemo, useState } from "react";
+import { useModelSelectorSafe } from "@/dsl/model";
+import { framesToTimecode } from "@/utils/timecode";
+import {
+	useElements,
+	useFps,
+	useSelectedElement,
+} from "../contexts/TimelineContext";
 
 const ElementSettingsPanel: React.FC = () => {
 	const { selectedElement, setSelectedElementId } = useSelectedElement();
 	const { setElements } = useElements();
+	const { fps } = useFps();
 	const [name, setName] = useState("");
 
 	// 同步选中元素的 name 到本地状态
@@ -12,6 +19,17 @@ const ElementSettingsPanel: React.FC = () => {
 			setName(selectedElement.name || "");
 		}
 	}, [selectedElement?.id, selectedElement?.name]);
+
+	const durationFrames = useMemo(() => {
+		if (!selectedElement) return 0;
+		return selectedElement.timeline.end - selectedElement.timeline.start;
+	}, [selectedElement?.timeline.end, selectedElement?.timeline.start]);
+
+	const constraints = useModelSelectorSafe(
+		selectedElement?.id,
+		(state) => state.constraints,
+		{},
+	);
 
 	if (!selectedElement) {
 		return null;
@@ -34,7 +52,7 @@ const ElementSettingsPanel: React.FC = () => {
 	};
 
 	return (
-		<div className="absolute top-4 left-4 z-[100] bg-neutral-900/95 backdrop-blur-lg border border-white/10 rounded-lg shadow-xl p-4 min-w-64">
+		<div className="absolute top-4 left-4 z-100 bg-neutral-900/95 backdrop-blur-lg border border-white/10 rounded-lg shadow-xl p-4 min-w-64">
 			<div className="flex items-center justify-between mb-4">
 				<h3 className="text-sm font-medium text-white">Element Settings</h3>
 				<button
@@ -75,8 +93,27 @@ const ElementSettingsPanel: React.FC = () => {
 						<div>ID: {selectedElement.id}</div>
 						<div>Track Index: {selectedElement.timeline.trackIndex}</div>
 						<div>Role: {selectedElement.timeline.role}</div>
-						<div>Start: {selectedElement.timeline.start}</div>
-						<div>End: {selectedElement.timeline.end}</div>
+						<div>
+							Start: {selectedElement.timeline.start}f (
+							{selectedElement.timeline.startTimecode})
+						</div>
+						<div>
+							End: {selectedElement.timeline.end}f (
+							{selectedElement.timeline.endTimecode})
+						</div>
+						<div>
+							Duration: {durationFrames}f (
+							{framesToTimecode(durationFrames, fps)})
+						</div>
+						<div>
+							Max Duration:{" "}
+							{constraints.maxDuration !== undefined
+								? `${constraints.maxDuration}f (${framesToTimecode(
+										constraints.maxDuration,
+										fps,
+									)})`
+								: "-"}
+						</div>
 					</div>
 				</div>
 			</div>

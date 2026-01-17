@@ -78,6 +78,9 @@ export type ComponentModelStore<
 export interface TimelineProps {
 	start: number;
 	end: number;
+	startTimecode: string;
+	endTimecode: string;
+	fps: number;
 }
 
 // ===== 模型层元类型（用于之后的交互/轨道扩展） =====

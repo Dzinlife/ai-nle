@@ -49,7 +49,7 @@ export function collectSnapPoints(
  * 查找最近的吸附点
  * @param targetTime 目标时间
  * @param snapPoints 所有吸附点
- * @param thresholdTime 时间阈值（秒）
+ * @param thresholdTime 时间阈值（帧）
  * @returns 最近的吸附点，如果没有在阈值内则返回 null
  */
 export function findNearestSnap(
@@ -75,7 +75,7 @@ export function findNearestSnap(
  * 计算吸附后的时间值
  * @param rawTime 原始时间值
  * @param snapPoints 吸附点列表
- * @param ratio 像素/秒比例
+ * @param ratio 像素/帧比例
  * @returns { time: 吸附后的时间, snapPoint: 激活的吸附点 }
  */
 export function applySnap(
@@ -83,8 +83,8 @@ export function applySnap(
 	snapPoints: SnapPoint[],
 	ratio: number,
 ): { time: number; snapPoint: SnapPoint | null } {
-	const thresholdTime = SNAP_THRESHOLD_PX / ratio;
-	const snapPoint = findNearestSnap(rawTime, snapPoints, thresholdTime);
+	const thresholdFrames = Math.max(1, Math.round(SNAP_THRESHOLD_PX / ratio));
+	const snapPoint = findNearestSnap(rawTime, snapPoints, thresholdFrames);
 
 	if (snapPoint) {
 		return { time: snapPoint.time, snapPoint };
@@ -98,7 +98,7 @@ export function applySnap(
  * @param rawStart 原始开始时间
  * @param rawEnd 原始结束时间
  * @param snapPoints 吸附点列表
- * @param ratio 像素/秒比例
+ * @param ratio 像素/帧比例
  * @returns { start, end, snapPoint }
  */
 export function applySnapForDrag(
@@ -107,13 +107,13 @@ export function applySnapForDrag(
 	snapPoints: SnapPoint[],
 	ratio: number,
 ): { start: number; end: number; snapPoint: SnapPoint | null } {
-	const thresholdTime = SNAP_THRESHOLD_PX / ratio;
+	const thresholdFrames = Math.max(1, Math.round(SNAP_THRESHOLD_PX / ratio));
 	const duration = rawEnd - rawStart;
 
 	// 检查 start 边缘
-	const startSnap = findNearestSnap(rawStart, snapPoints, thresholdTime);
+	const startSnap = findNearestSnap(rawStart, snapPoints, thresholdFrames);
 	// 检查 end 边缘
-	const endSnap = findNearestSnap(rawEnd, snapPoints, thresholdTime);
+	const endSnap = findNearestSnap(rawEnd, snapPoints, thresholdFrames);
 
 	// 选择距离更近的吸附点
 	let activeSnap: SnapPoint | null = null;

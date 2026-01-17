@@ -29,7 +29,7 @@ export interface MaterialDragData {
 	width?: number;
 	/** 素材高度（可选） */
 	height?: number;
-	/** 素材时长（视频/音频，秒） */
+	/** 素材时长（视频/音频，帧） */
 	duration?: number;
 }
 

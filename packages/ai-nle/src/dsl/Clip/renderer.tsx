@@ -1,9 +1,14 @@
 import { useEffect, useRef } from "react";
 import { Group, ImageShader, Rect } from "react-skia-lite";
-import { usePlaybackControl, useTimelineStore } from "@/editor/contexts/TimelineContext";
+import {
+	useFps,
+	usePlaybackControl,
+	useTimelineStore,
+} from "@/editor/contexts/TimelineContext";
 import { useModelSelector } from "../model/registry";
 import { useRenderLayout } from "../useRenderLayout";
 import { type ClipInternal, type ClipProps, calculateVideoTime } from "./model";
+import { framesToSeconds } from "@/utils/timecode";
 
 interface ClipRendererProps extends ClipProps {
 	id: string;
@@ -11,12 +16,13 @@ interface ClipRendererProps extends ClipProps {
 
 const ClipRenderer: React.FC<ClipRendererProps> = ({ id }) => {
 	// 播放时使用真正的 currentTime，非播放时使用 previewTime ?? currentTime
-	const currentTime = useTimelineStore((state) => {
+	const currentTimeFrames = useTimelineStore((state) => {
 		if (state.isPlaying) {
 			return state.currentTime;
 		}
 		return state.previewTime ?? state.currentTime;
 	});
+	const { fps } = useFps();
 	const { isPlaying } = usePlaybackControl();
 
 	// 直接从 TimelineStore 读取元素的 timeline 数据
@@ -85,12 +91,13 @@ const ClipRenderer: React.FC<ClipRendererProps> = ({ id }) => {
 			return;
 		}
 
-		const start = timeline.start;
+		const startSeconds = framesToSeconds(timeline.start, fps);
+		const currentSeconds = framesToSeconds(currentTimeFrames, fps);
 
 		// 计算实际要 seek 的视频时间
 		const videoTime = calculateVideoTime({
-			start,
-			timelineTime: currentTime,
+			start: startSeconds,
+			timelineTime: currentSeconds,
 			videoDuration,
 			reversed: props.reversed,
 		});
@@ -143,7 +150,8 @@ const ClipRenderer: React.FC<ClipRendererProps> = ({ id }) => {
 		videoDuration,
 		isLoading,
 		hasError,
-		currentTime,
+		currentTimeFrames,
+		fps,
 		isPlaying,
 		seekToTime,
 		startPlayback,

@@ -1,5 +1,6 @@
 {
 	"version": "1.0",
+	"fps": 30,
 	"canvas": {
 		"width": 1920,
 		"height": 1080
@@ -18,7 +19,9 @@
 			},
 			"timeline": {
 				"start": 0,
-				"end": 6,
+				"end": 178,
+				"startTimecode": "00:00:00:00",
+				"endTimecode": "00:00:05:28",
 				"trackIndex": 0,
 				"role": "clip"
 			},
@@ -41,8 +44,10 @@
 				"rotation": 0
 			},
 			"timeline": {
-				"start": 6,
-				"end": 16,
+				"start": 180,
+				"end": 480,
+				"startTimecode": "00:00:06:00",
+				"endTimecode": "00:00:16:00",
 				"trackIndex": 0,
 				"role": "clip"
 			},
@@ -68,8 +73,10 @@
 				"rotation": 0
 			},
 			"timeline": {
-				"start": 16,
-				"end": 24,
+				"start": 480,
+				"end": 720,
+				"startTimecode": "00:00:16:00",
+				"endTimecode": "00:00:24:00",
 				"trackIndex": 0,
 				"role": "clip"
 			},
@@ -92,8 +99,10 @@
 				"rotation": 0
 			},
 			"timeline": {
-				"start": 2,
-				"end": 12,
+				"start": 60,
+				"end": 360,
+				"startTimecode": "00:00:02:00",
+				"endTimecode": "00:00:12:00",
 				"trackIndex": 1,
 				"role": "effect"
 			},
@@ -118,8 +127,10 @@
 				"rotation": 0
 			},
 			"timeline": {
-				"start": 8,
-				"end": 20,
+				"start": 240,
+				"end": 600,
+				"startTimecode": "00:00:08:00",
+				"endTimecode": "00:00:20:00",
 				"trackIndex": 1,
 				"role": "overlay"
 			},
@@ -144,8 +155,10 @@
 				"rotation": 0
 			},
 			"timeline": {
-				"start": 10,
-				"end": 18,
+				"start": 300,
+				"end": 540,
+				"startTimecode": "00:00:10:00",
+				"endTimecode": "00:00:18:00",
 				"trackIndex": 2,
 				"role": "effect"
 			},
@@ -173,7 +186,9 @@
 			},
 			"timeline": {
 				"start": 0,
-				"end": 24,
+				"end": 720,
+				"startTimecode": "00:00:00:00",
+				"endTimecode": "00:00:24:00",
 				"trackIndex": 3,
 				"role": "overlay"
 			},

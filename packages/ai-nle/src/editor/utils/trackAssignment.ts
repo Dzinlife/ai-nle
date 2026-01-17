@@ -191,8 +191,7 @@ export function isTimeOverlapping(
 	start2: number,
 	end2: number,
 ): boolean {
-	const epsilon = 1e-4;
-	return start1 < end2 - epsilon && end1 > start2 + epsilon;
+	return start1 < end2 && end1 > start2;
 }
 
 /**

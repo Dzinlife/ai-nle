@@ -8,6 +8,7 @@ import React, {
 } from "react";
 import { ProgressiveBlur } from "@/components/ui/progressive-blur";
 import TimeIndicatorCanvas from "@/editor/components/TimeIndicatorCanvas";
+import { clampFrame, framesToTimecode } from "@/utils/timecode";
 import TimelineDragOverlay from "./components/TimelineDragOverlay";
 import TimelineElement from "./components/TimelineElement";
 import TimelineRuler from "./components/TimelineRuler";
@@ -18,6 +19,7 @@ import {
 	useCurrentTime,
 	useDragging,
 	useElements,
+	useFps,
 	useMainTrackMagnet,
 	useMultiSelect,
 	usePlaybackControl,
@@ -28,18 +30,15 @@ import {
 } from "./contexts/TimelineContext";
 import { useDragStore } from "./drag";
 import { finalizeTimelineElements } from "./utils/mainTrackMagnet";
+import { getPixelsPerFrame } from "./utils/timelineScale";
+import { buildTimelineMeta, updateElementTime } from "./utils/timelineTime";
 import {
 	buildTrackLayout,
 	getTrackHeightByRole,
 } from "./utils/trackAssignment";
 
-// 格式化时间为 MM:SS:mmm（输入单位为秒）
-const formatTime = (seconds: number) => {
-	const totalSeconds = Math.floor(seconds);
-	const minutes = Math.floor(totalSeconds / 60);
-	const secs = totalSeconds % 60;
-	const milliseconds = Math.floor((seconds % 1) * 1000);
-	return `${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}:${milliseconds.toString().padStart(3, "0")}`;
+const formatTimecode = (frames: number, fps: number) => {
+	return framesToTimecode(frames, fps);
 };
 
 const TimelineEditor = () => {
@@ -49,6 +48,7 @@ const TimelineEditor = () => {
 	const { setPreviewTime } = usePreviewTime();
 	const { isPlaying } = usePlaybackControl();
 	const { currentTime } = useCurrentTime();
+	const { fps } = useFps();
 	const { elements, setElements } = useElements();
 	const { selectedIds, deselectAll, setSelection } = useMultiSelect();
 	const { activeSnapPoint } = useSnap();
@@ -101,11 +101,12 @@ const TimelineEditor = () => {
 					mainTrackMagnetEnabled: true,
 					attachments,
 					autoAttach,
+					fps,
 				}),
 			);
 		}
 		mainTrackMagnetRef.current = mainTrackMagnetEnabled;
-	}, [mainTrackMagnetEnabled, setElements, attachments, autoAttach]);
+	}, [mainTrackMagnetEnabled, setElements, attachments, autoAttach, fps]);
 
 	// 使用 callback ref 来监听容器宽度
 	const rulerContainerRef = useCallback((node: HTMLDivElement | null) => {
@@ -126,7 +127,7 @@ const TimelineEditor = () => {
 		}
 	}, []);
 
-	const ratio = 50;
+	const ratio = getPixelsPerFrame(fps);
 
 	const timelinePaddingLeft = 48;
 
@@ -152,20 +153,13 @@ const TimelineEditor = () => {
 			setElements((prev) =>
 				prev.map((el) => {
 					if (el.id === elementId) {
-						return {
-							...el,
-							timeline: {
-								...el.timeline,
-								start,
-								end,
-							},
-						};
+						return updateElementTime(el, start, end, fps);
 					}
 					return el;
 				}),
 			);
 		},
-		[setElements],
+		[setElements, fps],
 	);
 
 	// hover 时设置预览时间（临时）
@@ -182,8 +176,7 @@ const TimelineEditor = () => {
 			};
 			if (isPlaying || isDragging || isSelectingRef.current) return;
 			const x = e.clientX - rect.left;
-			const time = Math.max(
-				0,
+			const time = clampFrame(
 				(x - leftColumnWidth - timelinePaddingLeft + scrollLeft) / ratio,
 			);
 			startTransition(() => {
@@ -204,8 +197,7 @@ const TimelineEditor = () => {
 				return;
 			}
 			const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
-			const time = Math.max(
-				0,
+			const time = clampFrame(
 				(x - leftColumnWidth - timelinePaddingLeft + scrollLeft) / ratio,
 			);
 			setCurrentTime(time);
@@ -279,8 +271,7 @@ const TimelineEditor = () => {
 					lastHover.clientY <= lastHover.rectBottom;
 				if (isInside && !isSelectingRef.current) {
 					const x = lastHover.clientX - lastHover.rectLeft;
-					const time = Math.max(
-						0,
+					const time = clampFrame(
 						(x - leftColumnWidth - timelinePaddingLeft + scrollLeft) / ratio,
 					);
 					setPreviewTime(time);
@@ -620,7 +611,7 @@ const TimelineEditor = () => {
 						style={{ width: leftColumnWidth - 16 - 1 }}
 					>
 						<div className="h-full text-[11px] flex items-center justify-end pr-6 font-mono text-neutral-300">
-							{formatTime(currentTime)}
+							{formatTimecode(currentTime, fps)}
 						</div>
 					</div>
 					<div
@@ -632,7 +623,7 @@ const TimelineEditor = () => {
 							ratio={ratio}
 							width={rulerWidth}
 							paddingLeft={timelinePaddingLeft}
-							// fps={60}
+							fps={fps}
 						/>
 					</div>
 				</div>
@@ -643,6 +634,7 @@ const TimelineEditor = () => {
 		handleClick,
 		leftColumnWidth,
 		currentTime,
+		fps,
 		scrollLeft,
 		ratio,
 		rulerWidth,

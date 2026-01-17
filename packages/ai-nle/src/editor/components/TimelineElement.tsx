@@ -15,11 +15,13 @@ import { componentRegistry } from "@/dsl/model/componentRegistry";
 import { modelRegistry, useModelExists } from "@/dsl/model/registry";
 import { TimelineElement as TimelineElementType } from "@/dsl/types";
 import { cn } from "@/lib/utils";
+import { framesToTimecode } from "@/utils/timecode";
 import {
 	useAttachments,
 	useAutoScroll,
 	useDragging,
 	useElements,
+	useFps,
 	useMainTrackMagnet,
 	useMultiSelect,
 	useSnap,
@@ -83,12 +85,18 @@ interface ElementContentProps {
 	element: TimelineElementType;
 	startTime: number;
 	endTime: number;
+	startTimecode: string;
+	endTimecode: string;
+	fps: number;
 }
 
 const ElementContent: React.FC<ElementContentProps> = ({
 	element,
 	startTime,
 	endTime,
+	startTimecode,
+	endTimecode,
+	fps,
 }) => {
 	const { id, type, props } = element;
 	const definition = componentRegistry.get(type);
@@ -99,7 +107,15 @@ const ElementContent: React.FC<ElementContentProps> = ({
 		const TimelineComponent = definition.Timeline;
 		return (
 			<div className="size-full text-white">
-				<TimelineComponent id={id} {...props} start={startTime} end={endTime} />
+				<TimelineComponent
+					id={id}
+					{...props}
+					start={startTime}
+					end={endTime}
+					startTimecode={startTimecode}
+					endTimecode={endTimecode}
+					fps={fps}
+				/>
 			</div>
 		);
 	}
@@ -218,6 +234,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	const { snapEnabled, setActiveSnapPoint } = useSnap();
 	const { elements, setElements } = useElements();
 	const currentTime = useTimelineStore((state) => state.currentTime);
+	const { fps } = useFps();
 	const { attachments, autoAttach } = useAttachments();
 	const { mainTrackMagnetEnabled } = useMainTrackMagnet();
 	const { moveWithAttachments, trackAssignments } = useTrackAssignments();
@@ -246,6 +263,8 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	// 计算显示值
 	const startTime = localStartTime ?? timeline.start;
 	const endTime = localEndTime ?? timeline.end;
+	const startTimecode = framesToTimecode(startTime, fps);
+	const endTimecode = framesToTimecode(endTime, fps);
 	// 显示 Y：主轨道元素在容器内固定为 0，其他轨道使用 trackY
 	// localTrackY 在拖拽时会被设置，用于显示拖拽效果（ghost 处理）
 	// 由于主轨道元素在拖拽时会被隐藏（显示 ghost），这里不需要特殊处理 localTrackY
@@ -259,7 +278,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	const isSelected = selectedIds.includes(id);
 	const currentDuration = endTime - startTime;
 	const isAtMaxDuration =
-		maxDuration !== undefined && Math.abs(currentDuration - maxDuration) < 0.01;
+		maxDuration !== undefined && currentDuration === maxDuration;
 	const elementHeight = getElementHeightForTrack(trackHeight);
 
 	const { bindLeftDrag, bindRightDrag, bindBodyDrag } = useTimelineElementDnd({
@@ -267,6 +286,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 		trackIndex,
 		trackY,
 		ratio,
+		fps,
 		trackHeight,
 		trackCount,
 		trackAssignments,
@@ -349,6 +369,9 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 					element={element}
 					startTime={startTime}
 					endTime={endTime}
+					startTimecode={startTimecode}
+					endTimecode={endTimecode}
+					fps={fps}
 				/>
 			</div>
 

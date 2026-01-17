@@ -1,12 +1,20 @@
 import { TimelineElement } from "@/dsl/types";
 import { normalizeStoredTrackIndices } from "./trackAssignment";
+import { updateElementTime } from "./timelineTime";
 
 const MAIN_TRACK_INDEX = 0;
-const EPSILON = 1e-6;
+const DEFAULT_FPS = 30;
+const normalizeFps = (value?: number): number => {
+	if (!Number.isFinite(value) || value === undefined || value <= 0) {
+		return DEFAULT_FPS;
+	}
+	return Math.round(value);
+};
 
 export interface MainTrackMagnetOptions {
 	attachments?: Map<string, string[]>;
 	autoAttach?: boolean;
+	fps?: number;
 }
 
 export interface TimelinePostProcessOptions extends MainTrackMagnetOptions {
@@ -42,7 +50,7 @@ function buildAttachmentUpdates(
 	if (!autoAttach || !attachments) return updates;
 
 	for (const [parentId, delta] of parentDeltas.entries()) {
-		if (Math.abs(delta) < EPSILON) continue;
+		if (delta === 0) continue;
 		const childIds = attachments.get(parentId) ?? [];
 		for (const childId of childIds) {
 			if (updates.has(childId)) continue;
@@ -61,26 +69,20 @@ function buildAttachmentUpdates(
 function applyTimelineUpdates(
 	elements: TimelineElement[],
 	updates: Map<string, { start: number; end: number }>,
+	fps: number,
 ): TimelineElement[] {
 	let didChange = false;
 	const next = elements.map((el) => {
 		const update = updates.get(el.id);
 		if (!update) return el;
 		if (
-			Math.abs(update.start - el.timeline.start) < EPSILON &&
-			Math.abs(update.end - el.timeline.end) < EPSILON
+			update.start === el.timeline.start &&
+			update.end === el.timeline.end
 		) {
 			return el;
 		}
 		didChange = true;
-		return {
-			...el,
-			timeline: {
-				...el.timeline,
-				start: update.start,
-				end: update.end,
-			},
-		};
+		return updateElementTime(el, update.start, update.end, fps);
 	});
 
 	return didChange ? next : elements;
@@ -106,7 +108,7 @@ function reflowMainTrack(
 		cursor = nextEnd;
 		updates.set(id, { start: nextStart, end: nextEnd });
 		const delta = nextStart - element.timeline.start;
-		if (Math.abs(delta) >= EPSILON) {
+		if (delta !== 0) {
 			parentDeltas.set(id, delta);
 		}
 	}
@@ -123,7 +125,7 @@ function reflowMainTrack(
 		}
 	}
 
-	return applyTimelineUpdates(elements, updates);
+	return applyTimelineUpdates(elements, updates, normalizeFps(options.fps));
 }
 
 export function compactMainTrackElements(
@@ -146,9 +148,28 @@ export function finalizeTimelineElements(
 		next = compactMainTrackElements(next, {
 			attachments: options.attachments,
 			autoAttach: options.autoAttach,
+			fps: options.fps,
 		});
 	}
-	return normalizeStoredTrackIndices(next);
+	const normalized = normalizeStoredTrackIndices(next);
+	if (options.fps === undefined) {
+		return normalized;
+	}
+	const fps = normalizeFps(options.fps);
+	let didChange = false;
+	const withTimecodes = normalized.map((el) => {
+		const updated = updateElementTime(
+			el,
+			el.timeline.start,
+			el.timeline.end,
+			fps,
+		);
+		if (updated !== el) {
+			didChange = true;
+		}
+		return updated;
+	});
+	return didChange ? withTimecodes : normalized;
 }
 
 export function shiftMainTrackElementsAfter(
@@ -172,7 +193,7 @@ export function shiftMainTrackElementsAfter(
 	const target = ordered[targetIndex];
 	updates.set(targetId, { start: target.timeline.start, end: newEnd });
 
-	if (Math.abs(delta) >= EPSILON) {
+	if (delta !== 0) {
 		for (let i = targetIndex + 1; i < ordered.length; i++) {
 			const element = ordered[i];
 			const nextStart = element.timeline.start + delta;
@@ -194,12 +215,17 @@ export function shiftMainTrackElementsAfter(
 		}
 	}
 
-	const updated = applyTimelineUpdates(elements, updates);
+	const updated = applyTimelineUpdates(
+		elements,
+		updates,
+		normalizeFps(options.fps),
+	);
 	const magnetEnabled = options.mainTrackMagnetEnabled ?? true;
 	return finalizeTimelineElements(updated, {
 		mainTrackMagnetEnabled: magnetEnabled,
 		attachments: options.attachments,
 		autoAttach: options.autoAttach,
+		fps: options.fps,
 	});
 }
 
@@ -240,6 +266,7 @@ export function reorderMainTrackElementsByInsert(
 		mainTrackMagnetEnabled: magnetEnabled,
 		attachments: options.attachments,
 		autoAttach: options.autoAttach,
+		fps: options.fps,
 	});
 }
 

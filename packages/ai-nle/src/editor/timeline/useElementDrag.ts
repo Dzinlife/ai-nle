@@ -19,7 +19,7 @@ export interface UseElementDragOptions {
 	element: TimelineElement;
 	/** 当前轨道 Y 坐标 */
 	trackY: number;
-	/** 时间比例（像素/秒） */
+	/** 时间比例（像素/帧） */
 	ratio: number;
 	/** 轨道高度 */
 	trackHeight: number;
@@ -288,7 +288,7 @@ export function useElementBodyDrag(options: UseElementDragOptions) {
 export interface UseEdgeDragOptions {
 	/** 元素数据 */
 	element: TimelineElement;
-	/** 时间比例（像素/秒） */
+	/** 时间比例（像素/帧） */
 	ratio: number;
 	/** 最大时长约束 */
 	maxDuration?: number;
@@ -358,12 +358,12 @@ export function useLeftEdgeDrag(options: UseEdgeDragOptions) {
 				callbacks.onDragStart?.();
 			}
 
-			const deltaTime = mx / ratio;
+			const deltaFrames = Math.round(mx / ratio);
 			let newStart = Math.max(
 				0,
 				Math.min(
-					dragRefs.current.initialStart + deltaTime,
-					dragRefs.current.initialEnd - 0.1,
+					dragRefs.current.initialStart + deltaFrames,
+					dragRefs.current.initialEnd - 1,
 				),
 			);
 
@@ -381,7 +381,7 @@ export function useLeftEdgeDrag(options: UseEdgeDragOptions) {
 				if (
 					snapped.snapPoint &&
 					snapped.time >= 0 &&
-					snapped.time < dragRefs.current.initialEnd - 0.1
+					snapped.time < dragRefs.current.initialEnd - 1
 				) {
 					newStart = snapped.time;
 					snapPoint = snapped.snapPoint;
@@ -443,10 +443,10 @@ export function useRightEdgeDrag(options: UseEdgeDragOptions) {
 				callbacks.onDragStart?.();
 			}
 
-			const deltaTime = mx / ratio;
+			const deltaFrames = Math.round(mx / ratio);
 			let newEnd = Math.max(
-				dragRefs.current.initialStart + 0.1,
-				dragRefs.current.initialEnd + deltaTime,
+				dragRefs.current.initialStart + 1,
+				dragRefs.current.initialEnd + deltaFrames,
 			);
 
 			// 最大时长约束
@@ -462,7 +462,7 @@ export function useRightEdgeDrag(options: UseEdgeDragOptions) {
 				const snapped = applySnap(newEnd, snapPoints, ratio);
 				if (
 					snapped.snapPoint &&
-					snapped.time > dragRefs.current.initialStart + 0.1
+					snapped.time > dragRefs.current.initialStart + 1
 				) {
 					newEnd = snapped.time;
 					snapPoint = snapped.snapPoint;

@@ -8,18 +8,24 @@ import {
 import { type SkImage, Skia } from "react-skia-lite";
 import { subscribeWithSelector } from "zustand/middleware";
 import { createStore } from "zustand/vanilla";
+import { useTimelineStore } from "@/editor/contexts/TimelineContext";
 import type {
 	ComponentModel,
 	ComponentModelStore,
 	ValidationResult,
 } from "../model/types";
+import {
+	framesToSeconds,
+	framesToTimecode,
+	secondsToFrames,
+} from "@/utils/timecode";
 
 // Clip Props 类型
 export interface ClipProps {
 	uri?: string;
 	reversed?: boolean;
-	start: number;
-	end: number;
+	start: number; // 帧
+	end: number; // 帧
 }
 
 // Clip 内部状态
@@ -27,7 +33,7 @@ export interface ClipInternal {
 	videoSink: CanvasSink | null;
 	input: Input | null;
 	currentFrame: SkImage | null;
-	videoDuration: number;
+	videoDuration: number; // 秒
 	isReady: boolean;
 	// 缩略图（用于时间线预览）
 	thumbnailCanvas: HTMLCanvasElement | null;
@@ -64,6 +70,8 @@ export const calculateVideoTime = ({
 	}
 };
 
+const DEFAULT_FPS = 30;
+
 // 创建 Clip Model
 export function createClipModel(
 	id: string,
@@ -82,15 +90,21 @@ export function createClipModel(
 
 	// 帧缓存配置
 	const MAX_CACHE_SIZE = 50;
-	const FRAME_INTERVAL = 0.1; // 缓存精度：0.1秒
+
+	const getTimelineFps = () => {
+		const fps = useTimelineStore.getState().fps;
+		if (!Number.isFinite(fps) || fps <= 0) return DEFAULT_FPS;
+		return Math.round(fps);
+	};
 
 	// 帧缓存
 	const frameCache = new Map<number, SkImage>();
 	const cacheAccessOrder: number[] = []; // LRU 顺序
 
-	// 将时间戳对齐到缓存精度
+	// 将时间戳对齐到帧间隔（以时间线 FPS 为准）
 	const alignTime = (time: number): number => {
-		return Math.round(time / FRAME_INTERVAL) * FRAME_INTERVAL;
+		const frameInterval = 1 / getTimelineFps();
+		return Math.round(time / frameInterval) * frameInterval;
 	};
 
 	// 更新 LRU 顺序
@@ -375,8 +389,13 @@ export function createClipModel(
 					const duration = end - start;
 
 					if (duration > constraints.maxDuration) {
+						const fps = getTimelineFps();
+						const maxDurationLabel = framesToTimecode(
+							constraints.maxDuration,
+							fps,
+						);
 						errors.push(
-							`Duration cannot exceed ${constraints.maxDuration.toFixed(2)}s`,
+							`Duration cannot exceed ${maxDurationLabel}`,
 						);
 						// 提供修正值
 						corrected = {
@@ -422,6 +441,8 @@ export function createClipModel(
 
 					// 获取视频时长
 					const duration = await input.computeDuration();
+				const fps = getTimelineFps();
+				const durationFrames = secondsToFrames(duration, fps);
 
 					// 检查是否被取消
 					if (currentAsyncId !== asyncId) return;
@@ -457,7 +478,7 @@ export function createClipModel(
 						constraints: {
 							...state.constraints,
 							isLoading: false,
-							maxDuration: duration,
+						maxDuration: durationFrames,
 						},
 						internal: {
 							...state.internal,
@@ -469,9 +490,10 @@ export function createClipModel(
 
 					// 初始化完成后，seek 到初始位置
 					const { start, reversed } = get().props;
+				const startSeconds = framesToSeconds(start, fps);
 					const videoTime = calculateVideoTime({
-						start,
-						timelineTime: start, // 初始时显示开始位置
+					start: startSeconds,
+					timelineTime: startSeconds, // 初始时显示开始位置
 						videoDuration: duration,
 						reversed,
 					});

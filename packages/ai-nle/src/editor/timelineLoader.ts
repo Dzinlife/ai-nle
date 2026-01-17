@@ -5,12 +5,14 @@ import type {
 	TrackRole,
 	TransformMeta,
 } from "../dsl/types";
+import { framesToTimecode, timecodeToFrames } from "@/utils/timecode";
 
 /**
  * 时间线 JSON 格式定义
  */
 export interface TimelineJSON {
 	version: string;
+	fps: number;
 	canvas: {
 		width: number;
 		height: number;
@@ -18,10 +20,16 @@ export interface TimelineJSON {
 	elements: TimelineElement[];
 }
 
+export interface TimelineData {
+	fps: number;
+	canvas: { width: number; height: number };
+	elements: TimelineElement[];
+}
+
 /**
  * 从 JSON 字符串加载时间线
  */
-export function loadTimelineFromJSON(jsonString: string): TimelineElement[] {
+export function loadTimelineFromJSON(jsonString: string): TimelineData {
 	try {
 		const data: TimelineJSON = JSON.parse(jsonString);
 		return validateTimeline(data);
@@ -36,7 +44,7 @@ export function loadTimelineFromJSON(jsonString: string): TimelineElement[] {
 /**
  * 从 JSON 对象加载时间线
  */
-export function loadTimelineFromObject(data: TimelineJSON): TimelineElement[] {
+export function loadTimelineFromObject(data: TimelineJSON): TimelineData {
 	return validateTimeline(data);
 }
 
@@ -45,12 +53,14 @@ export function loadTimelineFromObject(data: TimelineJSON): TimelineElement[] {
  */
 export function saveTimelineToJSON(
 	elements: TimelineElement[],
+	fps: number,
 	canvasSize: { width: number; height: number } = { width: 1920, height: 1080 },
 ): string {
 	const timeline: TimelineJSON = {
 		version: "1.0",
+		fps,
 		canvas: canvasSize,
-		elements,
+		elements: elements.map((el) => ensureTimecodes(el, fps)),
 	};
 	return JSON.stringify(timeline, null, 2);
 }
@@ -60,21 +70,27 @@ export function saveTimelineToJSON(
  */
 export function saveTimelineToObject(
 	elements: TimelineElement[],
+	fps: number,
 	canvasSize: { width: number; height: number } = { width: 1920, height: 1080 },
 ): TimelineJSON {
 	return {
 		version: "1.0",
+		fps,
 		canvas: canvasSize,
-		elements,
+		elements: elements.map((el) => ensureTimecodes(el, fps)),
 	};
 }
 
 /**
  * 验证时间线数据
  */
-function validateTimeline(data: TimelineJSON): TimelineElement[] {
+function validateTimeline(data: TimelineJSON): TimelineData {
 	if (!data.version) {
 		throw new Error("Timeline JSON missing version field");
+	}
+
+	if (!Number.isInteger(data.fps) || data.fps <= 0) {
+		throw new Error("Timeline JSON missing or invalid fps");
 	}
 
 	if (
@@ -89,13 +105,19 @@ function validateTimeline(data: TimelineJSON): TimelineElement[] {
 		throw new Error("Timeline JSON elements must be an array");
 	}
 
-	return data.elements.map((el, index) => validateElement(el, index));
+	return {
+		fps: data.fps,
+		canvas: data.canvas,
+		elements: data.elements.map((el, index) =>
+			validateElement(el, index, data.fps),
+		),
+	};
 }
 
 /**
  * 验证单个元素
  */
-function validateElement(el: any, index: number): TimelineElement {
+function validateElement(el: any, index: number, fps: number): TimelineElement {
 	const path = `elements[${index}]`;
 
 	if (!el.id || typeof el.id !== "string") {
@@ -114,7 +136,7 @@ function validateElement(el: any, index: number): TimelineElement {
 	const transform = validateTransform(el.transform, `${path}.transform`);
 
 	// 验证 timeline
-	const timeline = validateTimelineProps(el.timeline, `${path}.timeline`);
+	const timeline = validateTimelineProps(el.timeline, `${path}.timeline`, fps);
 
 	// 验证 render (可选)
 	const render = validateRender(el.render || {}, `${path}.render`);
@@ -176,17 +198,38 @@ function validateTransform(transform: any, path: string): TransformMeta {
 /**
  * 验证 timeline 属性
  */
-function validateTimelineProps(timeline: any, path: string): TimelineMeta {
+function validateTimelineProps(
+	timeline: any,
+	path: string,
+	fps: number,
+): TimelineMeta {
 	if (!timeline || typeof timeline !== "object") {
 		throw new Error(`${path}: must be an object`);
 	}
 
-	if (typeof timeline.start !== "number" || timeline.start < 0) {
-		throw new Error(`${path}.start: must be a non-negative number`);
+	if (!Number.isInteger(timeline.start) || timeline.start < 0) {
+		throw new Error(`${path}.start: must be a non-negative integer`);
 	}
 
-	if (typeof timeline.end !== "number" || timeline.end <= timeline.start) {
+	if (!Number.isInteger(timeline.end) || timeline.end <= timeline.start) {
 		throw new Error(`${path}.end: must be greater than start`);
+	}
+
+	if (typeof timeline.startTimecode !== "string") {
+		throw new Error(`${path}.startTimecode: must be a string`);
+	}
+
+	if (typeof timeline.endTimecode !== "string") {
+		throw new Error(`${path}.endTimecode: must be a string`);
+	}
+
+	const expectedStart = timecodeToFrames(timeline.startTimecode, fps);
+	const expectedEnd = timecodeToFrames(timeline.endTimecode, fps);
+	if (expectedStart !== timeline.start) {
+		throw new Error(`${path}.startTimecode does not match start frame`);
+	}
+	if (expectedEnd !== timeline.end) {
+		throw new Error(`${path}.endTimecode does not match end frame`);
 	}
 
 	if (timeline.trackIndex !== undefined) {
@@ -217,10 +260,34 @@ function validateTimelineProps(timeline: any, path: string): TimelineMeta {
 	return {
 		start: timeline.start,
 		end: timeline.end,
+		startTimecode: timeline.startTimecode,
+		endTimecode: timeline.endTimecode,
 		...(timeline.trackIndex !== undefined
 			? { trackIndex: timeline.trackIndex }
 			: {}),
 		...(role ? { role } : {}),
+	};
+}
+
+function ensureTimecodes(
+	element: TimelineElement,
+	fps: number,
+): TimelineElement {
+	const startTimecode = framesToTimecode(element.timeline.start, fps);
+	const endTimecode = framesToTimecode(element.timeline.end, fps);
+	if (
+		element.timeline.startTimecode === startTimecode &&
+		element.timeline.endTimecode === endTimecode
+	) {
+		return element;
+	}
+	return {
+		...element,
+		timeline: {
+			...element.timeline,
+			startTimecode,
+			endTimecode,
+		},
 	};
 }
 

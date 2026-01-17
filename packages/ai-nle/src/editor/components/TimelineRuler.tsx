@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from "react";
+import { framesToTimecode } from "@/utils/timecode";
 
 interface TimelineRulerProps {
 	scrollLeft: number;
@@ -43,22 +44,22 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
 		ctx.textAlign = "left";
 		ctx.textBaseline = "middle";
 
-		// 根据 ratio 计算主刻度间隔（秒），必须是 5 的整数倍
+		// 根据 ratio 计算主刻度间隔（帧）
 		const { interval, useFrames } = calculateInterval(ratio, fps);
 
-		// 计算可见范围（秒），考虑 paddingLeft
-		const startTimeSec = (scrollLeft - paddingLeft) / ratio;
-		const endTimeSec = (scrollLeft - paddingLeft + width) / ratio;
+		// 计算可见范围（帧），考虑 paddingLeft
+		const startFrame = (scrollLeft - paddingLeft) / ratio;
+		const endFrame = (scrollLeft - paddingLeft + width) / ratio;
 
 		if (useFrames) {
 			// 帧模式：整数秒必须显示，帧刻度在整数秒之间显示
-			const frameInterval = interval; // 帧间隔（秒）
-			const startSec = Math.floor(startTimeSec);
-			const endSec = Math.ceil(endTimeSec);
+			const frameInterval = Math.max(1, Math.round(interval)); // 帧间隔（帧）
+			const startSec = Math.floor(startFrame / fps);
+			const endSec = Math.ceil(endFrame / fps);
 
 			for (let sec = Math.max(0, startSec - 1); sec <= endSec + 1; sec++) {
 				// 绘制整数秒刻度
-				const secX = sec * ratio - scrollLeft + paddingLeft;
+				const secX = sec * fps * ratio - scrollLeft + paddingLeft;
 				if (secX >= -50 && secX <= width + 50) {
 					ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
 					ctx.beginPath();
@@ -66,16 +67,13 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
 					ctx.lineTo(secX, height);
 					ctx.stroke();
 
-					// 整数秒显示 mm:ss
-					const label = formatTimeSeconds(sec);
+					const label = framesToTimecode(sec * fps, fps);
 					ctx.fillText(label, secX + 5, height / 2 + 2);
 				}
 
 				// 绘制该秒内的帧刻度
-				const framesPerSecond = Math.round(1 / frameInterval);
-				for (let f = 1; f < framesPerSecond; f++) {
-					const frameTime = sec + f * frameInterval;
-					const frameX = frameTime * ratio - scrollLeft + paddingLeft;
+				for (let f = frameInterval; f < fps; f += frameInterval) {
+					const frameX = (sec * fps + f) * ratio - scrollLeft + paddingLeft;
 
 					if (frameX >= 0 && frameX <= width) {
 						ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
@@ -85,10 +83,9 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
 						ctx.stroke();
 
 						// 显示帧数
-						const frameNum = Math.round(f * frameInterval * fps);
-						const textWidth = ctx.measureText(`${frameNum}f`).width;
+						const textWidth = ctx.measureText(`${f}f`).width;
 						ctx.fillText(
-							`${frameNum}f`,
+							`${f}f`,
 							frameX - textWidth / 2,
 							height / 2 + 2,
 						);
@@ -96,9 +93,9 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
 				}
 			}
 		} else {
-			// 秒模式
-			const startTime = Math.floor(startTimeSec / interval) * interval;
-			const endTime = Math.ceil(endTimeSec / interval) * interval + interval;
+			// 秒/分钟模式（基于帧）
+			const startTime = Math.floor(startFrame / interval) * interval;
+			const endTime = Math.ceil(endFrame / interval) * interval + interval;
 
 			// 绘制主刻度
 			for (
@@ -118,12 +115,12 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
 				ctx.stroke();
 
 				// 绘制时间文字（在刻度线右方）
-				const label = formatTimeSeconds(time);
+				const label = framesToTimecode(Math.round(time), fps);
 				ctx.fillText(label, x + 5, height / 2 + 2);
 			}
 
 			// 绘制次刻度（在主刻度之间）
-			const minorInterval = interval / 5;
+			const minorInterval = Math.max(1, Math.round(interval / 5));
 			if (minorInterval * ratio >= 8) {
 				ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
 				for (
@@ -131,7 +128,7 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
 					time <= endTime;
 					time += minorInterval
 				) {
-					if (Math.abs(time % interval) < 0.001) continue;
+					if (time % interval === 0) continue;
 
 					const x = time * ratio - scrollLeft + paddingLeft;
 					if (x < 0 || x > width) continue;
@@ -157,34 +154,35 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
 	);
 };
 
-// 根据 ratio 计算合适的刻度间隔
+// 根据 ratio 计算合适的刻度间隔（帧）
 function calculateInterval(
 	ratio: number,
 	fps: number,
 ): { interval: number; useFrames: boolean } {
-	// ratio 是每秒对应的像素数
+	// ratio 是每帧对应的像素数
 	// 目标：主刻度之间间隔 200-300 像素左右
 
 	const targetPixelGap = 250;
-	const rawInterval = targetPixelGap / ratio; // 秒
+	const rawInterval = targetPixelGap / ratio; // 帧
 
-	// 可选的间隔值（5的整数倍，或帧级别）
-	const frameInterval = 1 / fps;
+	// 可选的间隔值（帧级别 + 秒级别）
+	const framesPerSecond = Math.max(1, Math.round(fps));
 	const intervals = [
-		frameInterval * 5, // 5帧
-		frameInterval * 10, // 10帧
-		frameInterval * 15, // 15帧 (0.5s at 30fps)
-		1, // 1秒
-		5, // 5秒
-		10, // 10秒
-		15, // 15秒
-		30, // 30秒
-		60, // 1分钟
-		300, // 5分钟
-		600, // 10分钟
-		900, // 15分钟
-		1800, // 30分钟
-		3600, // 1小时
+		1, // 1帧
+		5, // 5帧
+		10, // 10帧
+		15, // 15帧
+		framesPerSecond, // 1秒
+		framesPerSecond * 5, // 5秒
+		framesPerSecond * 10, // 10秒
+		framesPerSecond * 15, // 15秒
+		framesPerSecond * 30, // 30秒
+		framesPerSecond * 60, // 1分钟
+		framesPerSecond * 300, // 5分钟
+		framesPerSecond * 600, // 10分钟
+		framesPerSecond * 900, // 15分钟
+		framesPerSecond * 1800, // 30分钟
+		framesPerSecond * 3600, // 1小时
 	];
 
 	// 找到最接近目标的间隔
@@ -199,23 +197,10 @@ function calculateInterval(
 		}
 	}
 
-	// 判断是否使用帧单位
-	const useFrames = bestInterval < 1;
+	// 判断是否使用帧单位（小于 1 秒）
+	const useFrames = bestInterval < framesPerSecond;
 
 	return { interval: bestInterval, useFrames };
-}
-
-// 格式化秒数为 mm:ss 或 hh:mm:ss
-function formatTimeSeconds(seconds: number): string {
-	const totalSeconds = Math.round(seconds);
-	const secs = totalSeconds % 60;
-	const mins = Math.floor(totalSeconds / 60) % 60;
-	const hours = Math.floor(totalSeconds / 3600);
-
-	if (hours > 0) {
-		return `${hours}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-	}
-	return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 
 export default TimelineRuler;

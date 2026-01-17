@@ -31,6 +31,7 @@ interface UseTimelineElementDndOptions {
 	trackIndex: number;
 	trackY: number;
 	ratio: number;
+	fps: number;
 	trackHeight: number;
 	trackCount: number;
 	trackAssignments: Map<string, number>;
@@ -232,6 +233,7 @@ export const useTimelineElementDnd = ({
 	trackIndex,
 	trackY,
 	ratio,
+	fps,
 	trackHeight,
 	trackCount,
 	trackAssignments,
@@ -286,6 +288,29 @@ export const useTimelineElementDnd = ({
 	const storedTrackIndex = element.timeline.trackIndex ?? 0;
 	const isMainTrackMagnetActive =
 		mainTrackMagnetEnabled && storedTrackIndex === 0;
+	const clampStartByMaxDuration = (
+		start: number,
+		snapPoint: SnapPoint | null,
+	) => {
+		if (maxDuration === undefined) {
+			return { start, snapPoint };
+		}
+		const minStart = dragRefs.current.initialEnd - maxDuration;
+		if (start < minStart) {
+			return { start: minStart, snapPoint: null };
+		}
+		return { start, snapPoint };
+	};
+	const clampEndByMaxDuration = (end: number, snapPoint: SnapPoint | null) => {
+		if (maxDuration === undefined) {
+			return { end, snapPoint };
+		}
+		const maxEnd = dragRefs.current.initialStart + maxDuration;
+		if (end > maxEnd) {
+			return { end: maxEnd, snapPoint: null };
+		}
+		return { end, snapPoint };
+	};
 
 	const getStoredTrackNeighbors = (
 		referenceStart: number,
@@ -293,18 +318,17 @@ export const useTimelineElementDnd = ({
 	) => {
 		let prevEnd: number | null = null;
 		let nextStart: number | null = null;
-		const epsilon = 1e-4;
 		for (const el of elements) {
 			if (el.id === element.id) continue;
 			const elTrack = el.timeline.trackIndex ?? 0;
 			if (elTrack !== storedTrackIndex) continue;
-			if (el.timeline.end <= referenceStart + epsilon) {
+			if (el.timeline.end <= referenceStart) {
 				prevEnd =
 					prevEnd === null
 						? el.timeline.end
 						: Math.max(prevEnd, el.timeline.end);
 			}
-			if (el.timeline.start >= referenceEnd - epsilon) {
+			if (el.timeline.start >= referenceEnd) {
 				nextStart =
 					nextStart === null
 						? el.timeline.start
@@ -338,7 +362,7 @@ export const useTimelineElementDnd = ({
 		if (!contentArea) return null;
 		const contentRect = contentArea.getBoundingClientRect();
 		const localX = screenX - contentRect.left + scrollLeft;
-		return Math.max(0, localX / ratio);
+		return Math.max(0, Math.round(localX / ratio));
 	};
 
 	const getMainTrackDropStart = (
@@ -349,7 +373,7 @@ export const useTimelineElementDnd = ({
 	): number | null => {
 		const dropTime = getMainTrackDropTime(screenX, screenY, scrollLeft);
 		if (dropTime === null) return null;
-		return Math.max(0, dropTime - offsetX / ratio);
+		return Math.max(0, dropTime - Math.round(offsetX / ratio));
 	};
 
 	const bindLeftDrag = useDrag(
@@ -365,13 +389,13 @@ export const useTimelineElementDnd = ({
 				dragRefs.current.initialEnd = dragRefs.current.currentEnd;
 			}
 
-			const deltaTime = mx / ratio;
+			const deltaFrames = Math.round(mx / ratio);
 			if (isMainTrackMagnetActive) {
 				let previewStart = Math.max(
 					0,
 					Math.min(
-						dragRefs.current.initialStart + deltaTime,
-						dragRefs.current.initialEnd - 0.1,
+						dragRefs.current.initialStart + deltaFrames,
+						dragRefs.current.initialEnd - 1,
 					),
 				);
 
@@ -393,16 +417,20 @@ export const useTimelineElementDnd = ({
 					if (
 						snapped.snapPoint &&
 						snapped.time >= 0 &&
-						snapped.time < dragRefs.current.initialEnd - 0.1
+						snapped.time < dragRefs.current.initialEnd - 1
 					) {
 						previewStart = snapped.time;
 						snapPoint = snapped.snapPoint;
 					}
 				}
+				({ start: previewStart, snapPoint } = clampStartByMaxDuration(
+					previewStart,
+					snapPoint,
+				));
 
 				const effectiveDelta = previewStart - dragRefs.current.initialStart;
 				let newEnd = dragRefs.current.initialEnd - effectiveDelta;
-				newEnd = Math.max(dragRefs.current.initialStart + 0.1, newEnd);
+				newEnd = Math.max(dragRefs.current.initialStart + 1, newEnd);
 				if (maxDuration !== undefined) {
 					newEnd = Math.min(
 						newEnd,
@@ -419,6 +447,7 @@ export const useTimelineElementDnd = ({
 							shiftMainTrackElementsAfter(prev, element.id, newEnd, delta, {
 								attachments,
 								autoAttach,
+								fps,
 							}),
 						);
 					}
@@ -432,8 +461,8 @@ export const useTimelineElementDnd = ({
 			let newStart = Math.max(
 				0,
 				Math.min(
-					dragRefs.current.initialStart + deltaTime,
-					dragRefs.current.initialEnd - 0.1,
+					dragRefs.current.initialStart + deltaFrames,
+					dragRefs.current.initialEnd - 1,
 				),
 			);
 
@@ -451,12 +480,16 @@ export const useTimelineElementDnd = ({
 				if (
 					snapped.snapPoint &&
 					snapped.time >= 0 &&
-					snapped.time < dragRefs.current.initialEnd - 0.1
+					snapped.time < dragRefs.current.initialEnd - 1
 				) {
 					newStart = snapped.time;
 					snapPoint = snapped.snapPoint;
 				}
 			}
+			({ start: newStart, snapPoint } = clampStartByMaxDuration(
+				newStart,
+				snapPoint,
+			));
 
 			let clampedByNeighbor = false;
 			if (storedTrackIndex > 0) {
@@ -498,11 +531,11 @@ export const useTimelineElementDnd = ({
 				dragRefs.current.initialEnd = dragRefs.current.currentEnd;
 			}
 
-			const deltaTime = mx / ratio;
+			const deltaFrames = Math.round(mx / ratio);
 			if (isMainTrackMagnetActive) {
 				let newEnd = Math.max(
-					dragRefs.current.initialStart + 0.1,
-					dragRefs.current.initialEnd + deltaTime,
+					dragRefs.current.initialStart + 1,
+					dragRefs.current.initialEnd + deltaFrames,
 				);
 
 				if (maxDuration !== undefined) {
@@ -522,12 +555,13 @@ export const useTimelineElementDnd = ({
 					const snapped = applySnap(newEnd, snapPoints, ratio);
 					if (
 						snapped.snapPoint &&
-						snapped.time > dragRefs.current.initialStart + 0.1
+						snapped.time > dragRefs.current.initialStart + 1
 					) {
 						newEnd = snapped.time;
 						snapPoint = snapped.snapPoint;
 					}
 				}
+				({ end: newEnd, snapPoint } = clampEndByMaxDuration(newEnd, snapPoint));
 
 				if (last) {
 					setIsDragging(false);
@@ -538,6 +572,7 @@ export const useTimelineElementDnd = ({
 							shiftMainTrackElementsAfter(prev, element.id, newEnd, delta, {
 								attachments,
 								autoAttach,
+								fps,
 							}),
 						);
 					}
@@ -549,8 +584,8 @@ export const useTimelineElementDnd = ({
 			}
 
 			let newEnd = Math.max(
-				dragRefs.current.initialStart + 0.1,
-				dragRefs.current.initialEnd + deltaTime,
+				dragRefs.current.initialStart + 1,
+				dragRefs.current.initialEnd + deltaFrames,
 			);
 
 			if (maxDuration !== undefined) {
@@ -563,12 +598,13 @@ export const useTimelineElementDnd = ({
 				const snapped = applySnap(newEnd, snapPoints, ratio);
 				if (
 					snapped.snapPoint &&
-					snapped.time > dragRefs.current.initialStart + 0.1
+					snapped.time > dragRefs.current.initialStart + 1
 				) {
 					newEnd = snapped.time;
 					snapPoint = snapped.snapPoint;
 				}
 			}
+			({ end: newEnd, snapPoint } = clampEndByMaxDuration(newEnd, snapPoint));
 
 			let clampedByNeighbor = false;
 			if (storedTrackIndex > 0) {
@@ -704,10 +740,10 @@ export const useTimelineElementDnd = ({
 				dragSelectedIdsRef.current.length > 1 &&
 				dragSelectedIdsRef.current.includes(element.id);
 			if (isMultiDrag) {
-				let deltaTime = adjustedDeltaX / ratio;
+				let deltaFrames = Math.round(adjustedDeltaX / ratio);
 				const minStart = dragMinStartRef.current;
-				if (deltaTime < -minStart) {
-					deltaTime = -minStart;
+				if (deltaFrames < -minStart) {
+					deltaFrames = -minStart;
 				}
 
 				const initialMap = dragInitialElementsRef.current;
@@ -772,7 +808,7 @@ export const useTimelineElementDnd = ({
 						initialElementsSnapshotRef.current.length > 0
 							? initialElementsSnapshotRef.current
 							: elements;
-					let bestDelta = deltaTime;
+					let bestDelta = deltaFrames;
 					let bestSnapPoint: SnapPoint | null = null;
 					let bestDistance = Infinity;
 
@@ -785,15 +821,15 @@ export const useTimelineElementDnd = ({
 							selectedId,
 						);
 						const snapped = applySnapForDrag(
-							initial.start + deltaTime,
-							initial.end + deltaTime,
+							initial.start + deltaFrames,
+							initial.end + deltaFrames,
 							snapPoints,
 							ratio,
 						);
 						if (!snapped.snapPoint) continue;
 						const snappedDelta = snapped.start - initial.start;
 						if (snappedDelta < -minStart) continue;
-						const distance = Math.abs(snappedDelta - deltaTime);
+						const distance = Math.abs(snappedDelta - deltaFrames);
 						if (distance < bestDistance) {
 							bestDistance = distance;
 							bestDelta = snappedDelta;
@@ -801,7 +837,7 @@ export const useTimelineElementDnd = ({
 						}
 					}
 
-					deltaTime = bestDelta;
+					deltaFrames = bestDelta;
 					snapPoint = bestSnapPoint;
 				}
 				const baseElements =
@@ -811,8 +847,8 @@ export const useTimelineElementDnd = ({
 				const baseStart =
 					draggedInitial?.start ?? dragRefs.current.initialStart;
 				const baseEnd = draggedInitial?.end ?? dragRefs.current.initialEnd;
-				const nextStart = baseStart + deltaTime;
-				const nextEnd = baseEnd + deltaTime;
+				const nextStart = baseStart + deltaFrames;
+				const nextEnd = baseEnd + deltaFrames;
 				const timeRange = { start: nextStart, end: nextEnd };
 				let groupSpanStart = Number.POSITIVE_INFINITY;
 				let groupSpanEnd = Number.NEGATIVE_INFINITY;
@@ -820,8 +856,8 @@ export const useTimelineElementDnd = ({
 				for (const selectedId of dragSelectedIds) {
 					const initial = initialMap.get(selectedId);
 					if (!initial) continue;
-					const shiftedStart = initial.start + deltaTime;
-					const shiftedEnd = initial.end + deltaTime;
+					const shiftedStart = initial.start + deltaFrames;
+					const shiftedEnd = initial.end + deltaFrames;
 					groupSpanStart = Math.min(groupSpanStart, shiftedStart);
 					groupSpanEnd = Math.max(groupSpanEnd, shiftedEnd);
 					groupCompactDuration += initial.end - initial.start;
@@ -840,8 +876,8 @@ export const useTimelineElementDnd = ({
 						...el,
 						timeline: {
 							...el.timeline,
-							start: initial.start + deltaTime,
-							end: initial.end + deltaTime,
+							start: initial.start + deltaFrames,
+							end: initial.end + deltaFrames,
 							trackIndex: initial.trackIndex,
 						},
 					};
@@ -856,7 +892,7 @@ export const useTimelineElementDnd = ({
 				);
 				const draggedBaseTrack =
 					draggedInitial?.trackIndex ?? dragRefs.current.initialTrack;
-				const snapShift = deltaTime * ratio - adjustedDeltaX;
+				const snapShift = deltaFrames * ratio - adjustedDeltaX;
 				const ghostDeltaX = mx + snapShift;
 				const ghostDeltaY = my;
 
@@ -885,6 +921,7 @@ export const useTimelineElementDnd = ({
 									mainTrackMagnetEnabled,
 									attachments,
 									autoAttach,
+									fps,
 								},
 							),
 						);
@@ -916,7 +953,7 @@ export const useTimelineElementDnd = ({
 						{ start: number; end: number }
 					>();
 
-					if (autoAttach && deltaTime !== 0) {
+					if (autoAttach && deltaFrames !== 0) {
 						for (const parentId of selectedSet) {
 							const parentInitial = initialMap.get(parentId);
 							if (!parentInitial) continue;
@@ -931,8 +968,8 @@ export const useTimelineElementDnd = ({
 								if (selectedSet.has(childId)) continue;
 								const childBase = baseElementMap.get(childId);
 								if (!childBase) continue;
-								const childNewStart = childBase.timeline.start + deltaTime;
-								const childNewEnd = childBase.timeline.end + deltaTime;
+								const childNewStart = childBase.timeline.start + deltaFrames;
+								const childNewEnd = childBase.timeline.end + deltaFrames;
 								if (childNewStart >= 0) {
 									movedChildren.set(childId, {
 										start: childNewStart,
@@ -1004,8 +1041,8 @@ export const useTimelineElementDnd = ({
 										...el,
 										timeline: {
 											...el.timeline,
-											start: initial.start + deltaTime,
-											end: initial.end + deltaTime,
+											start: initial.start + deltaFrames,
+											end: initial.end + deltaFrames,
 											trackIndex: nextTrack,
 										},
 									};
@@ -1041,6 +1078,7 @@ export const useTimelineElementDnd = ({
 								mainTrackMagnetEnabled,
 								attachments,
 								autoAttach,
+								fps,
 							});
 						});
 
@@ -1125,8 +1163,8 @@ export const useTimelineElementDnd = ({
 									...el,
 									timeline: {
 										...el.timeline,
-										start: initial.start + deltaTime,
-										end: initial.end + deltaTime,
+										start: initial.start + deltaFrames,
+										end: initial.end + deltaFrames,
 										trackIndex: shouldReorderTracks
 											? nextTrack
 											: Math.max(0, selectedBase + trackDelta),
@@ -1164,6 +1202,7 @@ export const useTimelineElementDnd = ({
 							mainTrackMagnetEnabled,
 							attachments,
 							autoAttach,
+							fps,
 						});
 					});
 
@@ -1308,6 +1347,7 @@ export const useTimelineElementDnd = ({
 							insertElementIntoMainTrack(prev, element.id, dropStartForMagnet, {
 								attachments,
 								autoAttach,
+								fps,
 							}),
 						);
 					}

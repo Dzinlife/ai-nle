@@ -125,7 +125,7 @@ export interface DragMoveParams {
 	deltaX: number;
 	/** 垂直移动像素 */
 	deltaY: number;
-	/** 时间比例（像素/秒） */
+	/** 时间比例（像素/帧） */
 	ratio: number;
 	/** 轨道高度 */
 	trackHeight: number;
@@ -263,8 +263,7 @@ export interface TimeRange {
  * 检查两个时间范围是否重叠
  */
 export function isTimeOverlapping(a: TimeRange, b: TimeRange): boolean {
-	const epsilon = 1e-4;
-	return a.start < b.end - epsilon && a.end > b.start + epsilon;
+	return a.start < b.end && a.end > b.start;
 }
 
 /**

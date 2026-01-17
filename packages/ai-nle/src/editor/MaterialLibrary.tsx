@@ -7,13 +7,20 @@ import { useDrag } from "@use-gesture/react";
 import React, { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+	clampFrame,
+	framesToTimecode,
+	secondsToFrames,
+} from "@/utils/timecode";
+import { useFps } from "./contexts/TimelineContext";
+import {
 	calculateAutoScrollSpeed,
-	useDragStore,
 	type DragGhostInfo,
 	type DropTargetInfo,
 	type MaterialDragData,
+	useDragStore,
 } from "./drag";
 import { getElementHeightForTrack } from "./timeline/trackConfig";
+import { getPixelsPerFrame } from "./utils/timelineScale";
 import {
 	getTrackHitFromHeights,
 	getTrackYFromHeights,
@@ -31,21 +38,36 @@ interface MaterialItem {
 	thumbnailUrl: string;
 	width?: number;
 	height?: number;
+	/** 视频时长（帧） */
 	duration?: number;
 }
 
 interface MaterialCardProps {
 	item: MaterialItem;
-	onTimelineDrop?: (item: MaterialItem, trackIndex: number, time: number) => void;
-	onPreviewDrop?: (item: MaterialItem, canvasX: number, canvasY: number) => void;
+	onTimelineDrop?: (
+		item: MaterialItem,
+		trackIndex: number,
+		time: number,
+	) => void;
+	onPreviewDrop?: (
+		item: MaterialItem,
+		canvasX: number,
+		canvasY: number,
+	) => void;
 }
 
 // ============================================================================
 // 素材卡片组件
 // ============================================================================
 
-const MaterialCard: React.FC<MaterialCardProps> = ({ item, onTimelineDrop, onPreviewDrop }) => {
+const MaterialCard: React.FC<MaterialCardProps> = ({
+	item,
+	onTimelineDrop,
+	onPreviewDrop,
+}) => {
 	const cardRef = useRef<HTMLDivElement>(null);
+	const { fps } = useFps();
+	const ratio = getPixelsPerFrame(fps);
 	const {
 		startDrag,
 		updateGhost,
@@ -83,8 +105,12 @@ const MaterialCard: React.FC<MaterialCardProps> = ({ item, onTimelineDrop, onPre
 				const zoomLevel = parseFloat(previewZone.dataset.zoomLevel || "1");
 				const offsetX = parseFloat(previewZone.dataset.offsetX || "0");
 				const offsetY = parseFloat(previewZone.dataset.offsetY || "0");
-				const pictureWidth = parseFloat(previewZone.dataset.pictureWidth || "1920");
-				const pictureHeight = parseFloat(previewZone.dataset.pictureHeight || "1080");
+				const pictureWidth = parseFloat(
+					previewZone.dataset.pictureWidth || "1920",
+				);
+				const pictureHeight = parseFloat(
+					previewZone.dataset.pictureHeight || "1080",
+				);
 
 				// 计算画布坐标（左上角坐标系，0 到 pictureWidth/Height）
 				const topLeftX = (mouseX - rect.left - offsetX) / zoomLevel;
@@ -135,9 +161,7 @@ const MaterialCard: React.FC<MaterialCardProps> = ({ item, onTimelineDrop, onPre
 				if (contentArea) {
 					const contentRect = contentArea.getBoundingClientRect();
 					const scrollLeft = useDragStore.getState().timelineScrollLeft;
-					const ratio = 50; // TODO: 从配置获取
-					const time = Math.max(
-						0,
+					const time = clampFrame(
 						(mouseX - contentRect.left + scrollLeft) / ratio,
 					);
 
@@ -154,10 +178,7 @@ const MaterialCard: React.FC<MaterialCardProps> = ({ item, onTimelineDrop, onPre
 		// 检查其他轨道
 		if (otherZone) {
 			const rect = otherZone.getBoundingClientRect();
-			const otherTrackCount = parseInt(
-				otherZone.dataset.trackCount || "0",
-				10,
-			);
+			const otherTrackCount = parseInt(otherZone.dataset.trackCount || "0", 10);
 			const trackHeight = parseInt(otherZone.dataset.trackHeight || "60", 10);
 			const trackHeights = parseTrackHeights(otherZone.dataset.trackHeights);
 
@@ -197,9 +218,7 @@ const MaterialCard: React.FC<MaterialCardProps> = ({ item, onTimelineDrop, onPre
 					}
 
 					const scrollLeft = useDragStore.getState().timelineScrollLeft;
-					const ratio = 50;
-					const time = Math.max(
-						0,
+					const time = clampFrame(
 						(mouseX - contentRect.left + scrollLeft) / ratio,
 					);
 
@@ -264,13 +283,21 @@ const MaterialCard: React.FC<MaterialCardProps> = ({ item, onTimelineDrop, onPre
 						currentDropTarget.time !== undefined &&
 						currentDropTarget.trackIndex !== undefined
 					) {
-						onTimelineDrop?.(item, currentDropTarget.trackIndex, currentDropTarget.time);
+						onTimelineDrop?.(
+							item,
+							currentDropTarget.trackIndex,
+							currentDropTarget.time,
+						);
 					} else if (
 						currentDropTarget.zone === "preview" &&
 						currentDropTarget.canvasX !== undefined &&
 						currentDropTarget.canvasY !== undefined
 					) {
-						onPreviewDrop?.(item, currentDropTarget.canvasX, currentDropTarget.canvasY);
+						onPreviewDrop?.(
+							item,
+							currentDropTarget.canvasX,
+							currentDropTarget.canvasY,
+						);
 					}
 				}
 
@@ -340,7 +367,7 @@ const MaterialCard: React.FC<MaterialCardProps> = ({ item, onTimelineDrop, onPre
 			</div>
 			{item.type === "video" && item.duration && (
 				<div className="absolute top-1 right-1 bg-black/60 text-white text-xs px-1 rounded">
-					{formatDuration(item.duration)}
+					{formatDuration(item.duration, fps)}
 				</div>
 			)}
 		</div>
@@ -351,10 +378,8 @@ const MaterialCard: React.FC<MaterialCardProps> = ({ item, onTimelineDrop, onPre
 // 辅助函数
 // ============================================================================
 
-function formatDuration(seconds: number): string {
-	const mins = Math.floor(seconds / 60);
-	const secs = Math.floor(seconds % 60);
-	return `${mins}:${secs.toString().padStart(2, "0")}`;
+function formatDuration(frames: number, fps: number): string {
+	return framesToTimecode(frames, fps);
 }
 
 function parseTrackHeights(value?: string): number[] {
@@ -435,6 +460,8 @@ const DragGhost: React.FC = () => {
 
 const MaterialDropIndicator: React.FC = () => {
 	const { isDragging, dragSource, dropTarget } = useDragStore();
+	const { fps } = useFps();
+	const ratio = getPixelsPerFrame(fps);
 
 	if (!isDragging || dragSource !== "material-library" || !dropTarget) {
 		return null;
@@ -447,9 +474,8 @@ const MaterialDropIndicator: React.FC = () => {
 	// 查找目标区域的 DOM 元素
 	const trackIndex = dropTarget.trackIndex ?? 0;
 	const time = dropTarget.time ?? 0;
-	const ratio = 50; // TODO: 从配置获取
-	const defaultDuration = 5; // 默认 5 秒
-	const elementWidth = defaultDuration * ratio;
+	const defaultDurationFrames = secondsToFrames(5, fps);
+	const elementWidth = defaultDurationFrames * ratio;
 
 	let targetZone: HTMLElement | null = null;
 	let screenX = 0;
@@ -498,11 +524,8 @@ const MaterialDropIndicator: React.FC = () => {
 				const trackHeightForIndex =
 					trackHeights.length > 0
 						? trackHeights[
-								Math.max(
-									0,
-									Math.min(trackHeights.length - 1, trackFromTop),
-								)
-						  ]
+								Math.max(0, Math.min(trackHeights.length - 1, trackFromTop))
+							]
 						: fallbackTrackHeight;
 				const trackY =
 					trackHeights.length > 0
@@ -561,8 +584,16 @@ const DEMO_MATERIALS: MaterialItem[] = [
 
 interface MaterialLibraryProps {
 	className?: string;
-	onTimelineDrop?: (item: MaterialItem, trackIndex: number, time: number) => void;
-	onPreviewDrop?: (item: MaterialItem, canvasX: number, canvasY: number) => void;
+	onTimelineDrop?: (
+		item: MaterialItem,
+		trackIndex: number,
+		time: number,
+	) => void;
+	onPreviewDrop?: (
+		item: MaterialItem,
+		canvasX: number,
+		canvasY: number,
+	) => void;
 }
 
 const MaterialLibrary: React.FC<MaterialLibraryProps> = ({
@@ -585,9 +616,7 @@ const MaterialLibrary: React.FC<MaterialLibraryProps> = ({
 					onClick={() => setIsOpen(!isOpen)}
 				>
 					<span className="text-sm font-medium text-white">素材库</span>
-					<span className="text-neutral-400 text-xs">
-						{isOpen ? "▼" : "▶"}
-					</span>
+					<span className="text-neutral-400 text-xs">{isOpen ? "▼" : "▶"}</span>
 				</div>
 
 				{/* 内容区 */}

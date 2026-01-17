@@ -2,11 +2,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ModelManager } from "@/dsl/model";
 import { TimelineElement } from "@/dsl/types";
+import { clampFrame, secondsToFrames } from "@/utils/timecode";
 import ElementSettingsPanel from "./components/ElementSettingsPanel";
 import PreviewProvider from "./contexts/PreviewProvider";
 import {
 	TimelineProvider,
 	useAttachments,
+	useFps,
 	useMainTrackMagnet,
 	useTimelineStore,
 } from "./contexts/TimelineContext";
@@ -19,6 +21,7 @@ import {
 	finalizeTimelineElements,
 	insertElementIntoMainTrack,
 } from "./utils/mainTrackMagnet";
+import { buildTimelineMeta } from "./utils/timelineTime";
 
 // 导入所有组件以触发注册
 import "@/dsl/BackdropZoom";
@@ -37,6 +40,7 @@ console.log("[Editor] Registered components:", componentRegistry.getTypes());
 const EditorContent: React.FC = () => {
 	const setElements = useTimelineStore((state) => state.setElements);
 	const currentTime = useTimelineStore((state) => state.currentTime);
+	const { fps } = useFps();
 	const { attachments, autoAttach } = useAttachments();
 	const { mainTrackMagnetEnabled } = useMainTrackMagnet();
 
@@ -79,6 +83,8 @@ const EditorContent: React.FC = () => {
 	const handleTimelineDrop = useCallback(
 		(item: MaterialItem, trackIndex: number, time: number) => {
 			setElements((prev) => {
+				const durationFrames = secondsToFrames(5, fps);
+				const startFrame = clampFrame(time);
 				const newElement: TimelineElement = {
 					id: `element-${Date.now()}`,
 					type: "Image" as const,
@@ -93,12 +99,15 @@ const EditorContent: React.FC = () => {
 						height: item.height ?? 1080,
 						rotation: 0,
 					},
-					timeline: {
-						start: time,
-						end: time + 5,
-						trackIndex,
-						role: "clip",
-					},
+					timeline: buildTimelineMeta(
+						{
+							start: startFrame,
+							end: startFrame + durationFrames,
+							trackIndex,
+							role: "clip",
+						},
+						fps,
+					),
 					render: {
 						zIndex: 0,
 						visible: true,
@@ -110,13 +119,14 @@ const EditorContent: React.FC = () => {
 					mainTrackMagnetEnabled,
 					attachments,
 					autoAttach,
+					fps,
 				};
 
 				if (mainTrackMagnetEnabled && trackIndex === 0) {
 					return insertElementIntoMainTrack(
 						prev,
 						newElement.id,
-						time,
+						startFrame,
 						postProcessOptions,
 						newElement,
 					);
@@ -128,7 +138,7 @@ const EditorContent: React.FC = () => {
 				);
 			});
 		},
-		[setElements, mainTrackMagnetEnabled, attachments, autoAttach],
+		[setElements, mainTrackMagnetEnabled, attachments, autoAttach, fps],
 	);
 
 	// 处理素材库拖拽放置到预览画布
@@ -138,6 +148,8 @@ const EditorContent: React.FC = () => {
 			const elementHeight = item.height ?? 300;
 
 			setElements((prev) => {
+				const durationFrames = secondsToFrames(5, fps);
+				const startFrame = clampFrame(currentTime);
 				const newElement: TimelineElement = {
 					id: `element-${Date.now()}`,
 					type: "Image" as const,
@@ -152,12 +164,15 @@ const EditorContent: React.FC = () => {
 						height: elementHeight,
 						rotation: 0,
 					},
-					timeline: {
-						start: currentTime,
-						end: currentTime + 5,
-						trackIndex: 1, // 默认放到轨道 1（非主轨道）
-						role: "clip",
-					},
+					timeline: buildTimelineMeta(
+						{
+							start: startFrame,
+							end: startFrame + durationFrames,
+							trackIndex: 1, // 默认放到轨道 1（非主轨道）
+							role: "clip",
+						},
+						fps,
+					),
 					render: {
 						zIndex: 0,
 						visible: true,
@@ -168,7 +183,7 @@ const EditorContent: React.FC = () => {
 				return [...prev, newElement];
 			});
 		},
-		[setElements, currentTime],
+		[setElements, currentTime, fps],
 	);
 
 	return (
@@ -199,12 +214,16 @@ const EditorContent: React.FC = () => {
 
 const Editor = () => {
 	const [elements, setElements] = useState<TimelineElement[]>([]);
+	const [timelineFps, setTimelineFps] = useState(30);
+	const [canvasSize, setCanvasSize] = useState({ width: 1920, height: 1080 });
 	const [isLoading, setIsLoading] = useState(true);
 
 	useEffect(() => {
 		try {
-			const loadedElements = loadTimelineFromObject(timelineData as any);
-			setElements(loadedElements);
+			const loaded = loadTimelineFromObject(timelineData as any);
+			setElements(loaded.elements);
+			setTimelineFps(loaded.fps);
+			setCanvasSize(loaded.canvas);
 		} catch (error) {
 			console.error("Failed to load timeline:", error);
 		} finally {
@@ -222,7 +241,8 @@ const Editor = () => {
 		<QueryClientProvider client={queryClient}>
 			<TimelineProvider
 				elements={elements}
-				canvasSize={{ width: 1920, height: 1080 }}
+				canvasSize={canvasSize}
+				fps={timelineFps}
 			>
 				<ModelManager>
 					<PreviewProvider>

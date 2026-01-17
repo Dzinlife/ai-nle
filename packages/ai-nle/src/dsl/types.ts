@@ -30,8 +30,10 @@ export type TrackRole =
  * 独立于组件 props，描述元素的时间范围和轨道位置
  */
 export interface TimelineMeta {
-	start: number; // 开始时间（秒）
-	end: number; // 结束时间（秒）
+	start: number; // 开始帧（整数）
+	end: number; // 结束帧（整数）
+	startTimecode: string; // 可读时间戳 (HH:MM:SS:FF)
+	endTimecode: string; // 可读时间戳 (HH:MM:SS:FF)
 	trackIndex?: number; // 轨道索引（0 为主轨道，在底部）
 	role?: TrackRole; // 轨道角色（语义标识，用于 agent 理解）
 }

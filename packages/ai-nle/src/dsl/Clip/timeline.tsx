@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef } from "react";
+import { useFps } from "@/editor/contexts/TimelineContext";
 import { useModelSelector } from "../model/registry";
 import type { TimelineProps } from "../model/types";
 import { type ClipInternal, type ClipProps, calculateVideoTime } from "./model";
+import { framesToSeconds, framesToTimecode } from "@/utils/timecode";
 
 interface ClipTimelineProps extends TimelineProps {
 	id: string;
@@ -12,6 +14,7 @@ export const ClipTimeline: React.FC<ClipTimelineProps> = ({
 	start,
 	end,
 }) => {
+	const { fps } = useFps();
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const isGeneratingRef = useRef(false);
 
@@ -45,7 +48,8 @@ export const ClipTimeline: React.FC<ClipTimelineProps> = ({
 
 	const clipDurationRef = useRef(end - start);
 	clipDurationRef.current = end - start;
-	const clipDuration = clipDurationRef.current;
+	const clipDurationFrames = clipDurationRef.current;
+	const clipDurationSeconds = framesToSeconds(clipDurationFrames, fps);
 
 	// 生成预览图（使用 Model 中的 videoSink）
 	const generateThumbnails = useCallback(async () => {
@@ -119,7 +123,7 @@ export const ClipTimeline: React.FC<ClipTimelineProps> = ({
 				Math.ceil(canvasWidth / estimatedThumbnailWidth),
 			);
 
-			const previewInterval = clipDuration / numThumbnails;
+			const previewInterval = clipDurationSeconds / numThumbnails;
 			const thumbnailWidth = canvasWidth / numThumbnails;
 			const thumbnailHeight = canvasHeight;
 
@@ -215,7 +219,7 @@ export const ClipTimeline: React.FC<ClipTimelineProps> = ({
 		} finally {
 			isGeneratingRef.current = false;
 		}
-	}, [videoSink, videoDuration, uri, reversed, clipDuration]);
+	}, [videoSink, videoDuration, uri, reversed, clipDurationSeconds]);
 
 	// 当 videoSink 准备好后生成缩略图
 	useEffect(() => {
@@ -228,15 +232,15 @@ export const ClipTimeline: React.FC<ClipTimelineProps> = ({
 		<div className="absolute inset-0 overflow-hidden">
 			{/* 时长显示 */}
 			<div className="absolute top-1 left-1 px-1 rounded bg-white/50 backdrop-blur-sm text-black/80 text-xs z-10">
-				{clipDuration.toFixed(1)}s
+				{framesToTimecode(clipDurationFrames, fps)}
 			</div>
 
 			{/* 最大时长指示器 */}
-			{maxDuration && clipDuration > maxDuration + 0.001 && (
+			{maxDuration !== undefined && clipDurationFrames > maxDuration && (
 				<div
 					className="absolute top-0 bottom-0 bg-red-500/30 border-l-2 border-red-500 z-10"
 					style={{
-						left: `${(maxDuration / clipDuration) * 100}%`,
+						left: `${(maxDuration / clipDurationFrames) * 100}%`,
 						right: 0,
 					}}
 				>

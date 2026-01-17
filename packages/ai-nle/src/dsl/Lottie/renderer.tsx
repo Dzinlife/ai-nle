@@ -2,8 +2,10 @@ import { useCallback } from "react";
 import { Group, Rect, Skottie } from "react-skia-lite";
 import {
 	useCurrentTime,
+	useFps,
 	useTimelineStore,
 } from "@/editor/contexts/TimelineContext";
+import { framesToSeconds } from "@/utils/timecode";
 import { useModelSelector } from "../model/registry";
 import { useRenderLayout } from "../useRenderLayout";
 import type { LottieInternal, LottieProps } from "./model";
@@ -21,6 +23,7 @@ const Lottie: React.FC<LottieRendererProps> = ({
 	loop = true,
 }) => {
 	const { currentTime } = useCurrentTime();
+	const { fps } = useFps();
 
 	// 直接从 TimelineStore 读取元素的 timeline 数据
 	const timeline = useTimelineStore(
@@ -57,10 +60,11 @@ const Lottie: React.FC<LottieRendererProps> = ({
 		if (!animation || !timeline) return 0;
 
 		// 计算相对于组件开始时间的当前时间
-		const start = timeline.start;
-		const end = timeline.end;
-		const relativeTime = Math.max(0, currentTime - start);
-		const componentDuration = end - start;
+		const startSeconds = framesToSeconds(timeline.start, fps);
+		const endSeconds = framesToSeconds(timeline.end, fps);
+		const currentSeconds = framesToSeconds(currentTime, fps);
+		const relativeTime = Math.max(0, currentSeconds - startSeconds);
+		const componentDuration = endSeconds - startSeconds;
 		const totalFrames = animation.duration() * animation.fps();
 
 		// 如果超出结束时间，根据是否循环决定
@@ -84,7 +88,7 @@ const Lottie: React.FC<LottieRendererProps> = ({
 		} else {
 			return Math.min(Math.floor(frame), totalFrames - 1);
 		}
-	}, [animation, currentTime, timeline, speed, loop]);
+	}, [animation, currentTime, timeline, speed, loop, fps]);
 
 	const currentFrame = animation ? getCurrentFrame() : 0;
 

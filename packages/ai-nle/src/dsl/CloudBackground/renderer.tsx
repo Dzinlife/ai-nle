@@ -2,8 +2,10 @@ import { useMemo } from "react";
 import { Fill, Group, Rect, Shader, Skia } from "react-skia-lite";
 import {
 	useCurrentTime,
+	useFps,
 	useTimelineStore,
 } from "@/editor/contexts/TimelineContext";
+import { framesToSeconds } from "@/utils/timecode";
 import { useModelSelector } from "../model/registry";
 import { parseStartEndSchema } from "../startEndSchema";
 import { useRenderLayout } from "../useRenderLayout";
@@ -17,6 +19,7 @@ const CloudBackgroundRenderer: React.FC<CloudBackgroundRendererProps> = ({
 	id,
 }) => {
 	const { currentTime } = useCurrentTime();
+	const { fps } = useFps();
 
 	// 直接从 TimelineStore 读取元素的 timeline 数据
 	const timeline = useTimelineStore(
@@ -59,8 +62,9 @@ const CloudBackgroundRenderer: React.FC<CloudBackgroundRendererProps> = ({
 	} = props;
 
 	// 解析开始时间（从 __timeline 获取）
-	const start = parseStartEndSchema(timeline?.start ?? 0);
-	const relativeTime = Math.max(0, currentTime - start) * speed;
+	const start = parseStartEndSchema(timeline?.start ?? 0, fps);
+	const relativeFrames = Math.max(0, currentTime - start);
+	const relativeTime = framesToSeconds(relativeFrames, fps) * speed;
 
 	// 解析颜色
 	const parseColor = (color: string) => {

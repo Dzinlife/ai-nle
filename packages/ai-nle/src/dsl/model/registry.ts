@@ -155,6 +155,53 @@ export function useModelConstraints(id: string): ComponentConstraints {
 }
 
 /**
+ * 安全订阅任意字段（id 可为空或不存在）
+ */
+export function useModelSelectorSafe<P, T>(
+	id: string | undefined,
+	selector: (state: ComponentModel<P>) => T,
+	defaultValue: T,
+	equalityFn?: (a: T, b: T) => boolean,
+): T {
+	const subscribe = useCallback(
+		(onStoreChange: () => void) => {
+			const unsubs: Array<() => void> = [];
+			unsubs.push(modelRegistry.subscribe(onStoreChange));
+			if (id) {
+				const store = modelRegistry.get<P>(id);
+				if (store) {
+					let currentValue = selector(store.getState());
+					unsubs.push(
+						store.subscribe(() => {
+							const newValue = selector(store.getState());
+							const isEqual = equalityFn
+								? equalityFn(currentValue, newValue)
+								: currentValue === newValue;
+							if (!isEqual) {
+								currentValue = newValue;
+								onStoreChange();
+							}
+						}),
+					);
+				}
+			}
+			return () => {
+				unsubs.forEach((unsub) => unsub());
+			};
+		},
+		[id, selector, equalityFn],
+	);
+
+	const getSnapshot = useCallback(() => {
+		if (!id) return defaultValue;
+		const store = modelRegistry.get<P>(id);
+		return store ? selector(store.getState()) : defaultValue;
+	}, [id, selector, defaultValue]);
+
+	return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+/**
  * 只订阅 props
  */
 export function useModelProps<P = Record<string, unknown>>(id: string): P {

@@ -291,7 +291,7 @@ export interface DragCalculationParams {
 	deltaX: number;
 	/** 垂直移动像素 */
 	deltaY: number;
-	/** 时间比例（像素/秒） */
+	/** 时间比例（像素/帧） */
 	ratio: number;
 	/** 初始开始时间 */
 	initialStart: number;
@@ -344,9 +344,9 @@ export function calculateDragResult(
 	} = params;
 
 	// 计算新的时间范围
-	const deltaTime = deltaX / ratio;
+	const deltaFrames = Math.round(deltaX / ratio);
 	const duration = initialEnd - initialStart;
-	const newStart = Math.max(0, initialStart + deltaTime);
+	const newStart = Math.max(0, initialStart + deltaFrames);
 	const newEnd = newStart + duration;
 
 	// 计算新的 Y 坐标

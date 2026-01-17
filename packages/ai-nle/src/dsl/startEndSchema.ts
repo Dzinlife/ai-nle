@@ -1,8 +1,13 @@
-export const parseStartEndSchema = (schema: number | string) => {
+import { clampFrame, timecodeToFrames } from "@/utils/timecode";
+
+export const parseStartEndSchema = (schema: number | string, fps: number) => {
 	if (typeof schema === "number") {
-		return schema;
+		return clampFrame(schema);
 	}
 
-	// TODO: 支持其他时间格式
-	return 0;
+	try {
+		return timecodeToFrames(schema, fps);
+	} catch {
+		return 0;
+	}
 };

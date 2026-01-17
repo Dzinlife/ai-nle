@@ -9,6 +9,7 @@ import {
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import { TimelineElement } from "@/dsl/types";
+import { clampFrame } from "@/utils/timecode";
 import { DropTarget, ExtendedDropTarget } from "../timeline/types";
 import { findAttachments } from "../utils/attachments";
 import { SnapPoint } from "../utils/snap";
@@ -27,6 +28,7 @@ import {
 	resolveDropTargetForRole,
 } from "../utils/trackAssignment";
 import { finalizeTimelineElements } from "../utils/mainTrackMagnet";
+import { updateElementTime } from "../utils/timelineTime";
 
 // Ghost 元素状态类型
 export interface DragGhostState {
@@ -54,7 +56,14 @@ export const DEFAULT_AUTO_SCROLL_CONFIG: AutoScrollConfig = {
 	maxSpeed: 12,
 };
 
+const DEFAULT_FPS = 30;
+const normalizeFps = (value: number): number => {
+	if (!Number.isFinite(value) || value <= 0) return DEFAULT_FPS;
+	return Math.round(value);
+};
+
 interface TimelineStore {
+	fps: number;
 	currentTime: number;
 	previewTime: number | null; // hover 时的临时预览时间
 	elements: TimelineElement[];
@@ -79,6 +88,7 @@ interface TimelineStore {
 	autoScrollSpeedY: number; // 垂直滚动速度，负数向上，正数向下
 	// 时间线滚动位置
 	scrollLeft: number;
+	setFps: (fps: number) => void;
 	setCurrentTime: (time: number) => void;
 	setPreviewTime: (time: number | null) => void;
 	setElements: (
@@ -117,6 +127,7 @@ interface TimelineStore {
 
 export const useTimelineStore = create<TimelineStore>()(
 	subscribeWithSelector((set, get) => ({
+		fps: DEFAULT_FPS,
 		currentTime: 0,
 		previewTime: null,
 		elements: [],
@@ -142,15 +153,20 @@ export const useTimelineStore = create<TimelineStore>()(
 		// 滚动位置初始值
 		scrollLeft: 0,
 
+		setFps: (fps: number) => {
+			set({ fps: normalizeFps(fps) });
+		},
+
 		setCurrentTime: (time: number) => {
 			const currentTime = get().currentTime;
-			if (currentTime !== time) {
-				set({ currentTime: time });
+			const nextTime = clampFrame(time);
+			if (currentTime !== nextTime) {
+				set({ currentTime: nextTime });
 			}
 		},
 
 		setPreviewTime: (time: number | null) => {
-			set({ previewTime: time });
+			set({ previewTime: time === null ? null : clampFrame(time) });
 		},
 
 		setElements: (
@@ -282,6 +298,12 @@ export const useDisplayTime = () => {
 	const currentTime = useTimelineStore((state) => state.currentTime);
 	const previewTime = useTimelineStore((state) => state.previewTime);
 	return previewTime ?? currentTime;
+};
+
+export const useFps = () => {
+	const fps = useTimelineStore((state) => state.fps);
+	const setFps = useTimelineStore((state) => state.setFps);
+	return { fps, setFps };
 };
 
 export const usePreviewTime = () => {
@@ -490,6 +512,7 @@ export const useMainTrackMagnet = () => {
 export const useTrackAssignments = () => {
 	const elements = useTimelineStore((state) => state.elements);
 	const setElements = useTimelineStore((state) => state.setElements);
+	const fps = useTimelineStore((state) => state.fps);
 	const mainTrackMagnetEnabled = useTimelineStore(
 		(state) => state.mainTrackMagnetEnabled,
 	);
@@ -739,12 +762,11 @@ export const useTrackAssignments = () => {
 				// 应用时间和轨道更新
 				const updated = prev.map((el) => {
 					if (el.id === elementId) {
+						const updatedElement = updateElementTime(el, start, end, fps);
 						return {
-							...el,
+							...updatedElement,
 							timeline: {
-								...el.timeline,
-								start,
-								end,
+								...updatedElement.timeline,
 								trackIndex: finalTrack,
 							},
 						};
@@ -767,10 +789,11 @@ export const useTrackAssignments = () => {
 					mainTrackMagnetEnabled,
 					attachments,
 					autoAttach,
+					fps,
 				});
 			});
 		},
-		[setElements, mainTrackMagnetEnabled, attachments, autoAttach],
+		[setElements, mainTrackMagnetEnabled, attachments, autoAttach, fps],
 	);
 
 	// 移动元素及其附属元素（用于拖拽结束，处理层叠关联）
@@ -950,12 +973,11 @@ export const useTrackAssignments = () => {
 				// 第一步：更新主元素的时间和轨道
 				let updated = prev.map((el) => {
 					if (el.id === elementId) {
+						const updatedElement = updateElementTime(el, start, end, fps);
 						return {
-							...el,
+							...updatedElement,
 							timeline: {
-								...el.timeline,
-								start,
-								end,
+								...updatedElement.timeline,
 								trackIndex: finalTrack,
 							},
 						};
@@ -978,14 +1000,7 @@ export const useTrackAssignments = () => {
 				updated = updated.map((el) => {
 					const childMove = attachedChildren.find((c) => c.id === el.id);
 					if (childMove) {
-						return {
-							...el,
-							timeline: {
-								...el.timeline,
-								start: childMove.start,
-								end: childMove.end,
-							},
-						};
+						return updateElementTime(el, childMove.start, childMove.end, fps);
 					}
 					return el;
 				});
@@ -1034,10 +1049,11 @@ export const useTrackAssignments = () => {
 					mainTrackMagnetEnabled,
 					attachments,
 					autoAttach,
+					fps,
 				});
 			});
 		},
-		[setElements, mainTrackMagnetEnabled, attachments, autoAttach],
+		[setElements, mainTrackMagnetEnabled, attachments, autoAttach, fps],
 	);
 
 	return {
@@ -1174,13 +1190,16 @@ export const TimelineProvider = ({
 	currentTime: initialCurrentTime,
 	elements: initialElements,
 	canvasSize: initialCanvasSize,
+	fps: initialFps,
 }: {
 	children: React.ReactNode;
 	currentTime?: number;
 	elements?: TimelineElement[];
 	canvasSize?: { width: number; height: number };
+	fps?: number;
 }) => {
 	const lastTimeRef = useRef<number | null>(null);
+	const frameRemainderRef = useRef(0);
 	const applyInitialTrackAssignments = useCallback(
 		(elements: TimelineElement[]) => {
 			if (elements.length === 0) return elements;
@@ -1210,9 +1229,10 @@ export const TimelineProvider = ({
 		if (initialElements) {
 			const normalizedElements = applyInitialTrackAssignments(initialElements);
 			useTimelineStore.setState({
-				currentTime: initialCurrentTime ?? 0,
+				currentTime: clampFrame(initialCurrentTime ?? 0),
 				elements: normalizedElements,
 				canvasSize: initialCanvasSize ?? { width: 1920, height: 1080 },
+				fps: normalizeFps(initialFps ?? DEFAULT_FPS),
 			});
 		}
 	}, []);
@@ -1230,7 +1250,7 @@ export const TimelineProvider = ({
 	useEffect(() => {
 		if (initialCurrentTime !== undefined) {
 			useTimelineStore.setState({
-				currentTime: initialCurrentTime,
+				currentTime: clampFrame(initialCurrentTime),
 			});
 		}
 	}, [initialCurrentTime]);
@@ -1242,6 +1262,14 @@ export const TimelineProvider = ({
 			});
 		}
 	}, [initialCanvasSize]);
+
+	useEffect(() => {
+		if (initialFps !== undefined) {
+			useTimelineStore.setState({
+				fps: normalizeFps(initialFps),
+			});
+		}
+	}, [initialFps]);
 
 	// 播放循环
 	useEffect(() => {
@@ -1255,9 +1283,14 @@ export const TimelineProvider = ({
 						if (!state.isPlaying) return;
 
 						if (lastTimeRef.current !== null) {
-							const delta = (now - lastTimeRef.current) / 1000; // 转换为秒
-							const newTime = state.currentTime + delta;
-							state.setCurrentTime(newTime);
+							const deltaSeconds = (now - lastTimeRef.current) / 1000;
+							frameRemainderRef.current += deltaSeconds * state.fps;
+							const stepFrames = Math.floor(frameRemainderRef.current);
+							if (stepFrames > 0) {
+								const newTime = state.currentTime + stepFrames;
+								state.setCurrentTime(newTime);
+								frameRemainderRef.current -= stepFrames;
+							}
 						}
 						lastTimeRef.current = now;
 						requestAnimationFrame(animate);
@@ -1265,6 +1298,7 @@ export const TimelineProvider = ({
 					requestAnimationFrame(animate);
 				} else {
 					lastTimeRef.current = null;
+					frameRemainderRef.current = 0;
 				}
 			},
 			{ fireImmediately: true },
