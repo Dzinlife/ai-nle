@@ -19,6 +19,13 @@ export interface LabelLayerProps {
 	offsetY: number;
 	zoomLevel: number;
 	pinchState: PinchState;
+	groupProxyBox?: {
+		x: number;
+		y: number;
+		width: number;
+		height: number;
+		rotation: number;
+	} | null;
 }
 
 export const LabelLayer: React.FC<LabelLayerProps> = ({
@@ -30,6 +37,7 @@ export const LabelLayer: React.FC<LabelLayerProps> = ({
 	offsetY,
 	zoomLevel,
 	pinchState,
+	groupProxyBox,
 }) => {
 	const [labelPositions, setLabelPositions] = useState<
 		Record<
@@ -66,6 +74,22 @@ export const LabelLayer: React.FC<LabelLayerProps> = ({
 				rotation: number;
 			}
 		> = {};
+
+		if (selectedIds.length > 1) {
+			if (groupProxyBox && groupProxyBox.width > 0 && groupProxyBox.height > 0) {
+				positions["group-selection"] = {
+					screenX: groupProxyBox.x,
+					screenY: groupProxyBox.y,
+					screenWidth: groupProxyBox.width,
+					screenHeight: groupProxyBox.height,
+					canvasWidth: groupProxyBox.width / effectiveZoom,
+					canvasHeight: groupProxyBox.height / effectiveZoom,
+					rotation: groupProxyBox.rotation,
+				};
+			}
+			setLabelPositions(positions);
+			return;
+		}
 
 		elements.forEach((el) => {
 			if (!selectedIds.length) return;
@@ -152,6 +176,7 @@ export const LabelLayer: React.FC<LabelLayerProps> = ({
 		zoomLevel,
 		offsetX,
 		offsetY,
+		groupProxyBox,
 	]);
 
 	useEffect(() => {
@@ -169,8 +194,7 @@ export const LabelLayer: React.FC<LabelLayerProps> = ({
 				pointerEvents: "none",
 			}}
 		>
-			{elements.map((el) => {
-				const position = labelPositions[el.id];
+			{Object.entries(labelPositions).map(([id, position]) => {
 				if (!position) return null;
 
 				// 使用屏幕尺寸计算 translateY
@@ -193,7 +217,7 @@ export const LabelLayer: React.FC<LabelLayerProps> = ({
 
 				return (
 					<div
-						key={el.id}
+						key={id}
 						className="absolute text-red-500 bg-black/80 border border-red-500/70 max-w-32 truncate font-medium backdrop-blur-sm backdrop-saturate-150 px-3 py-1 -top-8 rounded-full text-xs whitespace-nowrap pointer-events-none"
 						style={{
 							left: position.screenX,

@@ -61,6 +61,30 @@ type TransformerBox = {
 	rotation: number;
 };
 
+type Point = {
+	x: number;
+	y: number;
+};
+
+type GroupElementSnapshot = {
+	topLeft: Point;
+	width: number;
+	height: number;
+	rotation: number;
+};
+
+type GroupTransformSnapshot = {
+	center: Point;
+	rotation: number;
+	scaleX: number;
+	scaleY: number;
+	transform: Konva.Transform;
+	elements: Record<string, GroupElementSnapshot>;
+};
+
+const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+const toDegrees = (radians: number) => (radians * 180) / Math.PI;
+
 export interface UsePreviewInteractionsOptions {
 	renderElements: TimelineElement[];
 	renderElementsRef: React.MutableRefObject<TimelineElement[]>;
@@ -167,6 +191,12 @@ export const usePreviewInteractions = ({
 	const stageRef = useRef<Konva.Stage | null>(null);
 	const transformerRef = useRef<Konva.Transformer | null>(null);
 	const transformBaseRef = useRef<Record<string, TransformBase>>({});
+	const groupProxyRef = useRef<Konva.Rect | null>(null);
+	const groupTransformSnapshotRef = useRef<GroupTransformSnapshot | null>(null);
+	const groupTransformingRef = useRef(false);
+	const groupRotationRef = useRef(0);
+	const groupCenterRef = useRef<Point | null>(null);
+	const selectionKeyRef = useRef<string>("");
 	const altPressedRef = useRef(false);
 	const shiftPressedRef = useRef(false);
 	const isSelecting = useRef(false);
@@ -184,6 +214,9 @@ export const usePreviewInteractions = ({
 		vertical: [],
 		horizontal: [],
 	});
+	const [groupProxyBox, setGroupProxyBox] = useState<TransformerBox | null>(
+		null,
+	);
 	const copyModeRef = useRef(false);
 	const copyIdMapRef = useRef<Map<string, string>>(new Map());
 	const copySourceIdsRef = useRef<string[]>([]);
@@ -281,6 +314,17 @@ export const usePreviewInteractions = ({
 		};
 	}, [updateTransformerRotationSnaps]);
 
+	useEffect(() => {
+		const selectionKey = selectedIds.slice().sort().join("|");
+		if (selectionKeyRef.current !== selectionKey) {
+			selectionKeyRef.current = selectionKey;
+			groupRotationRef.current = 0;
+			groupCenterRef.current = null;
+			groupTransformSnapshotRef.current = null;
+			groupTransformingRef.current = false;
+		}
+	}, [selectedIds]);
+
 	const getElementStageBox = useCallback(
 		(el: TimelineElement) => {
 			const renderLayout = transformMetaToRenderLayout(
@@ -312,6 +356,132 @@ export const usePreviewInteractions = ({
 			height: canvasHeight * effectiveZoom,
 		};
 	}, [canvasToStageCoords, canvasWidth, canvasHeight, getEffectiveZoom]);
+
+	const computeGroupProxyBox = useCallback((): TransformerBox | null => {
+		const selectedElements = renderElements.filter((el) =>
+			selectedIds.includes(el.id),
+		);
+		if (selectedElements.length < 2) {
+			return null;
+		}
+
+		const effectiveZoom = getEffectiveZoom();
+		const corners: Point[] = [];
+
+		selectedElements.forEach((el) => {
+			const renderLayout = transformMetaToRenderLayout(
+				el.transform,
+				canvasConvertOptions.picture,
+				canvasConvertOptions.canvas,
+			);
+			const { x, y, width, height, rotation } =
+				renderLayoutToTopLeft(renderLayout);
+			const { stageX: topLeftX, stageY: topLeftY } = canvasToStageCoords(x, y);
+			const stageWidth = width * effectiveZoom;
+			const stageHeight = height * effectiveZoom;
+			const cos = Math.cos(rotation);
+			const sin = Math.sin(rotation);
+
+			corners.push(
+				{ x: topLeftX, y: topLeftY },
+				{ x: topLeftX + stageWidth * cos, y: topLeftY + stageWidth * sin },
+				{
+					x: topLeftX + stageWidth * cos - stageHeight * sin,
+					y: topLeftY + stageWidth * sin + stageHeight * cos,
+				},
+				{
+					x: topLeftX - stageHeight * sin,
+					y: topLeftY + stageHeight * cos,
+				},
+			);
+		});
+
+		if (corners.length === 0) {
+			return null;
+		}
+
+		let groupCenter = groupCenterRef.current;
+		if (!groupCenter) {
+			let minX = Infinity;
+			let minY = Infinity;
+			let maxX = -Infinity;
+			let maxY = -Infinity;
+
+			corners.forEach((corner) => {
+				minX = Math.min(minX, corner.x);
+				minY = Math.min(minY, corner.y);
+				maxX = Math.max(maxX, corner.x);
+				maxY = Math.max(maxY, corner.y);
+			});
+
+			groupCenter = {
+				x: (minX + maxX) / 2,
+				y: (minY + maxY) / 2,
+			};
+			groupCenterRef.current = groupCenter;
+		}
+
+		const rotation = groupRotationRef.current;
+		const cos = Math.cos(-rotation);
+		const sin = Math.sin(-rotation);
+		let minX = Infinity;
+		let minY = Infinity;
+		let maxX = -Infinity;
+		let maxY = -Infinity;
+
+		corners.forEach((corner) => {
+			const dx = corner.x - groupCenter.x;
+			const dy = corner.y - groupCenter.y;
+			const localX = dx * cos - dy * sin;
+			const localY = dx * sin + dy * cos;
+			minX = Math.min(minX, localX);
+			minY = Math.min(minY, localY);
+			maxX = Math.max(maxX, localX);
+			maxY = Math.max(maxY, localY);
+		});
+
+		const localCenter = {
+			x: (minX + maxX) / 2,
+			y: (minY + maxY) / 2,
+		};
+		const cosForward = Math.cos(rotation);
+		const sinForward = Math.sin(rotation);
+		const nextCenter = {
+			x: groupCenter.x + localCenter.x * cosForward - localCenter.y * sinForward,
+			y: groupCenter.y + localCenter.x * sinForward + localCenter.y * cosForward,
+		};
+
+		groupCenterRef.current = nextCenter;
+
+		return {
+			x: nextCenter.x,
+			y: nextCenter.y,
+			width: Math.max(0, maxX - minX),
+			height: Math.max(0, maxY - minY),
+			rotation: toDegrees(rotation),
+		};
+	}, [
+		canvasConvertOptions,
+		canvasToStageCoords,
+		getEffectiveZoom,
+		renderElements,
+		selectedIds,
+	]);
+
+	useEffect(() => {
+		if (selectedIds.length < 2) {
+			groupRotationRef.current = 0;
+			groupCenterRef.current = null;
+			groupTransformSnapshotRef.current = null;
+			groupTransformingRef.current = false;
+			setGroupProxyBox(null);
+			return;
+		}
+		if (groupTransformingRef.current) {
+			return;
+		}
+		setGroupProxyBox(computeGroupProxyBox());
+	}, [computeGroupProxyBox, selectedIds.length]);
 
 	const computeSnapResult = useCallback(
 		(
@@ -873,17 +1043,181 @@ export const usePreviewInteractions = ({
 		const visibleSelectedIds = selectedIds.filter((id) =>
 			renderElements.some((el) => el.id === id),
 		);
-		const nodes = visibleSelectedIds
-			.map((id) => stage.findOne(`.element-${id}`))
-			.filter((node): node is Konva.Node => Boolean(node));
-
-		transformerRef.current.nodes(nodes);
+		if (visibleSelectedIds.length > 1 && groupProxyRef.current) {
+			transformerRef.current.nodes([groupProxyRef.current]);
+		} else {
+			const nodes = visibleSelectedIds
+				.map((id) => stage.findOne(`.element-${id}`))
+				.filter((node): node is Konva.Node => Boolean(node));
+			transformerRef.current.nodes(nodes);
+		}
 		transformerRef.current.centeredScaling(altPressedRef.current);
 		transformerRef.current.rotationSnaps(
 			shiftPressedRef.current ? [0, 45, 90, 135, 180, 225, 270, 315] : [],
 		);
 		transformerRef.current.getLayer()?.batchDraw();
-	}, [selectedIds, renderElements]);
+	}, [selectedIds, renderElements, groupProxyBox]);
+
+	const snapshotGroupTransform = useCallback(
+		(node: Konva.Rect) => {
+			groupTransformingRef.current = true;
+			const baseCenter = { x: node.x(), y: node.y() };
+			const baseRotation = toRadians(node.rotation());
+			const baseScaleX = node.scaleX() || 1;
+			const baseScaleY = node.scaleY() || 1;
+			const baseTransform = node.getAbsoluteTransform().copy();
+			const elements: Record<string, GroupElementSnapshot> = {};
+
+			selectedIds.forEach((id) => {
+				const element = renderElementsRef.current.find((el) => el.id === id);
+				if (!element) return;
+
+				const renderLayout = transformMetaToRenderLayout(
+					element.transform,
+					canvasConvertOptions.picture,
+					canvasConvertOptions.canvas,
+				);
+				const { x, y, width, height, rotation } =
+					renderLayoutToTopLeft(renderLayout);
+				const { stageX, stageY } = canvasToStageCoords(x, y);
+
+				elements[id] = {
+					topLeft: { x: stageX, y: stageY },
+					width,
+					height,
+					rotation,
+				};
+			});
+
+			groupTransformSnapshotRef.current = {
+				center: baseCenter,
+				rotation: baseRotation,
+				scaleX: baseScaleX,
+				scaleY: baseScaleY,
+				transform: baseTransform,
+				elements,
+			};
+		},
+		[
+			canvasConvertOptions,
+			canvasToStageCoords,
+			renderElementsRef,
+			selectedIds,
+		],
+	);
+
+	const handleGroupTransformStart = useCallback(
+		(e: Konva.KonvaEventObject<Event>) => {
+			const node = e.target as Konva.Rect;
+			snapshotGroupTransform(node);
+		},
+		[snapshotGroupTransform],
+	);
+
+	const handleGroupTransform = useCallback(
+		(e: Konva.KonvaEventObject<Event>) => {
+			const node = e.target as Konva.Rect;
+			if (!groupTransformSnapshotRef.current) {
+				snapshotGroupTransform(node);
+			}
+			const snapshot = groupTransformSnapshotRef.current;
+			if (!snapshot) return;
+
+			const currentCenter = { x: node.x(), y: node.y() };
+			const currentRotation = toRadians(node.rotation());
+			const currentScaleX = node.scaleX() || 1;
+			const currentScaleY = node.scaleY() || 1;
+			const currentTransform = node.getAbsoluteTransform().copy();
+			const inverseBase = snapshot.transform.copy().invert();
+			const deltaTransform = currentTransform.copy().multiply(inverseBase);
+
+			const deltaRotation = currentRotation - snapshot.rotation;
+			const scaleX = currentScaleX / snapshot.scaleX;
+			const scaleY = currentScaleY / snapshot.scaleY;
+
+			const currentElements = useTimelineStore.getState().elements;
+			const newElements = currentElements.map((el) => {
+				const base = snapshot.elements[el.id];
+				if (!base) return el;
+
+				const nextTopLeft = deltaTransform.point(base.topLeft);
+				const { canvasX: nextLeft, canvasY: nextTop } = stageToCanvasCoords(
+					nextTopLeft.x,
+					nextTopLeft.y,
+				);
+				const nextWidth = base.width * scaleX;
+				const nextHeight = base.height * scaleY;
+				const nextRotation = base.rotation + deltaRotation;
+				const nextCenterX = nextLeft + nextWidth / 2;
+				const nextCenterY = nextTop + nextHeight / 2;
+
+				return {
+					...el,
+					transform: {
+						centerX: nextCenterX - pictureWidth / 2,
+						centerY: nextCenterY - pictureHeight / 2,
+						width: nextWidth,
+						height: nextHeight,
+						rotation: nextRotation,
+					},
+					props: {
+						...el.props,
+						left: nextLeft,
+						top: nextTop,
+						width: nextWidth,
+						height: nextHeight,
+						rotate: `${toDegrees(nextRotation)}deg`,
+						rotation: nextRotation,
+					},
+				};
+			});
+
+			useTimelineStore.setState({ elements: newElements });
+			groupRotationRef.current = currentRotation;
+			groupCenterRef.current = currentCenter;
+			setGroupProxyBox({
+				x: currentCenter.x,
+				y: currentCenter.y,
+				width: node.width(),
+				height: node.height(),
+				rotation: node.rotation(),
+			});
+		},
+		[
+			pictureHeight,
+			pictureWidth,
+			snapshotGroupTransform,
+			stageToCanvasCoords,
+		],
+	);
+
+	const handleGroupTransformEnd = useCallback(
+		(e: Konva.KonvaEventObject<Event>) => {
+			const node = e.target as Konva.Rect;
+			const scaleX = node.scaleX() || 1;
+			const scaleY = node.scaleY() || 1;
+			if (scaleX !== 1 || scaleY !== 1) {
+				node.scaleX(1);
+				node.scaleY(1);
+				node.width(node.width() * scaleX);
+				node.height(node.height() * scaleY);
+			}
+
+			groupRotationRef.current = toRadians(node.rotation());
+			groupCenterRef.current = { x: node.x(), y: node.y() };
+			groupTransformSnapshotRef.current = null;
+			groupTransformingRef.current = false;
+			setGroupProxyBox({
+				x: node.x(),
+				y: node.y(),
+				width: node.width(),
+				height: node.height(),
+				rotation: node.rotation(),
+			});
+			clearSnapGuides();
+		},
+		[clearSnapGuides],
+	);
 
 	// 处理 transform 事件（实时更新）
 	const handleTransformStart = useCallback(
@@ -1517,6 +1851,8 @@ export const usePreviewInteractions = ({
 	return {
 		stageRef,
 		transformerRef,
+		groupProxyRef,
+		groupProxyBox,
 		selectedIds,
 		hoveredId,
 		draggingId,
@@ -1530,6 +1866,9 @@ export const usePreviewInteractions = ({
 		handleDragStart,
 		handleDrag,
 		handleDragEnd,
+		handleGroupTransformStart,
+		handleGroupTransform,
+		handleGroupTransformEnd,
 		handleTransformStart,
 		handleTransform,
 		handleTransformEnd,

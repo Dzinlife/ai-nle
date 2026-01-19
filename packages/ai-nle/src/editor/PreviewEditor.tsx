@@ -97,6 +97,8 @@ const Preview = () => {
 	const {
 		stageRef,
 		transformerRef,
+		groupProxyRef,
+		groupProxyBox,
 		selectedIds,
 		hoveredId,
 		draggingId,
@@ -109,6 +111,9 @@ const Preview = () => {
 		handleDragStart,
 		handleDrag,
 		handleDragEnd,
+		handleGroupTransformStart,
+		handleGroupTransform,
+		handleGroupTransformEnd,
 		handleTransformStart,
 		handleTransform,
 		handleTransformEnd,
@@ -519,6 +524,7 @@ const Preview = () => {
 					offsetY={offsetY}
 					zoomLevel={zoomLevel}
 					pinchState={pinchState}
+					groupProxyBox={groupProxyBox}
 				/>
 			)}
 
@@ -576,6 +582,26 @@ const Preview = () => {
 							listening={false}
 						/>
 					))}
+					{groupProxyBox &&
+						groupProxyBox.width > 0 &&
+						groupProxyBox.height > 0 && (
+							<KonvaRect
+								ref={groupProxyRef}
+								x={groupProxyBox.x}
+								y={groupProxyBox.y}
+								width={groupProxyBox.width}
+								height={groupProxyBox.height}
+								offsetX={groupProxyBox.width / 2}
+								offsetY={groupProxyBox.height / 2}
+								rotation={groupProxyBox.rotation}
+								fill="transparent"
+								stroke="transparent"
+								listening={false}
+								onTransform={handleGroupTransform}
+								onTransformStart={handleGroupTransformStart}
+								onTransformEnd={handleGroupTransformEnd}
+							/>
+						)}
 					{renderElements.map((el) => {
 						const { id } = el;
 						const isHovered = hoveredId === id;
