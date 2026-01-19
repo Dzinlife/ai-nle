@@ -8,7 +8,7 @@ import {
 } from "react";
 import type { CanvasRef } from "react-skia-lite";
 
-interface PinchState {
+export interface PinchState {
 	isPinching: boolean;
 	centerX: number; // pinch 中心点 X（相对于容器）
 	centerY: number; // pinch 中心点 Y（相对于容器）
