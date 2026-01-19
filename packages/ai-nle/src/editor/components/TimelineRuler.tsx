@@ -40,6 +40,8 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
 
 		// 配置绘制样式
 		ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+		ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+
 		ctx.font = "11px monospace";
 		ctx.textAlign = "left";
 		ctx.textBaseline = "middle";
@@ -61,7 +63,6 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
 				// 绘制整数秒刻度
 				const secX = sec * fps * ratio - scrollLeft + paddingLeft;
 				if (secX >= -50 && secX <= width + 50) {
-					ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
 					ctx.beginPath();
 					ctx.moveTo(secX, height - 15);
 					ctx.lineTo(secX, height);
@@ -76,7 +77,6 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
 					const frameX = (sec * fps + f) * ratio - scrollLeft + paddingLeft;
 
 					if (frameX >= 0 && frameX <= width) {
-						ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
 						ctx.beginPath();
 						ctx.moveTo(frameX, height - 4);
 						ctx.lineTo(frameX, height);
@@ -84,18 +84,22 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
 
 						// 显示帧数
 						const textWidth = ctx.measureText(`${f}f`).width;
-						ctx.fillText(
-							`${f}f`,
-							frameX - textWidth / 2,
-							height / 2 + 2,
-						);
+						ctx.fillText(`${f}f`, frameX - textWidth / 2, height / 2 + 2);
 					}
 				}
 			}
 		} else {
 			// 秒/分钟模式（基于帧）
+			const framesPerSecond = Math.max(1, Math.round(fps));
 			const startTime = Math.floor(startFrame / interval) * interval;
 			const endTime = Math.ceil(endFrame / interval) * interval + interval;
+			const isOneSecondInterval = interval === framesPerSecond;
+			const labelPadding = 100;
+			const minLabelPixelGap =
+				ctx.measureText(framesToTimecode(0, fps)).width + labelPadding;
+			const labelEvery = isOneSecondInterval
+				? Math.max(1, Math.ceil(minLabelPixelGap / (interval * ratio)))
+				: 1;
 
 			// 绘制主刻度
 			for (
@@ -108,21 +112,22 @@ const TimelineRuler: React.FC<TimelineRulerProps> = ({
 				if (x < -50 || x > width + 50) continue;
 
 				// 绘制主刻度线
-				ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
 				ctx.beginPath();
 				ctx.moveTo(x, height - 15);
 				ctx.lineTo(x, height);
 				ctx.stroke();
 
 				// 绘制时间文字（在刻度线右方）
-				const label = framesToTimecode(Math.round(time), fps);
-				ctx.fillText(label, x + 5, height / 2 + 2);
+				const tickIndex = Math.round(time / interval);
+				if (!isOneSecondInterval || tickIndex % labelEvery === 0) {
+					const label = framesToTimecode(Math.round(time), fps);
+					ctx.fillText(label, x + 5, height / 2 + 2);
+				}
 			}
 
 			// 绘制次刻度（在主刻度之间）
 			const minorInterval = Math.max(1, Math.round(interval / 5));
 			if (minorInterval * ratio >= 8) {
-				ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
 				for (
 					let time = Math.max(0, startTime);
 					time <= endTime;

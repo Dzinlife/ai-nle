@@ -12,7 +12,9 @@ import { TimelineElement } from "@/dsl/types";
 import { clampFrame } from "@/utils/timecode";
 import { DropTarget, ExtendedDropTarget } from "../timeline/types";
 import { findAttachments } from "../utils/attachments";
+import { finalizeTimelineElements } from "../utils/mainTrackMagnet";
 import { SnapPoint } from "../utils/snap";
+import { updateElementTime } from "../utils/timelineTime";
 import {
 	assignTracks,
 	findAvailableTrack,
@@ -27,8 +29,6 @@ import {
 	normalizeTrackAssignments,
 	resolveDropTargetForRole,
 } from "../utils/trackAssignment";
-import { finalizeTimelineElements } from "../utils/mainTrackMagnet";
-import { updateElementTime } from "../utils/timelineTime";
 
 // Ghost 元素状态类型
 export interface DragGhostState {
@@ -64,6 +64,7 @@ const normalizeFps = (value: number): number => {
 
 interface TimelineStore {
 	fps: number;
+	timelineScale: number;
 	currentTime: number;
 	previewTime: number | null; // hover 时的临时预览时间
 	elements: TimelineElement[];
@@ -123,11 +124,13 @@ interface TimelineStore {
 	setAutoScrollSpeedY: (speed: number) => void;
 	// 滚动位置方法
 	setScrollLeft: (scrollLeft: number) => void;
+	setTimelineScale: (scale: number) => void;
 }
 
 export const useTimelineStore = create<TimelineStore>()(
 	subscribeWithSelector((set, get) => ({
 		fps: DEFAULT_FPS,
+		timelineScale: 1,
 		currentTime: 0,
 		previewTime: null,
 		elements: [],
@@ -155,6 +158,11 @@ export const useTimelineStore = create<TimelineStore>()(
 
 		setFps: (fps: number) => {
 			set({ fps: normalizeFps(fps) });
+		},
+
+		setTimelineScale: (scale: number) => {
+			const nextScale = Number.isFinite(scale) ? scale : 1;
+			set({ timelineScale: nextScale });
 		},
 
 		setCurrentTime: (time: number) => {
@@ -304,6 +312,12 @@ export const useFps = () => {
 	const fps = useTimelineStore((state) => state.fps);
 	const setFps = useTimelineStore((state) => state.setFps);
 	return { fps, setFps };
+};
+
+export const useTimelineScale = () => {
+	const timelineScale = useTimelineStore((state) => state.timelineScale);
+	const setTimelineScale = useTimelineStore((state) => state.setTimelineScale);
+	return { timelineScale, setTimelineScale };
 };
 
 export const usePreviewTime = () => {

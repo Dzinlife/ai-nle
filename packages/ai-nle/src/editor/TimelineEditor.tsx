@@ -25,12 +25,14 @@ import {
 	usePlaybackControl,
 	usePreviewTime,
 	useSnap,
+	useTimelineScale,
 	useTimelineStore,
 	useTrackAssignments,
 } from "./contexts/TimelineContext";
 import { useDragStore } from "./drag";
 import { finalizeTimelineElements } from "./utils/mainTrackMagnet";
 import { getPixelsPerFrame } from "./utils/timelineScale";
+import { updateElementTime } from "./utils/timelineTime";
 import {
 	assignTracks,
 	buildTrackLayout,
@@ -50,6 +52,7 @@ const TimelineEditor = () => {
 	const { isPlaying } = usePlaybackControl();
 	const { currentTime } = useCurrentTime();
 	const { fps } = useFps();
+	const { timelineScale } = useTimelineScale();
 	const { elements, setElements } = useElements();
 	const { selectedIds, deselectAll, setSelection } = useMultiSelect();
 	const { activeSnapPoint } = useSnap();
@@ -167,7 +170,7 @@ const TimelineEditor = () => {
 		}
 	}, []);
 
-	const ratio = getPixelsPerFrame(fps);
+	const ratio = getPixelsPerFrame(fps, timelineScale);
 
 	const timelinePaddingLeft = 48;
 

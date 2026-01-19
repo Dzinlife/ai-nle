@@ -2,7 +2,11 @@ import { useDrag } from "@use-gesture/react";
 import { useMemo, useRef } from "react";
 import { TimelineElement, TrackRole } from "@/dsl/types";
 import { clampFrame, secondsToFrames } from "@/utils/timecode";
-import { useFps, useTimelineStore } from "../contexts/TimelineContext";
+import {
+	useFps,
+	useTimelineScale,
+	useTimelineStore,
+} from "../contexts/TimelineContext";
 import {
 	calculateAutoScrollSpeed,
 	type DragGhostInfo,
@@ -50,7 +54,8 @@ export interface MaterialDndContext {
 
 export function useMaterialDndContext(): MaterialDndContext {
 	const { fps } = useFps();
-	const ratio = getPixelsPerFrame(fps);
+	const { timelineScale } = useTimelineScale();
+	const ratio = getPixelsPerFrame(fps, timelineScale);
 	const elements = useTimelineStore((state) => state.elements);
 	const mainTrackMagnetEnabled = useTimelineStore(
 		(state) => state.mainTrackMagnetEnabled,

@@ -1,7 +1,7 @@
 import React from "react";
 import { createPortal } from "react-dom";
 import { secondsToFrames } from "@/utils/timecode";
-import { useFps } from "../contexts/TimelineContext";
+import { useFps, useTimelineScale } from "../contexts/TimelineContext";
 import { getElementHeightForTrack } from "../timeline/trackConfig";
 import { useDragStore, isMaterialDragData } from "./dragStore";
 import { getPixelsPerFrame } from "../utils/timelineScale";
@@ -16,7 +16,7 @@ const MaterialDragGhost: React.FC = () => {
 
 	return createPortal(
 		<div
-			className="fixed pointer-events-none z-[9999]"
+			className="fixed pointer-events-none z-9999"
 			style={{
 				left: ghostInfo.screenX,
 				top: ghostInfo.screenY,
@@ -46,7 +46,8 @@ const MaterialDropIndicator: React.FC = () => {
 	const { isDragging, dragSource, dropTarget } = useDragStore();
 	const dragData = useDragStore((state) => state.dragData);
 	const { fps } = useFps();
-	const ratio = getPixelsPerFrame(fps);
+	const { timelineScale } = useTimelineScale();
+	const ratio = getPixelsPerFrame(fps, timelineScale);
 
 	if (!isDragging || dragSource !== "material-library" || !dropTarget) {
 		return null;
@@ -110,7 +111,7 @@ const MaterialDropIndicator: React.FC = () => {
 
 		return createPortal(
 			<div
-				className="fixed h-px bg-green-500 z-[9998] pointer-events-none rounded-full shadow-lg shadow-green-500/50"
+				className="fixed h-px bg-green-500 z-9998 pointer-events-none rounded-full shadow-lg shadow-green-500/50"
 				style={{
 					left: screenX,
 					top: screenY,
@@ -181,7 +182,7 @@ const MaterialDropIndicator: React.FC = () => {
 
 	return createPortal(
 		<div
-			className="fixed bg-green-500/20 border-2 border-green-500 border-dashed z-[9998] pointer-events-none rounded-md box-border"
+			className="fixed bg-green-500/20 border-2 border-green-500 border-dashed z-9998 pointer-events-none rounded-md box-border"
 			style={{
 				left: screenX,
 				top: screenY,

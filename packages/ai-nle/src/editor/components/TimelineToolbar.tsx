@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+	Field,
+	FieldContent,
+	FieldDescription,
+	FieldLabel,
+} from "@/components/ui/field";
+import { Slider } from "@/components/ui/slider";
 import { exportCanvasAsImage } from "@/dsl/export";
 import { cn } from "@/lib/utils";
 import { usePreview } from "../contexts/PreviewProvider";
@@ -7,6 +14,7 @@ import {
 	useMainTrackMagnet,
 	usePlaybackControl,
 	useSnap,
+	useTimelineScale,
 } from "../contexts/TimelineContext";
 
 const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
@@ -17,6 +25,7 @@ const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
 	const { autoAttach, setAutoAttach } = useAttachments();
 	const { mainTrackMagnetEnabled, setMainTrackMagnetEnabled } =
 		useMainTrackMagnet();
+	const { timelineScale, setTimelineScale } = useTimelineScale();
 
 	// 全局空格键播放/暂停
 	useEffect(() => {
@@ -51,6 +60,15 @@ const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
 			setIsExporting(false);
 		}
 	}, [canvasRef, isExporting]);
+
+	const handleScaleChange = useCallback(
+		(value: number | readonly number[]) => {
+			const nextValue = Array.isArray(value) ? value[0] : value;
+			if (!Number.isFinite(nextValue)) return;
+			setTimelineScale(nextValue);
+		},
+		[setTimelineScale],
+	);
 
 	return (
 		<div className={cn("flex items-center gap-3 px-4", className)}>
@@ -98,6 +116,17 @@ const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
 				>
 					主轨磁吸
 				</button>
+			</div>
+			<div className="flex items-center gap-2">
+				<Slider
+					id="timeline-scale"
+					min={0.01}
+					max={10}
+					step={0.1}
+					value={[timelineScale]}
+					onValueChange={handleScaleChange}
+					className="w-16"
+				/>
 			</div>
 			<div className="flex-1" />
 			<button
