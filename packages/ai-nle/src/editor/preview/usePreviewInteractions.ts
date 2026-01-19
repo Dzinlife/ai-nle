@@ -177,6 +177,9 @@ export const usePreviewInteractions = ({
 	const dragInitialPositionsRef = useRef<
 		Record<string, { x: number; y: number }>
 	>({});
+	const dragSourcePositionsRef = useRef<
+		Record<string, { x: number; y: number }>
+	>({});
 	const [snapGuides, setSnapGuides] = useState<SnapGuides>({
 		vertical: [],
 		horizontal: [],
@@ -191,6 +194,9 @@ export const usePreviewInteractions = ({
 	const suppressDragStartRef = useRef(false);
 	const suppressDragEndRef = useRef<Set<string>>(new Set());
 	const dragHasMovedRef = useRef(false);
+	const dragLastCanvasRef = useRef<{ canvasX: number; canvasY: number } | null>(
+		null,
+	);
 
 	const clearSnapGuides = useCallback(() => {
 		setSnapGuides({ vertical: [], horizontal: [] });
@@ -388,6 +394,8 @@ export const usePreviewInteractions = ({
 		suppressDragStartRef.current = false;
 		suppressDragEndRef.current.clear();
 		dragHasMovedRef.current = false;
+		dragLastCanvasRef.current = null;
+		dragSourcePositionsRef.current = {};
 	}, []);
 
 	const applyTrackAssignments = useCallback(
@@ -407,6 +415,22 @@ export const usePreviewInteractions = ({
 		[],
 	);
 
+	const resetCopySourceNodes = useCallback(() => {
+		const stage = stageRef.current ?? transformerRef.current?.getStage();
+		if (!stage) return;
+		const snapshots = copySourceSnapshotsRef.current;
+		if (snapshots.size === 0) return;
+
+		snapshots.forEach((source, sourceId) => {
+			const node = stage.findOne(`.element-${sourceId}`) as Konva.Node | null;
+			if (!node) return;
+			const { x, y } = getElementStageBox(source);
+			node.position({ x, y });
+		});
+
+		stage.batchDraw();
+	}, [getElementStageBox]);
+
 	const handleMouseDown = useCallback((id: string) => {
 		setDraggingId(id);
 	}, []);
@@ -422,6 +446,7 @@ export const usePreviewInteractions = ({
 				suppressDragStartRef.current = false;
 				return;
 			}
+			dragLastCanvasRef.current = null;
 			const nextSelectedIds = selectedIds.includes(id) ? selectedIds : [id];
 			if (!selectedIds.includes(id)) {
 				setSelection([id], id);
@@ -445,6 +470,7 @@ export const usePreviewInteractions = ({
 			);
 			copyModeRef.current = isCopyDragStart;
 			dragHasMovedRef.current = false;
+			dragSourcePositionsRef.current = isCopyDragStart ? positions : {};
 
 			let dragSelectedIds = nextSelectedIds;
 			let dragPositions: Record<string, { x: number; y: number }> = {};
@@ -517,6 +543,64 @@ export const usePreviewInteractions = ({
 			setHoveredId(draggingIndicatorId); // 拖拽开始时保持 hover 状态
 		},
 		[selectedIds, setSelection, canvasConvertOptions],
+	);
+
+	const applyDragToElements = useCallback(
+		(canvasX: number, canvasY: number, anchorId?: string) => {
+			const dragSelectedIds = dragSelectedIdsRef.current;
+			const initialPositions = dragInitialPositionsRef.current;
+			const dragAnchorId = anchorId ?? dragAnchorIdRef.current;
+			if (!dragAnchorId) return;
+
+			const isMultiDrag =
+				dragSelectedIds.length > 1 && dragSelectedIds.includes(dragAnchorId);
+			const draggedInitial = initialPositions[dragAnchorId];
+			if (isMultiDrag && !draggedInitial) return;
+
+			const deltaX = draggedInitial ? canvasX - draggedInitial.x : 0;
+			const deltaY = draggedInitial ? canvasY - draggedInitial.y : 0;
+
+			// 直接使用 setState 确保更新被触发
+			const currentElements = useTimelineStore.getState().elements;
+			const newElements = currentElements.map((el) => {
+				const isDragged = dragSelectedIds.includes(el.id);
+				const initial = initialPositions[el.id];
+				if (isMultiDrag && isDragged && initial && draggedInitial) {
+					const nextCanvasX = initial.x + deltaX;
+					const nextCanvasY = initial.y + deltaY;
+
+					const updatedTransform = {
+						...el.transform,
+						centerX: nextCanvasX + el.transform.width / 2 - pictureWidth / 2,
+						centerY: nextCanvasY + el.transform.height / 2 - pictureHeight / 2,
+					};
+
+					return {
+						...el,
+						transform: updatedTransform,
+						props: { ...el.props, left: nextCanvasX, top: nextCanvasY },
+					};
+				}
+
+				// 使用 el.id 而不是 el.props.id
+				if (!isDragged || el.id !== dragAnchorId) return el;
+
+				const updatedTransform = {
+					...el.transform,
+					centerX: canvasX + el.transform.width / 2 - pictureWidth / 2,
+					centerY: canvasY + el.transform.height / 2 - pictureHeight / 2,
+				};
+
+				return {
+					...el,
+					transform: updatedTransform,
+					props: { ...el.props, left: canvasX, top: canvasY },
+				};
+			});
+
+			useTimelineStore.setState({ elements: newElements });
+		},
+		[pictureWidth, pictureHeight],
 	);
 
 	const handleDrag = useCallback(
@@ -593,9 +677,8 @@ export const usePreviewInteractions = ({
 					}
 				}
 
-				const snapExcludeIds = copyModeRef.current
-					? [...dragSelectedIds, ...copySourceIdsRef.current]
-					: dragSelectedIds;
+				// In copy mode, keep source elements as snap guides.
+				const snapExcludeIds = dragSelectedIds;
 				const snapResult = computeSnapResult(movingBox, snapExcludeIds);
 				adjustedStageX += snapResult.deltaX;
 				adjustedStageY += snapResult.deltaY;
@@ -614,6 +697,7 @@ export const usePreviewInteractions = ({
 				adjustedStageX,
 				adjustedStageY,
 			);
+			dragLastCanvasRef.current = { canvasX, canvasY };
 
 			if (draggedInitial) {
 				const deltaX = canvasX - draggedInitial.x;
@@ -625,71 +709,50 @@ export const usePreviewInteractions = ({
 
 			// 在多选拖拽时，直接更新所有选中节点的 Konva 位置
 			// 这可以防止 Transformer 与元素位置不同步导致的抖动
-			// 注意：在 alt 复制模式下跳过此逻辑，因为副本节点可能还不存在
-			// 我们依赖 React 重新渲染来更新副本节点的位置
-			if (isMultiDrag && draggedInitial && !copyModeRef.current) {
+			if (isMultiDrag && draggedInitial) {
 				const stage = node.getStage();
 				const deltaCanvasX = canvasX - draggedInitial.x;
 				const deltaCanvasY = canvasY - draggedInitial.y;
 
-				dragSelectedIds.forEach((selectedId) => {
-					if (selectedId === dragAnchorId) return; // 锚点节点已经更新
-					const initial = initialPositions[selectedId];
-					if (!initial) return;
+				if (copyModeRef.current) {
+					const sourceIds = copySourceIdsRef.current;
+					const sourcePositions = dragSourcePositionsRef.current;
+					sourceIds.forEach((sourceId) => {
+						const initial = sourcePositions[sourceId];
+						if (!initial) return;
 
-					const otherNode = stage?.findOne(
-						`.element-${selectedId}`,
-					) as Konva.Node | null;
-					if (!otherNode) return;
+						const otherNode = stage?.findOne(
+							`.element-${sourceId}`,
+						) as Konva.Node | null;
+						if (!otherNode) return;
 
-					const nextCanvasX = initial.x + deltaCanvasX;
-					const nextCanvasY = initial.y + deltaCanvasY;
-					const { stageX: nextStageX, stageY: nextStageY } =
-						canvasToStageCoords(nextCanvasX, nextCanvasY);
-					otherNode.position({ x: nextStageX, y: nextStageY });
-				});
+						const nextCanvasX = initial.x + deltaCanvasX;
+						const nextCanvasY = initial.y + deltaCanvasY;
+						const { stageX: nextStageX, stageY: nextStageY } =
+							canvasToStageCoords(nextCanvasX, nextCanvasY);
+						otherNode.position({ x: nextStageX, y: nextStageY });
+					});
+				} else {
+					dragSelectedIds.forEach((selectedId) => {
+						if (selectedId === dragAnchorId) return; // 锚点节点已经更新
+						const initial = initialPositions[selectedId];
+						if (!initial) return;
+
+						const otherNode = stage?.findOne(
+							`.element-${selectedId}`,
+						) as Konva.Node | null;
+						if (!otherNode) return;
+
+						const nextCanvasX = initial.x + deltaCanvasX;
+						const nextCanvasY = initial.y + deltaCanvasY;
+						const { stageX: nextStageX, stageY: nextStageY } =
+							canvasToStageCoords(nextCanvasX, nextCanvasY);
+						otherNode.position({ x: nextStageX, y: nextStageY });
+					});
+				}
 			}
 
-			// 直接使用 setState 确保更新被触发
-			const newElements = currentElements.map((el) => {
-				const isDragged = dragSelectedIds.includes(el.id);
-				const initial = initialPositions[el.id];
-				if (isMultiDrag && isDragged && initial && draggedInitial) {
-					const deltaX = canvasX - draggedInitial.x;
-					const deltaY = canvasY - draggedInitial.y;
-					const nextCanvasX = initial.x + deltaX;
-					const nextCanvasY = initial.y + deltaY;
-
-					const updatedTransform = {
-						...el.transform,
-						centerX: nextCanvasX + el.transform.width / 2 - pictureWidth / 2,
-						centerY: nextCanvasY + el.transform.height / 2 - pictureHeight / 2,
-					};
-
-					return {
-						...el,
-						transform: updatedTransform,
-						props: { ...el.props, left: nextCanvasX, top: nextCanvasY },
-					};
-				}
-
-				// 使用 el.id 而不是 el.props.id
-				if (!isDragged || el.id !== dragAnchorId) return el;
-
-				const updatedTransform = {
-					...el.transform,
-					centerX: canvasX + el.transform.width / 2 - pictureWidth / 2,
-					centerY: canvasY + el.transform.height / 2 - pictureHeight / 2,
-				};
-
-				return {
-					...el,
-					transform: updatedTransform,
-					props: { ...el.props, left: canvasX, top: canvasY },
-				};
-			});
-
-			useTimelineStore.setState({ elements: newElements });
+			applyDragToElements(canvasX, canvasY, dragAnchorId);
 		},
 		[
 			stageToCanvasCoords,
@@ -701,6 +764,7 @@ export const usePreviewInteractions = ({
 			canvasToStageCoords,
 			computeSnapResult,
 			clearSnapGuides,
+			applyDragToElements,
 		],
 	);
 
@@ -710,7 +774,19 @@ export const usePreviewInteractions = ({
 				suppressDragEndRef.current.delete(id);
 				return;
 			}
-			handleDrag(id, e);
+			if (copyModeRef.current) {
+				// In copy mode, use the last drag position to avoid a late source reset.
+				const lastDrag = dragLastCanvasRef.current;
+				if (lastDrag) {
+					applyDragToElements(
+						lastDrag.canvasX,
+						lastDrag.canvasY,
+						dragAnchorIdRef.current ?? id,
+					);
+				}
+			} else {
+				handleDrag(id, e);
+			}
 			setDraggingId(null);
 			clearSnapGuides();
 
@@ -724,6 +800,8 @@ export const usePreviewInteractions = ({
 					);
 					useTimelineStore.setState({ elements: restored });
 				}
+
+				resetCopySourceNodes();
 
 				// If there was no movement, treat it as a cancelled copy-drag.
 				if (!dragHasMovedRef.current) {
@@ -765,6 +843,8 @@ export const usePreviewInteractions = ({
 			clearCopyState,
 			setSelection,
 			applyTrackAssignments,
+			resetCopySourceNodes,
+			applyDragToElements,
 		],
 	);
 

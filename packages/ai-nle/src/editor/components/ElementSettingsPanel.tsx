@@ -105,6 +105,12 @@ const ElementSettingsPanel: React.FC = () => {
 							Duration: {durationFrames}f (
 							{framesToTimecode(durationFrames, fps)})
 						</div>
+						<div>Transform:</div>
+						<div>CenterX: {selectedElement.transform.centerX}</div>
+						<div>CenterY: {selectedElement.transform.centerY}</div>
+						<div>Width: {selectedElement.transform.width}</div>
+						<div>Height: {selectedElement.transform.height}</div>
+						<div>Rotation: {selectedElement.transform.rotation}</div>
 						<div>
 							Max Duration:{" "}
 							{constraints.maxDuration !== undefined
