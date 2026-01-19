@@ -31,10 +31,11 @@ import {
 import { useDragStore } from "./drag";
 import { finalizeTimelineElements } from "./utils/mainTrackMagnet";
 import { getPixelsPerFrame } from "./utils/timelineScale";
-import { buildTimelineMeta, updateElementTime } from "./utils/timelineTime";
 import {
+	assignTracks,
 	buildTrackLayout,
 	getTrackHeightByRole,
+	normalizeTrackAssignments,
 } from "./utils/trackAssignment";
 
 const formatTimecode = (frames: number, fps: number) => {
@@ -57,6 +58,25 @@ const TimelineEditor = () => {
 	const { autoScrollSpeed, autoScrollSpeedY } = useAutoScroll();
 	const { attachments, autoAttach } = useAttachments();
 	const { mainTrackMagnetEnabled } = useMainTrackMagnet();
+	const deleteSelectedElements = useCallback(() => {
+		if (selectedIds.length === 0) return;
+		setElements((prev) => {
+			const nextElements = prev.filter((el) => !selectedIds.includes(el.id));
+			if (nextElements.length === prev.length) return prev;
+			if (nextElements.length === 0) return nextElements;
+			const normalized = normalizeTrackAssignments(assignTracks(nextElements));
+			let didChange = false;
+			const withTracks = nextElements.map((el) => {
+				const nextTrack = normalized.get(el.id);
+				const currentTrack = el.timeline.trackIndex ?? 0;
+				if (nextTrack === undefined || nextTrack === currentTrack) return el;
+				didChange = true;
+				return { ...el, timeline: { ...el.timeline, trackIndex: nextTrack } };
+			});
+			return didChange ? withTracks : nextElements;
+		});
+		deselectAll();
+	}, [selectedIds, setElements, deselectAll]);
 
 	const mainTrackMagnetRef = useRef(mainTrackMagnetEnabled);
 
@@ -107,6 +127,26 @@ const TimelineEditor = () => {
 		}
 		mainTrackMagnetRef.current = mainTrackMagnetEnabled;
 	}, [mainTrackMagnetEnabled, setElements, attachments, autoAttach, fps]);
+
+	useEffect(() => {
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key !== "Delete" && event.key !== "Backspace") return;
+			if (event.repeat) return;
+			if (
+				event.target instanceof HTMLInputElement ||
+				event.target instanceof HTMLTextAreaElement ||
+				(event.target as HTMLElement | null)?.isContentEditable
+			) {
+				return;
+			}
+			if (selectedIds.length === 0) return;
+			event.preventDefault();
+			deleteSelectedElements();
+		};
+
+		window.addEventListener("keydown", handleKeyDown);
+		return () => window.removeEventListener("keydown", handleKeyDown);
+	}, [deleteSelectedElements, selectedIds.length]);
 
 	// 使用 callback ref 来监听容器宽度
 	const rulerContainerRef = useCallback((node: HTMLDivElement | null) => {
