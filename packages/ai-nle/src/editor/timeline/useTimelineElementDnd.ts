@@ -3,7 +3,7 @@
  */
 
 import { useDrag } from "@use-gesture/react";
-import { useRef } from "react";
+import { useCallback, useRef } from "react";
 import { TimelineElement } from "@/dsl/types";
 import { DragGhostState, useTimelineStore } from "../contexts/TimelineContext";
 import { findTimelineDropTargetFromScreenPosition } from "../drag/timelineDropTargets";
@@ -14,7 +14,13 @@ import {
 	shiftMainTrackElementsAfter,
 } from "../utils/mainTrackMagnet";
 import { applySnap, applySnapForDrag, collectSnapPoints } from "../utils/snap";
-import { getElementRole, resolveDropTargetForRole } from "../utils/trackAssignment";
+import { updateElementTime } from "../utils/timelineTime";
+import {
+	assignTracks,
+	getElementRole,
+	normalizeTrackAssignments,
+	resolveDropTargetForRole,
+} from "../utils/trackAssignment";
 import {
 	calculateDragResult,
 	calculateFinalTrack,
@@ -84,10 +90,10 @@ interface DragRefs {
 	currentEnd: number;
 }
 
-
 const createGhostFromNode = (
 	ghostSource: HTMLElement,
 	element: TimelineElement,
+	ghostId: string = element.id,
 ): DragGhostState => {
 	const rect = ghostSource.getBoundingClientRect();
 	const clone = ghostSource.cloneNode(true) as HTMLElement;
@@ -98,7 +104,7 @@ const createGhostFromNode = (
 	clone.style.opacity = "1";
 
 	return {
-		elementId: element.id,
+		elementId: ghostId,
 		element,
 		screenX: rect.left,
 		screenY: rect.top,
@@ -106,6 +112,27 @@ const createGhostFromNode = (
 		height: rect.height,
 		clonedHtml: clone.outerHTML,
 	};
+};
+
+const createCopySeed = () =>
+	`${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
+const cloneValue = <T>(value: T): T => {
+	if (value === null || value === undefined) {
+		return value;
+	}
+	if (typeof structuredClone === "function") {
+		try {
+			return structuredClone(value);
+		} catch {
+			// fall through to JSON clone
+		}
+	}
+	try {
+		return JSON.parse(JSON.stringify(value)) as T;
+	} catch {
+		return value;
+	}
 };
 
 export const useTimelineElementDnd = ({
@@ -161,6 +188,61 @@ export const useTimelineElementDnd = ({
 	const initialMouseOffsetRef = useRef({ x: 0, y: 0 });
 	const initialScrollLeftRef = useRef(0);
 	const clonedHtmlRef = useRef("");
+	const copyModeRef = useRef(false);
+	const copyIdMapRef = useRef<Map<string, string>>(new Map());
+	const applyTrackAssignments = useCallback(
+		(nextElements: TimelineElement[]) => {
+			if (nextElements.length === 0) return nextElements;
+			const normalizedAssignments = normalizeTrackAssignments(
+				assignTracks(nextElements),
+			);
+			let didChange = false;
+			const withTracks = nextElements.map((el) => {
+				const nextTrack = normalizedAssignments.get(el.id);
+				const currentTrack = el.timeline.trackIndex ?? 0;
+				if (nextTrack === undefined || nextTrack === currentTrack) {
+					return el;
+				}
+				didChange = true;
+				return {
+					...el,
+					timeline: { ...el.timeline, trackIndex: nextTrack },
+				};
+			});
+			return didChange ? withTracks : nextElements;
+		},
+		[],
+	);
+
+	const finalizeWithTrackAssignments = useCallback(
+		(nextElements: TimelineElement[]) => {
+			const finalized = finalizeTimelineElements(nextElements, {
+				mainTrackMagnetEnabled,
+				attachments,
+				autoAttach,
+				fps,
+			});
+			return applyTrackAssignments(finalized);
+		},
+		[
+			applyTrackAssignments,
+			mainTrackMagnetEnabled,
+			attachments,
+			autoAttach,
+			fps,
+		],
+	);
+
+	const getCopyId = (sourceId: string) => copyIdMapRef.current.get(sourceId);
+	const createCopyElement = (source: TimelineElement, copyId: string) => ({
+		...source,
+		id: copyId,
+		props: cloneValue(source.props),
+		transform: cloneValue(source.transform),
+		render: cloneValue(source.render),
+		timeline: { ...source.timeline },
+		...(source.clip ? { clip: cloneValue(source.clip) } : {}),
+	});
 
 	dragRefs.current.currentStart = element.timeline.start;
 	dragRefs.current.currentEnd = element.timeline.end;
@@ -536,6 +618,20 @@ export const useTimelineElementDnd = ({
 					setSelection([element.id], element.id);
 				}
 				dragSelectedIdsRef.current = nextSelectedIds;
+				const isCopyDragStart = Boolean(
+					(event as MouseEvent | undefined)?.altKey,
+				);
+				copyModeRef.current = isCopyDragStart;
+				if (isCopyDragStart) {
+					const seed = createCopySeed();
+					const nextMap = new Map<string, string>();
+					nextSelectedIds.forEach((sourceId, index) => {
+						nextMap.set(sourceId, `element-${seed}-${index}`);
+					});
+					copyIdMapRef.current = nextMap;
+				} else {
+					copyIdMapRef.current = new Map();
+				}
 
 				const initialMap = new Map<
 					string,
@@ -574,6 +670,10 @@ export const useTimelineElementDnd = ({
 
 				const isMultiDrag = nextSelectedIds.length > 1;
 				if (!isMultiDrag) {
+					const ghostId =
+						copyModeRef.current && getCopyId(element.id)
+							? (getCopyId(element.id) ?? element.id)
+							: element.id;
 					if (elementRef.current) {
 						const clone = elementRef.current.cloneNode(true) as HTMLElement;
 						clone.removeAttribute("data-timeline-element");
@@ -589,7 +689,7 @@ export const useTimelineElementDnd = ({
 						ratio;
 					setDragGhosts([
 						{
-							elementId: element.id,
+							elementId: ghostId,
 							element,
 							screenX: xy[0] - initialMouseOffsetRef.current.x,
 							screenY: xy[1] - initialMouseOffsetRef.current.y,
@@ -606,13 +706,20 @@ export const useTimelineElementDnd = ({
 						);
 						const ghostElement = elements.find((el) => el.id === selectedId);
 						if (!ghostSource || !ghostElement) continue;
-						ghosts.push(createGhostFromNode(ghostSource, ghostElement));
+						const ghostId =
+							copyModeRef.current && getCopyId(selectedId)
+								? (getCopyId(selectedId) ?? selectedId)
+								: selectedId;
+						ghosts.push(
+							createGhostFromNode(ghostSource, ghostElement, ghostId),
+						);
 					}
 					initialGhostsRef.current = ghosts;
 					setDragGhosts(ghosts);
 				}
 			}
 
+			const isCopyDrag = copyModeRef.current;
 			const scrollDelta = currentScrollLeft - initialScrollLeftRef.current;
 			const adjustedDeltaX = mx + scrollDelta;
 
@@ -695,10 +802,14 @@ export const useTimelineElementDnd = ({
 					for (const selectedId of dragSelectedIdsRef.current) {
 						const initial = dragInitialElementsRef.current.get(selectedId);
 						if (!initial) continue;
+						const snapExcludeId =
+							isCopyDrag && getCopyId(selectedId)
+								? (getCopyId(selectedId) ?? selectedId)
+								: selectedId;
 						const snapPoints = collectSnapPoints(
 							baseElements,
 							currentTime,
-							selectedId,
+							snapExcludeId,
 						);
 						const snapped = applySnapForDrag(
 							initial.start + deltaFrames,
@@ -749,25 +860,31 @@ export const useTimelineElementDnd = ({
 					groupSpanEnd = nextEnd;
 				}
 
-				const tempElements = baseElements.map((el) => {
-					const initial = initialMap.get(el.id);
-					if (!initial) return el;
-					return {
-						...el,
-						timeline: {
-							...el.timeline,
-							start: initial.start + deltaFrames,
-							end: initial.end + deltaFrames,
-							trackIndex: initial.trackIndex,
-						},
-					};
-				});
+				const tempElements = isCopyDrag
+					? baseElements
+					: baseElements.map((el) => {
+							const initial = initialMap.get(el.id);
+							if (!initial) return el;
+							return {
+								...el,
+								timeline: {
+									...el.timeline,
+									start: initial.start + deltaFrames,
+									end: initial.end + deltaFrames,
+									trackIndex: initial.trackIndex,
+								},
+							};
+						});
+				const activeCopyId = isCopyDrag ? getCopyId(element.id) : undefined;
+				const finalTrackElements = activeCopyId
+					? [...tempElements, { ...element, id: activeCopyId }]
+					: tempElements;
 
 				const finalTrackResult = calculateFinalTrack(
 					resolvedDropTarget,
 					timeRange,
-					tempElements,
-					element.id,
+					finalTrackElements,
+					activeCopyId ?? element.id,
 					draggedInitial?.trackIndex ?? dragRefs.current.initialTrack,
 				);
 				const draggedBaseTrack =
@@ -787,6 +904,120 @@ export const useTimelineElementDnd = ({
 				}
 
 				if (last) {
+					if (isCopyDrag) {
+						const hasMovement = Math.abs(mx) > 0 || Math.abs(my) > 0;
+						const dragSelectedIds = dragSelectedIdsRef.current;
+						const copyIds = dragSelectedIds
+							.map((id) => getCopyId(id))
+							.filter((id): id is string => Boolean(id));
+						const primaryCopyId = getCopyId(element.id) ?? copyIds[0] ?? null;
+
+						if (hasMovement && copyIds.length > 0) {
+							if (shouldUseMagnetMulti) {
+								const copies = dragSelectedIds
+									.map((sourceId) => {
+										const source = elements.find((el) => el.id === sourceId);
+										const copyId = getCopyId(sourceId);
+										if (!source || !copyId) return null;
+										return createCopyElement(source, copyId);
+									})
+									.filter(Boolean) as TimelineElement[];
+								if (copies.length > 0) {
+									const dropStartForMagnet = groupSpanStart;
+									setElements((prev) =>
+										applyTrackAssignments(
+											insertElementsIntoMainTrackGroup(
+												[...prev, ...copies],
+												copyIds,
+												dropStartForMagnet,
+												{
+													mainTrackMagnetEnabled,
+													attachments,
+													autoAttach,
+													fps,
+												},
+											),
+										),
+									);
+									setSelection(copyIds, primaryCopyId);
+								}
+							} else {
+								const shouldInsertTrack =
+									finalTrackResult.displayType === "gap";
+								const insertTrackIndex = shouldInsertTrack
+									? finalTrackResult.trackIndex
+									: null;
+								const shiftForInsert = (trackValue: number) =>
+									insertTrackIndex !== null && trackValue >= insertTrackIndex
+										? trackValue + 1
+										: trackValue;
+								const draggedBaseTrack =
+									draggedInitial?.trackIndex ?? dragRefs.current.initialTrack;
+								const draggedAfterInsert = shiftForInsert(draggedBaseTrack);
+								const trackDelta =
+									finalTrackResult.trackIndex - draggedAfterInsert;
+
+								const copies = dragSelectedIds
+									.map((sourceId) => {
+										const initial = initialMap.get(sourceId);
+										const source = elements.find((el) => el.id === sourceId);
+										const copyId = getCopyId(sourceId);
+										if (!initial || !source || !copyId) return null;
+										const nextStart = initial.start + deltaFrames;
+										const nextEnd = initial.end + deltaFrames;
+										const baseTrack = shiftForInsert(initial.trackIndex);
+										const nextTrack = Math.max(0, baseTrack + trackDelta);
+										const copy = createCopyElement(source, copyId);
+										const timed = updateElementTime(
+											copy,
+											nextStart,
+											nextEnd,
+											fps,
+										);
+										return {
+											...timed,
+											timeline: { ...timed.timeline, trackIndex: nextTrack },
+										};
+									})
+									.filter(Boolean) as TimelineElement[];
+
+								if (copies.length > 0) {
+									setElements((prev) => {
+										const shifted =
+											insertTrackIndex !== null
+												? prev.map((el) => {
+														const baseTrack = el.timeline.trackIndex ?? 0;
+														if (baseTrack >= insertTrackIndex) {
+															return {
+																...el,
+																timeline: {
+																	...el.timeline,
+																	trackIndex: baseTrack + 1,
+																},
+															};
+														}
+														return el;
+													})
+												: prev;
+										return finalizeWithTrackAssignments([
+											...shifted,
+											...copies,
+										]);
+									});
+									setSelection(copyIds, primaryCopyId);
+								}
+							}
+						}
+
+						setIsDragging(false);
+						setActiveSnapPoint(null);
+						setActiveDropTarget(null);
+						setDragGhosts([]);
+						setLocalTrackY(null);
+						stopAutoScroll();
+						return;
+					}
+
 					if (shouldUseMagnetMulti) {
 						setLocalStartTime(null);
 						setLocalEndTime(null);
@@ -1194,15 +1425,52 @@ export const useTimelineElementDnd = ({
 
 			let { newStart, newEnd } = dragResult;
 			const { newY } = dragResult;
+			const activeCopyId = isCopyDrag ? getCopyId(element.id) : undefined;
 
 			let snapPoint = null;
 			if (snapEnabled && !shouldUseMagnet) {
-				const snapPoints = collectSnapPoints(elements, currentTime, element.id);
+				const snapExcludeId = activeCopyId ?? element.id;
+				const snapPoints = collectSnapPoints(
+					elements,
+					currentTime,
+					snapExcludeId,
+				);
 				const snapped = applySnapForDrag(newStart, newEnd, snapPoints, ratio);
 				newStart = snapped.start;
 				newEnd = snapped.end;
 				snapPoint = snapped.snapPoint;
 			}
+
+			const tempElements = !shouldUseMagnet
+				? isCopyDrag
+					? elements
+					: elements.map((el) =>
+							el.id === element.id
+								? {
+										...el,
+										timeline: {
+											...el.timeline,
+											start: newStart,
+											end: newEnd,
+										},
+									}
+								: el,
+						)
+				: null;
+			const finalTrackElements =
+				tempElements && activeCopyId
+					? [...tempElements, { ...element, id: activeCopyId }]
+					: tempElements;
+			const finalTrackResult =
+				finalTrackElements && !shouldUseMagnet
+					? calculateFinalTrack(
+							resolvedDropTarget,
+							{ start: newStart, end: newEnd },
+							finalTrackElements,
+							activeCopyId ?? element.id,
+							element.timeline.trackIndex ?? 0,
+						)
+					: null;
 
 			if (last) {
 				setIsDragging(false);
@@ -1211,6 +1479,76 @@ export const useTimelineElementDnd = ({
 				setDragGhosts([]);
 				setLocalTrackY(null);
 				stopAutoScroll();
+
+				if (isCopyDrag) {
+					const hasMovement = Math.abs(mx) > 0 || Math.abs(my) > 0;
+					if (hasMovement && activeCopyId) {
+						if (shouldUseMagnet) {
+							const dropStartForMagnet =
+								getMainTrackDropStart(
+									xy[0],
+									xy[1],
+									currentScrollLeft,
+									initialMouseOffsetRef.current.x,
+								) ?? newStart;
+							const copy = createCopyElement(element, activeCopyId);
+							setElements((prev) =>
+								applyTrackAssignments(
+									insertElementIntoMainTrack(
+										prev,
+										activeCopyId,
+										dropStartForMagnet,
+										{
+											attachments,
+											autoAttach,
+											fps,
+										},
+										copy,
+									),
+								),
+							);
+							setSelection([activeCopyId], activeCopyId);
+						} else if (finalTrackResult) {
+							const shouldInsertTrack = finalTrackResult.displayType === "gap";
+							const insertTrackIndex = shouldInsertTrack
+								? finalTrackResult.trackIndex
+								: null;
+							const copy = createCopyElement(element, activeCopyId);
+							const timed = updateElementTime(copy, newStart, newEnd, fps);
+							const copyWithTrack = {
+								...timed,
+								timeline: {
+									...timed.timeline,
+									trackIndex: finalTrackResult.trackIndex,
+								},
+							};
+							setElements((prev) => {
+								const shifted =
+									insertTrackIndex !== null
+										? prev.map((el) => {
+												const baseTrack = el.timeline.trackIndex ?? 0;
+												if (baseTrack >= insertTrackIndex) {
+													return {
+														...el,
+														timeline: {
+															...el.timeline,
+															trackIndex: baseTrack + 1,
+														},
+													};
+												}
+												return el;
+											})
+										: prev;
+								return finalizeWithTrackAssignments([
+									...shifted,
+									copyWithTrack,
+								]);
+							});
+							setSelection([activeCopyId], activeCopyId);
+						}
+					}
+					return;
+				}
 
 				if (shouldUseMagnet) {
 					setLocalStartTime(null);
@@ -1272,15 +1610,18 @@ export const useTimelineElementDnd = ({
 					);
 				}
 			} else {
-				setLocalStartTime(newStart);
-				setLocalEndTime(newEnd);
-				setLocalTrackY(newY);
+				if (!isCopyDrag) {
+					setLocalStartTime(newStart);
+					setLocalEndTime(newEnd);
+					setLocalTrackY(newY);
+				}
 				setActiveSnapPoint(shouldUseMagnet ? null : snapPoint);
 
 				const ghostWidth = (newEnd - newStart) * ratio;
+				const ghostId = activeCopyId ?? element.id;
 				setDragGhosts([
 					{
-						elementId: element.id,
+						elementId: ghostId,
 						element,
 						screenX: xy[0] - initialMouseOffsetRef.current.x,
 						screenY: xy[1] - initialMouseOffsetRef.current.y,
@@ -1301,36 +1642,19 @@ export const useTimelineElementDnd = ({
 					setActiveDropTarget({
 						type: "track",
 						trackIndex: 0,
-						elementId: element.id,
+						elementId: ghostId,
 						start: dropStartForMagnet,
 						end: dropStartForMagnet + (newEnd - newStart),
 						finalTrackIndex: 0,
 					});
-				} else {
-					const tempElements = elements.map((el) =>
-						el.id === element.id
-							? {
-									...el,
-									timeline: { ...el.timeline, start: newStart, end: newEnd },
-								}
-							: el,
-					);
-
-					const finalTrackResult = calculateFinalTrack(
-						resolvedDropTarget,
-						{ start: newStart, end: newEnd },
-						tempElements,
-						element.id,
-						element.timeline.trackIndex ?? 0,
-					);
-
+				} else if (finalTrackResult) {
 					setActiveDropTarget({
 						type: finalTrackResult.displayType,
 						trackIndex:
 							finalTrackResult.displayType === "gap"
 								? finalTrackResult.trackIndex
 								: resolvedDropTarget.trackIndex,
-						elementId: element.id,
+						elementId: ghostId,
 						start: newStart,
 						end: newEnd,
 						finalTrackIndex: finalTrackResult.trackIndex,
