@@ -76,7 +76,11 @@ export const LabelLayer: React.FC<LabelLayerProps> = ({
 		> = {};
 
 		if (selectedIds.length > 1) {
-			if (groupProxyBox && groupProxyBox.width > 0 && groupProxyBox.height > 0) {
+			if (
+				groupProxyBox &&
+				groupProxyBox.width > 0 &&
+				groupProxyBox.height > 0
+			) {
 				positions["group-selection"] = {
 					screenX: groupProxyBox.x,
 					screenY: groupProxyBox.y,

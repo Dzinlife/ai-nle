@@ -447,8 +447,10 @@ export const usePreviewInteractions = ({
 		const cosForward = Math.cos(rotation);
 		const sinForward = Math.sin(rotation);
 		const nextCenter = {
-			x: groupCenter.x + localCenter.x * cosForward - localCenter.y * sinForward,
-			y: groupCenter.y + localCenter.x * sinForward + localCenter.y * cosForward,
+			x:
+				groupCenter.x + localCenter.x * cosForward - localCenter.y * sinForward,
+			y:
+				groupCenter.y + localCenter.x * sinForward + localCenter.y * cosForward,
 		};
 
 		groupCenterRef.current = nextCenter;
@@ -1098,12 +1100,7 @@ export const usePreviewInteractions = ({
 				elements,
 			};
 		},
-		[
-			canvasConvertOptions,
-			canvasToStageCoords,
-			renderElementsRef,
-			selectedIds,
-		],
+		[canvasConvertOptions, canvasToStageCoords, renderElementsRef, selectedIds],
 	);
 
 	const handleGroupTransformStart = useCallback(
@@ -1183,12 +1180,7 @@ export const usePreviewInteractions = ({
 				rotation: node.rotation(),
 			});
 		},
-		[
-			pictureHeight,
-			pictureWidth,
-			snapshotGroupTransform,
-			stageToCanvasCoords,
-		],
+		[pictureHeight, pictureWidth, snapshotGroupTransform, stageToCanvasCoords],
 	);
 
 	const handleGroupTransformEnd = useCallback(
