@@ -135,6 +135,41 @@ const cloneValue = <T>(value: T): T => {
 	}
 };
 
+type PipelineStage<T> = (state: T) => T;
+
+const runPipeline = <T>(state: T, stages: PipelineStage<T>[]): T => {
+	return stages.reduce((acc, stage) => stage(acc), state);
+};
+
+interface GroupSpan {
+	start: number;
+	end: number;
+	compactDuration: number;
+}
+
+const computeGroupSpan = (
+	selection: Iterable<{ start: number; end: number }>,
+	deltaFrames: number,
+): GroupSpan => {
+	let spanStart = Number.POSITIVE_INFINITY;
+	let spanEnd = Number.NEGATIVE_INFINITY;
+	let compactDuration = 0;
+
+	for (const { start, end } of selection) {
+		const shiftedStart = start + deltaFrames;
+		const shiftedEnd = end + deltaFrames;
+		spanStart = Math.min(spanStart, shiftedStart);
+		spanEnd = Math.max(spanEnd, shiftedEnd);
+		compactDuration += end - start;
+	}
+
+	if (!Number.isFinite(spanStart)) {
+		return { start: 0, end: 0, compactDuration: 0 };
+	}
+
+	return { start: spanStart, end: spanEnd, compactDuration };
+};
+
 export const useTimelineElementDnd = ({
 	element,
 	trackIndex,
@@ -746,6 +781,10 @@ export const useTimelineElementDnd = ({
 				const isMultiTrackSelection = selectedTrackIndices.size > 1;
 				const hasSignificantVerticalMove =
 					Math.abs(my) > trackHeight * SIGNIFICANT_VERTICAL_MOVE_RATIO;
+				const baseElements =
+					initialElementsSnapshotRef.current.length > 0
+						? initialElementsSnapshotRef.current
+						: elements;
 				const baseDropTarget = hasSignificantVerticalMove
 					? findTimelineDropTargetFromScreenPosition(
 							xy[0],
@@ -788,77 +827,75 @@ export const useTimelineElementDnd = ({
 				}
 				const shouldUseMagnetMulti =
 					mainTrackMagnetEnabled && canDropToMainTrack;
+				const forceMainTrackPlacement =
+					!shouldUseMagnetMulti && canDropToMainTrack;
 
-				let snapPoint = null;
-				if (snapEnabled && !shouldUseMagnetMulti) {
-					const baseElements =
-						initialElementsSnapshotRef.current.length > 0
-							? initialElementsSnapshotRef.current
-							: elements;
-					let bestDelta = deltaFrames;
-					let bestSnapPoint: SnapPoint | null = null;
-					let bestDistance = Infinity;
+				const snapResult = runPipeline(
+					{ deltaFrames, snapPoint: null as SnapPoint | null },
+					snapEnabled && !shouldUseMagnetMulti
+						? [
+								(state) => {
+									let bestDelta = state.deltaFrames;
+									let bestSnapPoint: SnapPoint | null = null;
+									let bestDistance = Infinity;
 
-					for (const selectedId of dragSelectedIdsRef.current) {
-						const initial = dragInitialElementsRef.current.get(selectedId);
-						if (!initial) continue;
-						const snapExcludeId =
-							isCopyDrag && getCopyId(selectedId)
-								? (getCopyId(selectedId) ?? selectedId)
-								: selectedId;
-						const snapPoints = collectSnapPoints(
-							baseElements,
-							currentTime,
-							snapExcludeId,
-						);
-						const snapped = applySnapForDrag(
-							initial.start + deltaFrames,
-							initial.end + deltaFrames,
-							snapPoints,
-							ratio,
-						);
-						if (!snapped.snapPoint) continue;
-						const snappedDelta = snapped.start - initial.start;
-						if (snappedDelta < -minStart) continue;
-						const distance = Math.abs(snappedDelta - deltaFrames);
-						if (distance < bestDistance) {
-							bestDistance = distance;
-							bestDelta = snappedDelta;
-							bestSnapPoint = snapped.snapPoint;
-						}
-					}
+									for (const selectedId of dragSelectedIdsRef.current) {
+										const initial =
+											dragInitialElementsRef.current.get(selectedId);
+										if (!initial) continue;
+										const snapExcludeId =
+											isCopyDrag && getCopyId(selectedId)
+												? (getCopyId(selectedId) ?? selectedId)
+												: selectedId;
+										const snapPoints = collectSnapPoints(
+											baseElements,
+											currentTime,
+											snapExcludeId,
+										);
+										const snapped = applySnapForDrag(
+											initial.start + state.deltaFrames,
+											initial.end + state.deltaFrames,
+											snapPoints,
+											ratio,
+										);
+										if (!snapped.snapPoint) continue;
+										const snappedDelta = snapped.start - initial.start;
+										if (snappedDelta < -minStart) continue;
+										const distance = Math.abs(
+											snappedDelta - state.deltaFrames,
+										);
+										if (distance < bestDistance) {
+											bestDistance = distance;
+											bestDelta = snappedDelta;
+											bestSnapPoint = snapped.snapPoint;
+										}
+									}
 
-					deltaFrames = bestDelta;
-					snapPoint = bestSnapPoint;
-				}
-				const baseElements =
-					initialElementsSnapshotRef.current.length > 0
-						? initialElementsSnapshotRef.current
-						: elements;
+									return { deltaFrames: bestDelta, snapPoint: bestSnapPoint };
+								},
+						  ]
+						: [],
+				);
+
+				deltaFrames = snapResult.deltaFrames;
+				const snapPoint = snapResult.snapPoint;
 				const baseStart =
 					draggedInitial?.start ?? dragRefs.current.initialStart;
 				const baseEnd = draggedInitial?.end ?? dragRefs.current.initialEnd;
 				const nextStart = baseStart + deltaFrames;
 				const nextEnd = baseEnd + deltaFrames;
 				const timeRange = { start: nextStart, end: nextEnd };
-				let groupSpanStart = Number.POSITIVE_INFINITY;
-				let groupSpanEnd = Number.NEGATIVE_INFINITY;
-				let groupCompactDuration = 0;
-				for (const selectedId of dragSelectedIds) {
-					const initial = initialMap.get(selectedId);
-					if (!initial) continue;
-					const shiftedStart = initial.start + deltaFrames;
-					const shiftedEnd = initial.end + deltaFrames;
-					groupSpanStart = Math.min(groupSpanStart, shiftedStart);
-					groupSpanEnd = Math.max(groupSpanEnd, shiftedEnd);
-					groupCompactDuration += initial.end - initial.start;
-				}
-				if (!Number.isFinite(groupSpanStart)) {
-					groupSpanStart = nextStart;
-				}
-				if (!Number.isFinite(groupSpanEnd)) {
-					groupSpanEnd = nextEnd;
-				}
+				const {
+					start: rawGroupSpanStart,
+					end: rawGroupSpanEnd,
+					compactDuration: groupCompactDuration,
+				} = computeGroupSpan(initialMap.values(), deltaFrames);
+				const groupSpanStart = Number.isFinite(rawGroupSpanStart)
+					? rawGroupSpanStart
+					: nextStart;
+				const groupSpanEnd = Number.isFinite(rawGroupSpanEnd)
+					? rawGroupSpanEnd
+					: nextEnd;
 
 				const tempElements = isCopyDrag
 					? baseElements
@@ -880,13 +917,15 @@ export const useTimelineElementDnd = ({
 					? [...tempElements, { ...element, id: activeCopyId }]
 					: tempElements;
 
-				const finalTrackResult = calculateFinalTrack(
-					resolvedDropTarget,
-					timeRange,
-					finalTrackElements,
-					activeCopyId ?? element.id,
-					draggedInitial?.trackIndex ?? dragRefs.current.initialTrack,
-				);
+				const finalTrackResult = forceMainTrackPlacement
+					? { trackIndex: 0, displayType: "track" as const, needsInsert: false }
+					: calculateFinalTrack(
+							resolvedDropTarget,
+							timeRange,
+							finalTrackElements,
+							activeCopyId ?? element.id,
+							draggedInitial?.trackIndex ?? dragRefs.current.initialTrack,
+						);
 				const draggedBaseTrack =
 					draggedInitial?.trackIndex ?? dragRefs.current.initialTrack;
 				const snapShift = deltaFrames * ratio - adjustedDeltaX;
@@ -937,6 +976,41 @@ export const useTimelineElementDnd = ({
 													fps,
 												},
 											),
+										),
+									);
+									setSelection(copyIds, primaryCopyId);
+								}
+							} else if (forceMainTrackPlacement) {
+								const copies = dragSelectedIds
+									.map((sourceId) => {
+										const initial = initialMap.get(sourceId);
+										const source = elements.find((el) => el.id === sourceId);
+										const copyId = getCopyId(sourceId);
+										if (!initial || !source || !copyId) return null;
+										const copy = createCopyElement(source, copyId);
+										const timed = updateElementTime(
+											copy,
+											initial.start + deltaFrames,
+											initial.end + deltaFrames,
+											fps,
+										);
+										return {
+											...timed,
+											timeline: { ...timed.timeline, trackIndex: 0 },
+										};
+									})
+									.filter(Boolean) as TimelineElement[];
+
+								if (copies.length > 0) {
+									setElements((prev) =>
+										finalizeTimelineElements(
+											[...prev, ...copies],
+											{
+												mainTrackMagnetEnabled,
+												attachments,
+												autoAttach,
+												fps,
+											},
 										),
 									);
 									setSelection(copyIds, primaryCopyId);
@@ -1089,6 +1163,57 @@ export const useTimelineElementDnd = ({
 								}
 							}
 						}
+					}
+
+					if (forceMainTrackPlacement) {
+						setElements((prev) => {
+							const updated = prev.map((el) => {
+								if (selectedSet.has(el.id)) {
+									const initial = initialMap.get(el.id);
+									if (!initial) return el;
+									const nextStart = initial.start + deltaFrames;
+									const nextEnd = initial.end + deltaFrames;
+									return {
+										...el,
+										timeline: {
+											...el.timeline,
+											start: nextStart,
+											end: nextEnd,
+											trackIndex: 0,
+										},
+									};
+								}
+
+								const childMove = movedChildren.get(el.id);
+								if (childMove) {
+									return {
+										...el,
+										timeline: {
+											...el.timeline,
+											start: childMove.start,
+											end: childMove.end,
+										},
+									};
+								}
+
+								return el;
+							});
+
+							return finalizeTimelineElements(updated, {
+								mainTrackMagnetEnabled,
+								attachments,
+								autoAttach,
+								fps,
+							});
+						});
+
+						setIsDragging(false);
+						setActiveSnapPoint(null);
+						setActiveDropTarget(null);
+						setDragGhosts([]);
+						setLocalTrackY(null);
+						stopAutoScroll();
+						return;
 					}
 
 					const selectedTrackList = [...selectedTrackIndices].sort(
@@ -1324,7 +1449,28 @@ export const useTimelineElementDnd = ({
 					setLocalTrackY(null);
 					stopAutoScroll();
 				} else {
-					if (isMultiTrackSelection) {
+					if (shouldUseMagnetMulti) {
+						const dropStartForMagnet = groupSpanStart;
+						setActiveSnapPoint(null);
+						setActiveDropTarget({
+							type: "track",
+							trackIndex: 0,
+							elementId: element.id,
+							start: dropStartForMagnet,
+							end: dropStartForMagnet + groupCompactDuration,
+							finalTrackIndex: 0,
+						});
+					} else if (forceMainTrackPlacement) {
+						setActiveSnapPoint(snapPoint);
+						setActiveDropTarget({
+							type: "track",
+							trackIndex: 0,
+							elementId: element.id,
+							start: groupSpanStart,
+							end: groupSpanEnd,
+							finalTrackIndex: 0,
+						});
+					} else if (isMultiTrackSelection) {
 						if (resolvedDropTarget.type === "gap") {
 							setActiveDropTarget({
 								type: "gap",
@@ -1338,17 +1484,6 @@ export const useTimelineElementDnd = ({
 							setActiveDropTarget(null);
 						}
 						setActiveSnapPoint(snapPoint);
-					} else if (shouldUseMagnetMulti) {
-						const dropStartForMagnet = groupSpanStart;
-						setActiveSnapPoint(null);
-						setActiveDropTarget({
-							type: "track",
-							trackIndex: 0,
-							elementId: element.id,
-							start: dropStartForMagnet,
-							end: dropStartForMagnet + groupCompactDuration,
-							finalTrackIndex: 0,
-						});
 					} else {
 						setActiveSnapPoint(snapPoint);
 						setActiveDropTarget({
