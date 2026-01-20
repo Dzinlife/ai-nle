@@ -625,6 +625,7 @@ export const useTrackAssignments = () => {
 					elementId,
 					trackCount,
 				);
+				const targetTrackId = tracks[finalTrack]?.id;
 
 				// 更新元素的 trackIndex
 				return prev.map((el) => {
@@ -634,6 +635,7 @@ export const useTrackAssignments = () => {
 							timeline: {
 								...el.timeline,
 								trackIndex: finalTrack,
+								...(targetTrackId ? { trackId: targetTrackId } : {}),
 							},
 						};
 					}
@@ -641,7 +643,7 @@ export const useTrackAssignments = () => {
 				});
 			});
 		},
-		[setElements, trackAssignments, trackCount],
+		[setElements, trackAssignments, trackCount, tracks],
 	);
 
 	// 更新元素的时间和轨道位置（用于拖拽结束）
@@ -818,6 +820,8 @@ export const useTrackAssignments = () => {
 					}
 				}
 
+				const targetTrackId = tracks[finalTrack]?.id;
+
 				// 应用时间和轨道更新
 				const updated = prev.map((el) => {
 					if (el.id === elementId) {
@@ -827,6 +831,7 @@ export const useTrackAssignments = () => {
 							timeline: {
 								...updatedElement.timeline,
 								trackIndex: finalTrack,
+								...(targetTrackId ? { trackId: targetTrackId } : {}),
 							},
 						};
 					}
@@ -852,7 +857,7 @@ export const useTrackAssignments = () => {
 				});
 			});
 		},
-		[setElements, mainTrackMagnetEnabled, attachments, autoAttach, fps],
+		[setElements, mainTrackMagnetEnabled, attachments, autoAttach, fps, tracks],
 	);
 
 	// 移动元素及其附属元素（用于拖拽结束，处理层叠关联）
@@ -1029,6 +1034,8 @@ export const useTrackAssignments = () => {
 					}
 				}
 
+				const targetTrackId = tracks[finalTrack]?.id;
+
 				// 第一步：更新主元素的时间和轨道
 				let updated = prev.map((el) => {
 					if (el.id === elementId) {
@@ -1038,6 +1045,7 @@ export const useTrackAssignments = () => {
 							timeline: {
 								...updatedElement.timeline,
 								trackIndex: finalTrack,
+								...(targetTrackId ? { trackId: targetTrackId } : {}),
 							},
 						};
 					}
@@ -1129,7 +1137,7 @@ export const useTrackAssignments = () => {
 				return finalized;
 			});
 		},
-		[setElements, mainTrackMagnetEnabled, attachments, autoAttach, fps],
+		[setElements, mainTrackMagnetEnabled, attachments, autoAttach, fps, tracks],
 	);
 
 	return {

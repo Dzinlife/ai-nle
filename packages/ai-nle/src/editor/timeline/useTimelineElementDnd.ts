@@ -117,6 +117,15 @@ const createGhostFromNode = (
 const createCopySeed = () =>
 	`${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
+const createTrackId = () => {
+	if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+		return crypto.randomUUID();
+	}
+	return `track-${Date.now().toString(36)}-${Math.random()
+		.toString(36)
+		.slice(2, 6)}`;
+};
+
 const cloneValue = <T>(value: T): T => {
 	if (value === null || value === undefined) {
 		return value;
@@ -213,6 +222,7 @@ export const useTimelineElementDnd = ({
 	});
 	const elementRole = getElementRole(element);
 	const elementHeight = getElementHeightForTrack(trackHeight);
+	const tracks = useTimelineStore((state) => state.tracks);
 	const dragSelectedIdsRef = useRef<string[]>([]);
 	const dragInitialElementsRef = useRef<
 		Map<string, { start: number; end: number; trackIndex: number }>
@@ -807,20 +817,14 @@ export const useTimelineElementDnd = ({
 				const initialMap = dragInitialElementsRef.current;
 				const draggedInitial = initialMap.get(element.id);
 				const selectedSet = new Set(dragSelectedIdsRef.current);
-				const selectedTrackIndices = new Set<number>();
-				for (const selectedId of selectedSet) {
-					const initial = initialMap.get(selectedId);
-					if (initial) {
-						selectedTrackIndices.add(initial.trackIndex);
-					}
-				}
-				const isMultiTrackSelection = selectedTrackIndices.size > 1;
 				const hasSignificantVerticalMove =
 					Math.abs(my) > trackHeight * SIGNIFICANT_VERTICAL_MOVE_RATIO;
 				const baseElements =
 					initialElementsSnapshotRef.current.length > 0
 						? initialElementsSnapshotRef.current
 						: elements;
+				const draggedBaseTrack =
+					draggedInitial?.trackIndex ?? dragRefs.current.initialTrack;
 				const baseDropTarget = hasSignificantVerticalMove
 					? findTimelineDropTargetFromScreenPosition(
 							xy[0],
@@ -829,8 +833,7 @@ export const useTimelineElementDnd = ({
 							trackHeight,
 						)
 					: {
-							trackIndex:
-								draggedInitial?.trackIndex ?? dragRefs.current.initialTrack,
+							trackIndex: draggedBaseTrack,
 							type: "track" as const,
 						};
 				const mainDropTime = getMainTrackDropTime(
@@ -838,21 +841,9 @@ export const useTimelineElementDnd = ({
 					xy[1],
 					currentScrollLeft,
 				);
-				const baseDropTargetForRole =
-					mainDropTime !== null
-						? ({ type: "track", trackIndex: 0 } as const)
-						: baseDropTarget;
-				let resolvedDropTarget = resolveDropTargetForRole(
-					baseDropTargetForRole,
-					elementRole,
-					elements,
-					trackAssignments,
-				);
 				const dragSelectedIds = dragSelectedIdsRef.current;
-				// 多轨选中时不强制落主轨，避免轨道被压到 0
-				const canDropToMainTrack =
+				const isMainTrackCandidate =
 					mainDropTime !== null &&
-					!isMultiTrackSelection &&
 					dragSelectedIds.every((selectedId) => {
 						const selectedElement = elements.find((el) => el.id === selectedId);
 						return (
@@ -860,13 +851,8 @@ export const useTimelineElementDnd = ({
 							getElementRole(selectedElement) === "clip"
 						);
 					});
-				if (canDropToMainTrack) {
-					resolvedDropTarget = { type: "track", trackIndex: 0 };
-				}
 				const shouldUseMagnetMulti =
-					mainTrackMagnetEnabled && canDropToMainTrack;
-				const forceMainTrackPlacement =
-					!shouldUseMagnetMulti && canDropToMainTrack;
+					mainTrackMagnetEnabled && isMainTrackCandidate;
 
 				const snapResult = runPipeline(
 					{ deltaFrames, snapPoint: null as SnapPoint | null },
@@ -922,7 +908,6 @@ export const useTimelineElementDnd = ({
 				const baseEnd = draggedInitial?.end ?? dragRefs.current.initialEnd;
 				const nextStart = baseStart + deltaFrames;
 				const nextEnd = baseEnd + deltaFrames;
-				const timeRange = { start: nextStart, end: nextEnd };
 				const {
 					start: rawGroupSpanStart,
 					end: rawGroupSpanEnd,
@@ -934,38 +919,267 @@ export const useTimelineElementDnd = ({
 				const groupSpanEnd = Number.isFinite(rawGroupSpanEnd)
 					? rawGroupSpanEnd
 					: nextEnd;
-
-				const tempElements = isCopyDrag
-					? baseElements
-					: baseElements.map((el) => {
-							const initial = initialMap.get(el.id);
-							if (!initial) return el;
-							return {
-								...el,
-								timeline: {
-									...el.timeline,
-									start: initial.start + deltaFrames,
-									end: initial.end + deltaFrames,
-									trackIndex: initial.trackIndex,
+				const selectedRanges = dragSelectedIds
+					.map((selectedId) => {
+						const initial = initialMap.get(selectedId);
+						if (!initial) return null;
+						return {
+							id: selectedId,
+							start: initial.start + deltaFrames,
+							end: initial.end + deltaFrames,
+							trackIndex: initial.trackIndex,
+						};
+					})
+					.filter(
+						(range): range is {
+							id: string;
+							start: number;
+							end: number;
+							trackIndex: number;
+						} => Boolean(range),
+					);
+				const anchorRanges = selectedRanges.filter(
+					(range) => range.trackIndex === draggedBaseTrack,
+				);
+				const effectiveAnchorRanges =
+					anchorRanges.length > 0
+						? anchorRanges
+						: [
+								{
+									id: element.id,
+									start: nextStart,
+									end: nextEnd,
+									trackIndex: draggedBaseTrack,
 								},
-							};
-						});
-				const activeCopyId = isCopyDrag ? getCopyId(element.id) : undefined;
-				const finalTrackElements = activeCopyId
-					? [...tempElements, { ...element, id: activeCopyId }]
-					: tempElements;
+						  ];
+				const overlapCandidates = isCopyDrag
+					? baseElements
+					: baseElements.filter((el) => !selectedSet.has(el.id));
+				const hasRangesOverlapOnTrack = (
+					ranges: { start: number; end: number }[],
+					targetTrack: number,
+				) =>
+					ranges.some((range) =>
+						hasOverlapOnStoredTrack(
+							range.start,
+							range.end,
+							targetTrack,
+							overlapCandidates,
+						),
+					);
+				const hasInternalOverlap = (ranges: { start: number; end: number }[]) => {
+					if (ranges.length < 2) return false;
+					const sorted = [...ranges].sort((a, b) => a.start - b.start);
+					let lastEnd = sorted[0].end;
+					for (let i = 1; i < sorted.length; i += 1) {
+						const current = sorted[i];
+						if (current.start < lastEnd) {
+							return true;
+						}
+						lastEnd = Math.max(lastEnd, current.end);
+					}
+					return false;
+				};
+				// 主轨道禁用吸附时，重叠则拒绝落主轨
+				const mainTrackOverlap =
+					isMainTrackCandidate &&
+					(hasInternalOverlap(selectedRanges) ||
+						hasRangesOverlapOnTrack(selectedRanges, 0));
+				const canDropToMainTrack =
+					isMainTrackCandidate &&
+					(mainTrackMagnetEnabled || !mainTrackOverlap);
+				const forceMainTrackPlacement =
+					!shouldUseMagnetMulti && canDropToMainTrack;
 
+				let resolvedDropTarget = resolveDropTargetForRole(
+					baseDropTarget,
+					elementRole,
+					elements,
+					trackAssignments,
+				);
+				if (canDropToMainTrack) {
+					resolvedDropTarget = { type: "track", trackIndex: 0 };
+				} else if (mainDropTime !== null) {
+					resolvedDropTarget = { type: "track", trackIndex: draggedBaseTrack };
+				}
+
+				const maxStoredTrack = Math.max(
+					0,
+					...baseElements.map((el) => el.timeline.trackIndex ?? 0),
+				);
 				const finalTrackResult = forceMainTrackPlacement
 					? { trackIndex: 0, displayType: "track" as const, needsInsert: false }
-					: calculateFinalTrack(
-							resolvedDropTarget,
-							timeRange,
-							finalTrackElements,
-							activeCopyId ?? element.id,
-							draggedInitial?.trackIndex ?? dragRefs.current.initialTrack,
+					: (() => {
+							if (resolvedDropTarget.type === "gap") {
+								return {
+									trackIndex: resolvedDropTarget.trackIndex,
+									displayType: "gap" as const,
+									needsInsert: true,
+								};
+							}
+							const targetTrack = resolvedDropTarget.trackIndex;
+							const targetHasOverlap =
+								hasRoleConflictOnStoredTrack(
+									elementRole,
+									targetTrack,
+									overlapCandidates,
+								) ||
+								hasRangesOverlapOnTrack(
+									effectiveAnchorRanges,
+									targetTrack,
+								);
+							if (!targetHasOverlap) {
+								return {
+									trackIndex: targetTrack,
+									displayType: "track" as const,
+									needsInsert: false,
+								};
+							}
+							const aboveTrack = targetTrack + 1;
+							const aboveHasOverlap =
+								aboveTrack <= maxStoredTrack &&
+								(hasRoleConflictOnStoredTrack(
+									elementRole,
+									aboveTrack,
+									overlapCandidates,
+								) ||
+									hasRangesOverlapOnTrack(
+										effectiveAnchorRanges,
+										aboveTrack,
+									));
+							if (!aboveHasOverlap && aboveTrack <= maxStoredTrack) {
+								return {
+									trackIndex: aboveTrack,
+									displayType: "track" as const,
+									needsInsert: false,
+								};
+							}
+					return {
+						trackIndex: targetTrack + 1,
+						displayType: "gap" as const,
+						needsInsert: true,
+					};
+					  })();
+				// 统一处理插入轨道后的索引偏移
+				const shouldInsertTrack = finalTrackResult.displayType === "gap";
+				const insertTrackIndex = shouldInsertTrack
+					? finalTrackResult.trackIndex
+					: null;
+				const shiftForInsert = (trackValue: number) =>
+					insertTrackIndex !== null && trackValue >= insertTrackIndex
+						? trackValue + 1
+						: trackValue;
+				const draggedAfterInsert = shiftForInsert(draggedBaseTrack);
+				const trackDelta = finalTrackResult.trackIndex - draggedAfterInsert;
+				const baseElementMap = new Map(baseElements.map((el) => [el.id, el]));
+				const resolveExistingTrackId = (
+					targetTrackIndex: number,
+				): string | null => {
+					if (insertTrackIndex === null) {
+						return tracks[targetTrackIndex]?.id ?? null;
+					}
+					if (targetTrackIndex === insertTrackIndex) {
+						return null;
+					}
+					const sourceIndex =
+						targetTrackIndex > insertTrackIndex
+							? targetTrackIndex - 1
+							: targetTrackIndex;
+					return tracks[sourceIndex]?.id ?? null;
+				};
+				// 计算多轨选中的目标轨道映射，避免角色冲突与时间重叠
+				const buildSelectedTrackMapping = (
+					obstacleElements: TimelineElement[],
+				) => {
+					const shiftedObstacles = obstacleElements.map((el) => {
+						const baseTrack = el.timeline.trackIndex ?? 0;
+						const shiftedTrack = shiftForInsert(baseTrack);
+						if (shiftedTrack === baseTrack) return el;
+						return {
+							...el,
+							timeline: {
+								...el.timeline,
+								trackIndex: shiftedTrack,
+							},
+						};
+					});
+					const trackGroups = new Map<
+						number,
+						{
+							role: ReturnType<typeof getElementRole>;
+							ranges: { start: number; end: number }[];
+						}
+					>();
+					for (const [id, initial] of initialMap.entries()) {
+						if (!selectedSet.has(id)) continue;
+						const element = baseElementMap.get(id);
+						if (!element) continue;
+						const role = getElementRole(element);
+						let group = trackGroups.get(initial.trackIndex);
+						if (!group) {
+							group = { role, ranges: [] };
+							trackGroups.set(initial.trackIndex, group);
+						}
+						group.ranges.push({
+							start: initial.start + deltaFrames,
+							end: initial.end + deltaFrames,
+						});
+					}
+
+					const requestedTrackMap = new Map<number, number>();
+					for (const track of trackGroups.keys()) {
+						requestedTrackMap.set(
+							track,
+							Math.max(0, shiftForInsert(track) + trackDelta),
 						);
-				const draggedBaseTrack =
-					draggedInitial?.trackIndex ?? dragRefs.current.initialTrack;
+					}
+
+					const mapping = new Map<number, number>();
+					const occupiedTracks = new Set<number>();
+					const anchorRequested = Math.max(
+						0,
+						shiftForInsert(draggedBaseTrack) + trackDelta,
+					);
+					mapping.set(draggedBaseTrack, anchorRequested);
+					occupiedTracks.add(anchorRequested);
+
+					const sortedTracks = [...trackGroups.keys()].sort((a, b) => a - b);
+					for (const track of sortedTracks) {
+						if (track === draggedBaseTrack) continue;
+						const group = trackGroups.get(track);
+						if (!group) continue;
+						const requestedTrack =
+							requestedTrackMap.get(track) ??
+							Math.max(0, shiftForInsert(track) + trackDelta);
+						let candidate = requestedTrack;
+						// 多轨选中时逐个向上查找可用轨道，避免角色冲突/重叠
+						while (true) {
+							if (!occupiedTracks.has(candidate)) {
+								const roleConflict = hasRoleConflictOnStoredTrack(
+									group.role,
+									candidate,
+									shiftedObstacles,
+								);
+								const hasOverlap = group.ranges.some((range) =>
+									hasOverlapOnStoredTrack(
+										range.start,
+										range.end,
+										candidate,
+										shiftedObstacles,
+									),
+								);
+								if (!roleConflict && !hasOverlap) {
+									break;
+								}
+							}
+							candidate += 1;
+						}
+						mapping.set(track, candidate);
+						occupiedTracks.add(candidate);
+					}
+
+					return mapping;
+				};
 				const snapShift = deltaFrames * ratio - adjustedDeltaX;
 				const ghostDeltaX = mx + snapShift;
 				const ghostDeltaY = my;
@@ -1041,33 +1255,31 @@ export const useTimelineElementDnd = ({
 
 								if (copies.length > 0) {
 									setElements((prev) =>
-										finalizeTimelineElements(
-											[...prev, ...copies],
-											{
-												mainTrackMagnetEnabled,
-												attachments,
-												autoAttach,
-												fps,
-											},
-										),
+										finalizeTimelineElements([...prev, ...copies], {
+											mainTrackMagnetEnabled,
+											attachments,
+											autoAttach,
+											fps,
+										}),
 									);
 									setSelection(copyIds, primaryCopyId);
 								}
 							} else {
-								const shouldInsertTrack =
-									finalTrackResult.displayType === "gap";
-								const insertTrackIndex = shouldInsertTrack
-									? finalTrackResult.trackIndex
-									: null;
-								const shiftForInsert = (trackValue: number) =>
-									insertTrackIndex !== null && trackValue >= insertTrackIndex
-										? trackValue + 1
-										: trackValue;
-								const draggedBaseTrack =
-									draggedInitial?.trackIndex ?? dragRefs.current.initialTrack;
-								const draggedAfterInsert = shiftForInsert(draggedBaseTrack);
-								const trackDelta =
-									finalTrackResult.trackIndex - draggedAfterInsert;
+								const selectedTrackMapping = buildSelectedTrackMapping(
+									baseElements,
+								);
+								const newTrackIdByIndex = new Map<number, string>();
+								const resolveCopyTrackId = (targetTrackIndex: number) => {
+									const existingTrackId =
+										resolveExistingTrackId(targetTrackIndex);
+									if (existingTrackId) return existingTrackId;
+									let nextId = newTrackIdByIndex.get(targetTrackIndex);
+									if (!nextId) {
+										nextId = createTrackId();
+										newTrackIdByIndex.set(targetTrackIndex, nextId);
+									}
+									return nextId;
+								};
 
 								const copies = dragSelectedIds
 									.map((sourceId) => {
@@ -1078,7 +1290,13 @@ export const useTimelineElementDnd = ({
 										const nextStart = initial.start + deltaFrames;
 										const nextEnd = initial.end + deltaFrames;
 										const baseTrack = shiftForInsert(initial.trackIndex);
-										const nextTrack = Math.max(0, baseTrack + trackDelta);
+										const mappedTrack =
+											selectedTrackMapping.get(initial.trackIndex);
+										const nextTrack = Math.max(
+											0,
+											mappedTrack ?? baseTrack + trackDelta,
+										);
+										const targetTrackId = resolveCopyTrackId(nextTrack);
 										const copy = createCopyElement(source, copyId);
 										const timed = updateElementTime(
 											copy,
@@ -1088,7 +1306,11 @@ export const useTimelineElementDnd = ({
 										);
 										return {
 											...timed,
-											timeline: { ...timed.timeline, trackIndex: nextTrack },
+											timeline: {
+												...timed.timeline,
+												trackIndex: nextTrack,
+												trackId: targetTrackId,
+											},
 										};
 									})
 									.filter(Boolean) as TimelineElement[];
@@ -1158,19 +1380,6 @@ export const useTimelineElementDnd = ({
 						return;
 					}
 
-					const singleTrackSelection = selectedTrackIndices.size === 1;
-					const selectedTrackIndex = singleTrackSelection
-						? [...selectedTrackIndices][0]
-						: null;
-					const isFullTrackSelection =
-						singleTrackSelection &&
-						selectedTrackIndex !== null &&
-						baseElements
-							.filter(
-								(el) => (el.timeline.trackIndex ?? 0) === selectedTrackIndex,
-							)
-							.every((el) => selectedSet.has(el.id));
-					const baseElementMap = new Map(baseElements.map((el) => [el.id, el]));
 					const movedChildren = new Map<
 						string,
 						{ start: number; end: number }
@@ -1258,203 +1467,73 @@ export const useTimelineElementDnd = ({
 						return;
 					}
 
-					const selectedTrackList = [...selectedTrackIndices].sort(
-						(a, b) => a - b,
+					const nonSelectedElements = baseElements.filter(
+						(el) => !selectedSet.has(el.id),
 					);
-					const allTracks = [
-						...new Set(
-							baseElements
-								.map((el) => el.timeline.trackIndex ?? 0)
-								.filter((trackIndex) => trackIndex > 0),
-						),
-					].sort((a, b) => a - b);
-					const allTracksFullySelected =
-						selectedTrackList.length > 0 &&
-						selectedTrackList.every((trackIndex) =>
-							baseElements
-								.filter((el) => (el.timeline.trackIndex ?? 0) === trackIndex)
-								.every((el) => selectedSet.has(el.id)),
-						);
-					// Main track is not reorderable; keep it in the normal move/insert flow.
-					const hasMainTrackSelected = selectedTrackIndices.has(0);
-					const shouldReorderTrackBlock =
-						hasSignificantVerticalMove &&
-						allTracksFullySelected &&
-						!hasMainTrackSelected;
-
-					if (shouldReorderTrackBlock) {
-						const remainingTracks = allTracks.filter(
-							(trackIndex) => !selectedTrackIndices.has(trackIndex),
-						);
-						const rawInsertIndex =
-							resolvedDropTarget.type === "gap"
-								? resolvedDropTarget.trackIndex
-								: resolvedDropTarget.trackIndex;
-						const insertTrackIndex = Math.max(1, rawInsertIndex);
-						let insertionIndex = remainingTracks.findIndex(
-							(trackIndex) => trackIndex >= insertTrackIndex,
-						);
-						if (insertionIndex < 0) {
-							insertionIndex = remainingTracks.length;
-						}
-
-						const newTrackOrder = [
-							...remainingTracks.slice(0, insertionIndex),
-							...selectedTrackList,
-							...remainingTracks.slice(insertionIndex),
-						];
-						const trackMapping = new Map<number, number>();
-						newTrackOrder.forEach((oldTrack, index) => {
-							trackMapping.set(oldTrack, index + 1);
-						});
-
-						setElements((prev) => {
-							const updated = prev.map((el) => {
-								const baseTrack = el.timeline.trackIndex ?? 0;
-								const nextTrack =
-									baseTrack > 0
-										? (trackMapping.get(baseTrack) ?? baseTrack)
-										: 0;
-
-								if (selectedSet.has(el.id)) {
-									const initial = initialMap.get(el.id);
-									if (!initial) return el;
-									return {
-										...el,
-										timeline: {
-											...el.timeline,
-											start: initial.start + deltaFrames,
-											end: initial.end + deltaFrames,
-											trackIndex: nextTrack,
-										},
-									};
-								}
-
-								const childMove = movedChildren.get(el.id);
-								if (childMove) {
-									return {
-										...el,
-										timeline: {
-											...el.timeline,
-											start: childMove.start,
-											end: childMove.end,
-											trackIndex: nextTrack,
-										},
-									};
-								}
-
-								if (nextTrack !== baseTrack) {
-									return {
-										...el,
-										timeline: {
-											...el.timeline,
-											trackIndex: nextTrack,
-										},
-									};
-								}
-
-								return el;
-							});
-
-							const withChildrenTracks = resolveMovedChildrenTracks(
-								updated,
-								movedChildren,
+					const selectedTrackMapping =
+						buildSelectedTrackMapping(nonSelectedElements);
+					const totalByTrack = new Map<number, number>();
+					const selectedByTrack = new Map<number, number>();
+					for (const el of baseElements) {
+						const trackIndex = el.timeline.trackIndex ?? 0;
+						totalByTrack.set(trackIndex, (totalByTrack.get(trackIndex) ?? 0) + 1);
+						if (selectedSet.has(el.id)) {
+							selectedByTrack.set(
+								trackIndex,
+								(selectedByTrack.get(trackIndex) ?? 0) + 1,
 							);
-							return finalizeTimelineElements(withChildrenTracks, {
-								mainTrackMagnetEnabled,
-								attachments,
-								autoAttach,
-								fps,
-							});
-						});
-
-						setIsDragging(false);
-						setActiveSnapPoint(null);
-						setActiveDropTarget(null);
-						setDragGhosts([]);
-						setLocalTrackY(null);
-						stopAutoScroll();
-						return;
+						}
 					}
-
-					const maxTrackIndex = Math.max(
-						1,
-						...baseElements.map((el) => el.timeline.trackIndex ?? 0),
-					);
-					const rawTargetTrack =
-						resolvedDropTarget.type === "gap"
-							? resolvedDropTarget.trackIndex - 1
-							: resolvedDropTarget.trackIndex;
-					const targetTrackIndex = Math.max(
-						0,
-						Math.min(maxTrackIndex, rawTargetTrack),
-					);
-					const shouldReorderTracks =
-						hasSignificantVerticalMove &&
-						isFullTrackSelection &&
-						selectedTrackIndex !== null &&
-						selectedTrackIndex !== 0;
-					const shouldInsertTrack =
-						finalTrackResult.displayType === "gap" && !shouldReorderTracks;
-					const insertTrackIndex = shouldInsertTrack
-						? finalTrackResult.trackIndex
-						: null;
-					const shiftForInsert = (trackIndex: number) =>
-						insertTrackIndex !== null && trackIndex >= insertTrackIndex
-							? trackIndex + 1
-							: trackIndex;
-					const draggedAfterInsert = shiftForInsert(draggedBaseTrack);
-					const trackDelta = finalTrackResult.trackIndex - draggedAfterInsert;
-					const remapTrackIndex = (trackIndex: number) => {
-						if (!shouldReorderTracks) return trackIndex;
-						if (trackIndex === 0) return 0;
-						if (selectedTrackIndex === targetTrackIndex) return trackIndex;
-						if (trackIndex === selectedTrackIndex) {
-							return targetTrackIndex;
+					const isTrackFullySelected = (trackIndex: number) =>
+						(selectedByTrack.get(trackIndex) ?? 0) ===
+						(totalByTrack.get(trackIndex) ?? 0);
+					const newTrackIdByIndex = new Map<number, string>();
+					const resolveMovedTrackId = (
+						sourceTrackIndex: number,
+						targetTrackIndex: number,
+					) => {
+						const existingTrackId =
+							resolveExistingTrackId(targetTrackIndex);
+						if (existingTrackId) return existingTrackId;
+						if (!shouldInsertTrack) return undefined;
+						// 保留原轨道仍有元素时，给新轨道分配新的 trackId
+						if (isTrackFullySelected(sourceTrackIndex)) {
+							return undefined;
 						}
-						if (targetTrackIndex > selectedTrackIndex) {
-							if (
-								trackIndex > selectedTrackIndex &&
-								trackIndex <= targetTrackIndex
-							) {
-								return trackIndex - 1;
-							}
-						} else if (targetTrackIndex < selectedTrackIndex) {
-							if (
-								trackIndex >= targetTrackIndex &&
-								trackIndex < selectedTrackIndex
-							) {
-								return trackIndex + 1;
-							}
+						let nextId = newTrackIdByIndex.get(targetTrackIndex);
+						if (!nextId) {
+							nextId = createTrackId();
+							newTrackIdByIndex.set(targetTrackIndex, nextId);
 						}
-						return trackIndex;
+						return nextId;
 					};
 
 					setElements((prev) => {
 						const updated = prev.map((el) => {
 							const baseTrack = el.timeline.trackIndex ?? 0;
-							const shiftedTrack = shouldReorderTracks
-								? baseTrack
-								: shiftForInsert(baseTrack);
-							const nextTrack = shouldReorderTracks
-								? remapTrackIndex(baseTrack)
-								: shiftedTrack;
+							const nextTrack = shiftForInsert(baseTrack);
 
 							if (selectedSet.has(el.id)) {
 								const initial = initialMap.get(el.id);
 								if (!initial) return el;
-								const selectedBase = shouldReorderTracks
-									? initial.trackIndex
-									: shiftForInsert(initial.trackIndex);
+								const selectedBase = shiftForInsert(initial.trackIndex);
+								const mappedTrack = selectedTrackMapping.get(initial.trackIndex);
+								const nextTrackIndex = Math.max(
+									0,
+									mappedTrack ?? selectedBase + trackDelta,
+								);
+								const targetTrackId = resolveMovedTrackId(
+									initial.trackIndex,
+									nextTrackIndex,
+								);
 								return {
 									...el,
 									timeline: {
 										...el.timeline,
 										start: initial.start + deltaFrames,
 										end: initial.end + deltaFrames,
-										trackIndex: shouldReorderTracks
-											? nextTrack
-											: Math.max(0, selectedBase + trackDelta),
+										trackIndex: nextTrackIndex,
+										...(targetTrackId ? { trackId: targetTrackId } : {}),
 									},
 								};
 							}
@@ -1525,20 +1604,6 @@ export const useTimelineElementDnd = ({
 							end: groupSpanEnd,
 							finalTrackIndex: 0,
 						});
-					} else if (isMultiTrackSelection) {
-						if (resolvedDropTarget.type === "gap") {
-							setActiveDropTarget({
-								type: "gap",
-								trackIndex: resolvedDropTarget.trackIndex,
-								elementId: element.id,
-								start: groupSpanStart,
-								end: groupSpanEnd,
-								finalTrackIndex: resolvedDropTarget.trackIndex,
-							});
-						} else {
-							setActiveDropTarget(null);
-						}
-						setActiveSnapPoint(snapPoint);
 					} else {
 						setActiveSnapPoint(snapPoint);
 						setActiveDropTarget({
