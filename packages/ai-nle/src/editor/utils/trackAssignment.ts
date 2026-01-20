@@ -427,6 +427,31 @@ export function normalizeTrackAssignments(
 }
 
 /**
+ * Apply normalized track assignments to elements.
+ */
+export function applyTrackAssignments(
+	elements: TimelineElement[],
+): TimelineElement[] {
+	if (elements.length === 0) {
+		return elements;
+	}
+
+	const normalized = normalizeTrackAssignments(assignTracks(elements));
+	let didChange = false;
+	const updated = elements.map((el) => {
+		const nextTrack = normalized.get(el.id);
+		const currentTrack = el.timeline.trackIndex ?? MAIN_TRACK_INDEX;
+		if (nextTrack === undefined || nextTrack === currentTrack) {
+			return el;
+		}
+		didChange = true;
+		return { ...el, timeline: { ...el.timeline, trackIndex: nextTrack } };
+	});
+
+	return didChange ? updated : elements;
+}
+
+/**
  * 基于存储的 trackIndex 压缩空轨道（不重新分配）
  * 返回更新后的元素数组（无变化则返回原数组引用）
  */

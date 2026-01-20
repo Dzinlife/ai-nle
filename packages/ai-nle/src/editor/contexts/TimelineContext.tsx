@@ -17,6 +17,7 @@ import { SnapPoint } from "../utils/snap";
 import { updateElementTime } from "../utils/timelineTime";
 import {
 	assignTracks,
+	applyTrackAssignments,
 	findAvailableTrack,
 	getDropTarget,
 	getElementRole,
@@ -1059,12 +1060,16 @@ export const useTrackAssignments = () => {
 					}
 				}
 
-				return finalizeTimelineElements(updated, {
+				const finalized = finalizeTimelineElements(updated, {
 					mainTrackMagnetEnabled,
 					attachments,
 					autoAttach,
 					fps,
 				});
+				if (!mainTrackMagnetEnabled && attachedChildren.length > 0) {
+					return applyTrackAssignments(finalized);
+				}
+				return finalized;
 			});
 		},
 		[setElements, mainTrackMagnetEnabled, attachments, autoAttach, fps],

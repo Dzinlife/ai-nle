@@ -1,5 +1,8 @@
 import { TimelineElement } from "@/dsl/types";
-import { normalizeStoredTrackIndices } from "./trackAssignment";
+import {
+	applyTrackAssignments,
+	normalizeStoredTrackIndices,
+} from "./trackAssignment";
 import { updateElementTime } from "./timelineTime";
 
 const MAIN_TRACK_INDEX = 0;
@@ -151,7 +154,10 @@ export function finalizeTimelineElements(
 			fps: options.fps,
 		});
 	}
-	const normalized = normalizeStoredTrackIndices(next);
+	let normalized = normalizeStoredTrackIndices(next);
+	if (options.mainTrackMagnetEnabled) {
+		normalized = applyTrackAssignments(normalized);
+	}
 	if (options.fps === undefined) {
 		return normalized;
 	}
