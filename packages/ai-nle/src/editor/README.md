@@ -1,49 +1,65 @@
 # Editor 模块
 
-视频编辑器的核心模块，包含时间线编辑器、预览编辑器和素材库。
+编辑器核心模块，组合时间线、预览画布、素材库和元素设置面板。
+
+## 主要能力
+
+- 多轨时间线编辑：拖拽、裁剪、缩放与滚动。
+- 预览画布：Skia 渲染 + Konva 交互（选中、变换、框选、缩放/平移）。
+- 拖拽体系：素材库拖入时间线或画布，包含自动滚动与落点提示。
+- 轨道策略：自动轨道分配、吸附、联动、主轨磁吸。
+- 时间线数据：JSON 校验/加载/保存，支持时间码同步。
 
 ## 目录结构
 
 ```text
 editor/
 ├── components/           # UI 子组件
-│   ├── ElementSettingsPanel.tsx  # 元素属性设置面板
-│   ├── TimeIndicatorCanvas.tsx   # 时间指示器画布（红色竖线）
-│   ├── TimelineDragOverlay.tsx   # 拖拽指示层（ghost + drop 指示）
-│   ├── TimelineElement.tsx       # 时间线元素（可拖拽的轨道元素）
-│   ├── TimelineRuler.tsx         # 时间尺（顶部刻度）
-│   └── TimelineToolbar.tsx       # 工具栏（播放控制、吸附开关等）
+│   ├── ElementSettingsPanel.tsx  # 选中元素属性面板
+│   ├── TimeIndicatorCanvas.tsx   # 播放头指示线
+│   ├── TimelineDragOverlay.tsx   # 拖拽提示层
+│   ├── TimelineElement.tsx       # 轨道元素渲染与交互
+│   ├── TimelineRuler.tsx         # 时间刻度尺
+│   └── TimelineToolbar.tsx       # 播放/吸附/导出/缩放
 │
 ├── contexts/             # React Context 和状态管理
-│   ├── TimelineContext.tsx       # 核心状态管理 (Zustand store)
-│   │                             # - 元素列表、选中状态、播放状态
-│   │                             # - 拖拽状态、轨道分配
-│   │                             # - 吸附和联动设置
-│   └── PreviewProvider.tsx       # 预览画布 context
-│                                 # - canvas ref 和渲染状态
+│   ├── TimelineContext.tsx       # 时间线状态与交互（Zustand）
+│   └── PreviewProvider.tsx       # 预览画布状态（缩放/平移/尺寸）
 │
 ├── drag/                 # 拖拽状态（跨组件共享）
-│   ├── dragStore.ts              # 拖拽状态 store（素材拖入画布用）
+│   ├── dragStore.ts              # 全局拖拽状态与自动滚动
+│   ├── materialDnd.ts            # 素材拖拽行为封装
+│   ├── timelineDropTargets.ts    # 时间线/预览落点计算
+│   ├── MaterialDragOverlay.tsx   # 拖拽幽灵与指示
 │   └── index.ts
 │
+├── preview/              # 预览画布交互与坐标
+│   ├── usePreviewInteractions.ts # 预览交互（选中/框选/变换）
+│   ├── usePreviewCoordinates.ts  # 坐标转换与缩放
+│   ├── LabelLayer.tsx            # 预览标注层
+│   └── utils.ts                  # 可见元素计算等
+│
 ├── timeline/             # 轨道计算逻辑
-│   ├── dragCalculations.ts       # 拖拽位置计算
-│   ├── trackConfig.ts            # 轨道配置（高度、间距等）
-│   ├── types.ts                  # 类型定义
-│   ├── useElementDrag.ts         # 元素拖拽 hook
-│   ├── useTimelineElementDnd.ts  # 元素拖拽逻辑（单选/多选）
+│   ├── dragCalculations.ts       # 拖拽轨道与落点计算
+│   ├── trackConfig.ts            # 轨道配置与分类
+│   ├── types.ts                  # 时间线/拖拽类型定义
+│   ├── useElementDrag.ts         # 轨道元素拖拽/裁剪
+│   ├── useTimelineElementDnd.ts  # 多选拖拽逻辑
 │   └── index.ts
 │
 ├── utils/                # 工具函数
-│   ├── attachments.ts            # 元素联动关系计算
+│   ├── attachments.ts            # 联动关系计算
+│   ├── mainTrackMagnet.ts        # 主轨磁吸与时间重排
 │   ├── snap.ts                   # 吸附点计算
-│   └── trackAssignment.ts        # 轨道分配算法
+│   ├── timelineScale.ts          # 时间线缩放比例
+│   ├── timelineTime.ts           # 时间线时间更新
+│   └── trackAssignment.ts        # 轨道分配/冲突检测
 │
-├── TimelineEditor.tsx    # 主时间线编辑器组件
-├── PreviewEditor.tsx     # 预览画布编辑器
+├── TimelineEditor.tsx    # 时间线主视图
+├── PreviewEditor.tsx     # 预览画布主视图
 ├── MaterialLibrary.tsx   # 素材库面板
-├── index.tsx             # 入口，组合所有编辑器组件
-├── timelineLoader.ts     # 时间线数据加载器
+├── index.tsx             # 组合入口
+├── timelineLoader.ts     # 时间线 JSON 校验/转换
 └── timeline.json         # 示例时间线数据
 ```
 
@@ -51,70 +67,39 @@ editor/
 
 ### TimelineEditor.tsx
 
-主时间线编辑器，负责：
-
-- 渲染所有轨道和元素
-- 处理滚动和缩放
-- 管理主轨道（track 0）的特殊行为
-- 渲染拖拽指示层（ghost + drop 指示）
+- 组合时间尺、工具栏、播放头、轨道元素。
+- 支持多选、拖拽、裁剪，并在拖拽时自动滚动。
+- 根据轨道分配与主轨磁吸结果重排时间线。
 
 ### PreviewEditor.tsx
 
-预览画布，负责：
-
-- 渲染当前时间点的可见元素
-- 处理画布交互（选择、变换）
-- 导出图片/视频
+- 使用 react-skia-lite 渲染时间点上的可见元素。
+- Konva 负责选择框、变换控件、辅助线渲染。
+- 支持缩放/平移、框选、多选与拖拽变换。
 
 ### MaterialLibrary.tsx
 
-素材库面板，负责：
+- 素材卡片可拖拽到时间线或预览画布。
+- 拖拽期间显示 ghost 与落点指示。
 
-- 展示可用素材列表
-- 处理素材拖拽到时间线
+### ElementSettingsPanel.tsx
 
-## 状态管理
+- 展示并编辑选中元素名称与时间信息。
+- 读取模型约束并显示可用范围。
 
-### TimelineContext.tsx (Zustand)
+### TimelineToolbar.tsx
 
-核心状态包括：
+- 播放控制、吸附/联动/主轨磁吸开关。
+- 时间线缩放与导出 PNG。
 
-- `elements`: 所有时间线元素
-- `currentTime`: 当前播放时间
-- `isPlaying`: 播放状态
-- `selectedIds`: 选中元素列表
-- `primarySelectedId`: 主选中元素
-- `trackAssignments`: 轨道分配映射
-- `snapEnabled`: 吸附开关
-- `autoAttach`: 自动联动开关
+## 状态与数据流
 
-常用 hooks：
+- `TimelineContext`：元素列表、播放时间、选择状态、轨道分配、拖拽状态、
+  吸附/联动开关等。
+- `PreviewProvider`：预览画布尺寸、缩放、平移与 canvas 引用。
+- `timelineLoader`：JSON 校验 + timecode 维护，加载 `timeline.json` 作为初始数据。
 
-```tsx
-useElements()          // 获取/设置元素列表
-useCurrentTime()       // 获取当前时间
-usePlaybackControl()   // 播放控制
-useSelectedElement()   // 选中元素状态
-useMultiSelect()       // 多选状态与操作
-useTrackAssignments()  // 轨道分配
-useSnap()              // 吸附设置
-useAttachments()       // 联动设置
-```
+## 轨道与时间线策略
 
-## 轨道系统
-
-- Track 0 为主轨道（Main），固定在最底部
-- 其他轨道从上到下递增
-- 元素可以跨轨道拖拽
-- 支持自动轨道分配（避免重叠）
-
-## 吸附系统
-
-- 元素边缘吸附
-- 播放头吸附
-- 可通过工具栏开关
-
-## 联动系统
-
-- 当 `autoAttach` 启用时，拖拽主轨道元素会带动相邻元素
-- 通过 `findAttachments` 计算联动关系
+- 主轨 (track 0) 固定在底部，按角色分配轨道。
+- 吸附、联动、主轨磁吸配合减少重叠与空隙。

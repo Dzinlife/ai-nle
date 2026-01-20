@@ -147,6 +147,7 @@ const EditorContent: React.FC = () => {
 				};
 
 				if (dropTargetType === "gap") {
+					// gap 投放需要插入新轨道，先整体下移后续轨道索引
 					const shifted = prev.map((el) => {
 						const currentTrack = el.timeline.trackIndex ?? 0;
 						if (currentTrack >= insertIndex) {
@@ -166,6 +167,7 @@ const EditorContent: React.FC = () => {
 					);
 				}
 
+				// 主轨开启磁吸时，插入逻辑交给主轨处理以保持连续性
 				if (mainTrackMagnetEnabled && trackIndex === 0) {
 					return insertElementIntoMainTrack(
 						prev,
@@ -199,6 +201,7 @@ const EditorContent: React.FC = () => {
 				const newId = `element-${Date.now()}`;
 				const trackAssignments = assignTracks(prev);
 				const trackCount = getTrackCount(trackAssignments);
+				// 预览投放默认落在非主轨，避免主轨磁吸造成意外移动
 				const targetTrackIndex = 1; // 预览投放默认非主轨
 				const finalTrack = findAvailableTrack(
 					startFrame,

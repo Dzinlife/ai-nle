@@ -361,9 +361,10 @@ const Preview = () => {
 		[endPinchZoom],
 	);
 
-	// Build Skia children for rendering
+	// 构建 Skia 渲染树（通过组件注册表映射元素）
 	const buildSkiaChildren = useCallback(
 		(visibleElements: TimelineElement[]) => {
+			// ContextBridge 让 Skia 子树可以访问 React Query 等上下文
 			return (
 				<ContextBridge>
 					<Fill color="black" />
@@ -406,6 +407,7 @@ const Preview = () => {
 			const orderedElements = sortByTrackIndex(visibleElements);
 			const children = buildSkiaChildren(orderedElements);
 
+			// 仅在可见元素集合变化时触发重绘，降低 Skia 渲染频率
 			const prevElements = renderElementsRef.current;
 			if (
 				prevElements.length !== orderedElements.length ||
