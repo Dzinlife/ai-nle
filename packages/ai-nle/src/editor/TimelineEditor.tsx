@@ -27,6 +27,7 @@ import {
 	useSnap,
 	useTimelineScale,
 	useTimelineStore,
+	useTracks,
 	useTrackAssignments,
 } from "./contexts/TimelineContext";
 import { useDragStore } from "./drag";
@@ -34,10 +35,8 @@ import { finalizeTimelineElements } from "./utils/mainTrackMagnet";
 import { getPixelsPerFrame } from "./utils/timelineScale";
 import { updateElementTime } from "./utils/timelineTime";
 import {
-	assignTracks,
 	buildTrackLayout,
 	getTrackHeightByRole,
-	normalizeTrackAssignments,
 } from "./utils/trackAssignment";
 
 const formatTimecode = (frames: number, fps: number) => {
@@ -57,6 +56,7 @@ const TimelineEditor = () => {
 	const { selectedIds, deselectAll, setSelection } = useMultiSelect();
 	const { activeSnapPoint } = useSnap();
 	const { trackAssignments, trackCount } = useTrackAssignments();
+	const { tracks, toggleTrackVisible } = useTracks();
 	const { activeDropTarget, dragGhosts, isDragging } = useDragging();
 	const { autoScrollSpeed, autoScrollSpeedY } = useAutoScroll();
 	const { attachments, autoAttach } = useAttachments();
@@ -66,17 +66,7 @@ const TimelineEditor = () => {
 		setElements((prev) => {
 			const nextElements = prev.filter((el) => !selectedIds.includes(el.id));
 			if (nextElements.length === prev.length) return prev;
-			if (nextElements.length === 0) return nextElements;
-			const normalized = normalizeTrackAssignments(assignTracks(nextElements));
-			let didChange = false;
-			const withTracks = nextElements.map((el) => {
-				const nextTrack = normalized.get(el.id);
-				const currentTrack = el.timeline.trackIndex ?? 0;
-				if (nextTrack === undefined || nextTrack === currentTrack) return el;
-				didChange = true;
-				return { ...el, timeline: { ...el.timeline, trackIndex: nextTrack } };
-			});
-			return didChange ? withTracks : nextElements;
+			return nextElements;
 		});
 		deselectAll();
 	}, [selectedIds, setElements, deselectAll]);
@@ -605,8 +595,8 @@ const TimelineEditor = () => {
 	}, [globalAutoScrollSpeedY]);
 
 	const trackLayout = useMemo(() => {
-		return buildTrackLayout(elements, trackAssignments);
-	}, [elements, trackAssignments]);
+		return buildTrackLayout(tracks);
+	}, [tracks]);
 
 	const trackLayoutByIndex = useMemo(() => {
 		const map = new Map<number, (typeof trackLayout)[number]>();
@@ -697,10 +687,11 @@ const TimelineEditor = () => {
 			}
 		}
 		return { mainTrackElements: main, otherTrackElements: other };
-	}, [elements, trackAssignments]);
+	}, [elements, trackAssignments, tracks]);
 
 	// 其他轨道数量（不包括主轨道）
 	const otherTrackCount = Math.max(trackCount - 1, 0);
+	const mainTrackVisible = tracks[0]?.visible ?? true;
 
 	// 其他轨道的时间线项目
 	const otherTimelineItems = useMemo(() => {
@@ -722,6 +713,7 @@ const TimelineEditor = () => {
 					const y = layoutItem?.y ?? 0;
 					const elementTrackHeight =
 						layoutItem?.height ?? getTrackHeightByRole("overlay");
+					const trackVisible = tracks[trackIndex]?.visible ?? true;
 					return (
 						<TimelineElement
 							key={element.id}
@@ -731,6 +723,7 @@ const TimelineEditor = () => {
 							ratio={ratio}
 							trackHeight={elementTrackHeight}
 							trackCount={trackCount}
+							trackVisible={trackVisible}
 							updateTimeRange={updateTimeRange}
 						/>
 					);
@@ -747,6 +740,7 @@ const TimelineEditor = () => {
 		otherTrackCount,
 		otherTracksHeight,
 		trackLayoutByIndex,
+		tracks,
 	]);
 
 	// 主轨道的时间线项目
@@ -773,6 +767,7 @@ const TimelineEditor = () => {
 							ratio={ratio}
 							trackHeight={mainTrackHeight}
 							trackCount={trackCount}
+							trackVisible={mainTrackVisible}
 							updateTimeRange={updateTimeRange}
 						/>
 					);
@@ -788,33 +783,88 @@ const TimelineEditor = () => {
 		trackLayoutByIndex,
 		otherTracksHeight,
 		mainTrackHeight,
+		mainTrackVisible,
 	]);
 
 	// 其他轨道标签（不包括主轨道）
 	const otherTrackLabels = useMemo(() => {
 		if (otherTrackCount === 0) return null;
-		return otherTrackLayout.map((item) => (
-			<div
-				key={item.index}
-				className="flex items-center justify-end pr-3 text-xs font-medium text-neutral-400"
-				style={{ height: item.height }}
-			>
-				{`轨道 ${item.role}`}
-			</div>
-		));
-	}, [otherTrackCount, otherTrackLayout]);
+		return otherTrackLayout.map((item) => {
+			const trackVisible = tracks[item.index]?.visible ?? true;
+			return (
+				<div
+					key={tracks[item.index]?.id ?? item.index}
+					className={`flex items-center justify-end gap-2 pr-3 text-xs font-medium text-neutral-400 ${
+						trackVisible ? "" : "bg-black/60"
+					}`}
+					style={{ height: item.height }}
+				>
+					<button
+						type="button"
+						className={`text-[10px] px-1.5 py-0.5 rounded border ${
+							trackVisible
+								? "border-emerald-400/40 text-emerald-300"
+								: "border-white/10 text-neutral-500"
+						}`}
+						onClick={() => {
+							const trackId = tracks[item.index]?.id;
+							if (trackId) {
+								toggleTrackVisible(trackId);
+							}
+						}}
+					>
+						{trackVisible ? "显示" : "隐藏"}
+					</button>
+					<span className={trackVisible ? "" : "text-neutral-600"}>
+						{`轨道 ${item.role}`}
+					</span>
+				</div>
+			);
+		});
+	}, [otherTrackCount, otherTrackLayout, tracks, toggleTrackVisible]);
+
+	const otherTrackBackgrounds = useMemo(() => {
+		if (otherTrackCount === 0) return null;
+		return otherTrackLayout.map((item) => {
+			const trackVisible = tracks[item.index]?.visible ?? true;
+			if (trackVisible) return null;
+			return (
+				<div
+					key={`track-bg-${tracks[item.index]?.id ?? item.index}`}
+					className="absolute left-0 right-0 bg-black/60 pointer-events-none"
+					style={{ top: item.y, height: item.height }}
+				/>
+			);
+		});
+	}, [otherTrackCount, otherTrackLayout, tracks]);
 
 	// 主轨道标签
 	const mainTrackLabel = useMemo(() => {
 		return (
 			<div
-				className="flex items-center justify-end pr-3 text-xs font-medium text-blue-400"
+				className="flex items-center justify-end gap-2 pr-3 text-xs font-medium text-blue-400"
 				style={{ height: mainTrackHeight }}
 			>
-				主轨道
+				<button
+					type="button"
+					className={`text-[10px] px-1.5 py-0.5 rounded border ${
+						mainTrackVisible
+							? "border-emerald-400/40 text-emerald-300"
+							: "border-white/10 text-neutral-500"
+					}`}
+					onClick={() => {
+						const trackId = tracks[0]?.id;
+						if (trackId) {
+							toggleTrackVisible(trackId);
+						}
+					}}
+					>
+						{mainTrackVisible ? "显示" : "隐藏"}
+					</button>
+				<span className={mainTrackVisible ? "" : "text-neutral-600"}>主轨道</span>
 			</div>
 		);
-	}, [mainTrackHeight]);
+	}, [mainTrackHeight, mainTrackVisible, tracks, toggleTrackVisible]);
 
 	// 吸附指示线
 	const snapIndicator = useMemo(() => {
@@ -923,44 +973,49 @@ const TimelineEditor = () => {
 									marginLeft: -leftColumnWidth,
 								}}
 							>
-								<div style={{ paddingLeft: timelinePaddingLeft }}>
-									<div
-										className="relative"
-										data-track-content-area="other"
-										data-content-height={otherTracksHeight}
-									>
-										{otherTimelineItems}
+									<div style={{ paddingLeft: timelinePaddingLeft }}>
+										<div
+											className="relative"
+											data-track-content-area="other"
+											data-content-height={otherTracksHeight}
+										>
+											{otherTrackBackgrounds}
+											{otherTimelineItems}
+										</div>
 									</div>
-								</div>
 							</div>
 						</div>
 						{/* 主轨道区域（sticky 底部） */}
 						<div className="z-10 flex items-start border-t border-b border-white/10 sticky bottom-0 *:pt-1.5">
-							{/* 左侧主轨道标签 */}
-							<div
-								className="text-white z-10 pr-4 flex flex-col bg-neutral-900/90 backdrop-blur-2xl border-r border-white/10"
-								style={{ width: leftColumnWidth }}
-							>
-								{mainTrackLabel}
-							</div>
+								{/* 左侧主轨道标签 */}
+								<div
+									className={`text-white z-10 pr-4 flex flex-col ${
+										mainTrackVisible ? "bg-neutral-900/90" : "bg-black/80"
+									} backdrop-blur-2xl border-r border-white/10`}
+									style={{ width: leftColumnWidth }}
+								>
+									{mainTrackLabel}
+								</div>
 							{/* 右侧主轨道时间线内容 */}
-							<div
-								data-track-drop-zone="main"
-								data-track-index="0"
-								className="relative flex-1 overflow-x-hidden bg-neutral-900/90 backdrop-blur-2xl"
-								onMouseMove={handleMouseMove}
-								onMouseLeave={handleMouseLeave}
-								onClick={handleClick}
-								style={{
-									paddingLeft: leftColumnWidth,
+								<div
+									data-track-drop-zone="main"
+									data-track-index="0"
+									className={`relative flex-1 overflow-x-hidden ${
+										mainTrackVisible ? "bg-neutral-900/90" : "bg-black/80"
+									} backdrop-blur-2xl`}
+									onMouseMove={handleMouseMove}
+									onMouseLeave={handleMouseLeave}
+									onClick={handleClick}
+									style={{
+										paddingLeft: leftColumnWidth,
 									marginLeft: -leftColumnWidth,
 								}}
-							>
-								<div style={{ paddingLeft: timelinePaddingLeft }}>
-									<div className="relative" data-track-content-area="main">
-										{mainTimelineItems}
+								>
+									<div style={{ paddingLeft: timelinePaddingLeft }}>
+										<div className="relative" data-track-content-area="main">
+											{mainTimelineItems}
+										</div>
 									</div>
-								</div>
 							</div>
 						</div>
 						{/* 音频轨道区域 */}

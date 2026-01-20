@@ -16,11 +16,9 @@ import {
 import { applySnap, applySnapForDrag, collectSnapPoints } from "../utils/snap";
 import { updateElementTime } from "../utils/timelineTime";
 import {
-	assignTracks,
 	getElementRole,
 	hasOverlapOnStoredTrack,
 	hasRoleConflictOnStoredTrack,
-	normalizeTrackAssignments,
 	resolveDropTargetForRole,
 } from "../utils/trackAssignment";
 import {
@@ -229,24 +227,7 @@ export const useTimelineElementDnd = ({
 	const copyIdMapRef = useRef<Map<string, string>>(new Map());
 	const applyTrackAssignments = useCallback(
 		(nextElements: TimelineElement[]) => {
-			if (nextElements.length === 0) return nextElements;
-			const normalizedAssignments = normalizeTrackAssignments(
-				assignTracks(nextElements),
-			);
-			let didChange = false;
-			const withTracks = nextElements.map((el) => {
-				const nextTrack = normalizedAssignments.get(el.id);
-				const currentTrack = el.timeline.trackIndex ?? 0;
-				if (nextTrack === undefined || nextTrack === currentTrack) {
-					return el;
-				}
-				didChange = true;
-				return {
-					...el,
-					timeline: { ...el.timeline, trackIndex: nextTrack },
-				};
-			});
-			return didChange ? withTracks : nextElements;
+			return nextElements;
 		},
 		[],
 	);

@@ -1,16 +1,20 @@
 import type { TimelineElement } from "@/dsl/types";
+import type { TimelineTrack } from "../timeline/types";
 
 /**
- * Compute visible elements based on current time.
- * This is a pure function that doesn't trigger React re-renders.
+ * 根据时间与轨道可见性筛选元素。
+ * 纯函数，不触发 React 重新渲染。
  */
 export const computeVisibleElements = (
 	elements: TimelineElement[],
 	currentTime: number,
+	tracks: TimelineTrack[],
 ): TimelineElement[] => {
 	return elements.filter((el) => {
 		const { start = 0, end = Infinity } = el.timeline;
-		return currentTime >= start && currentTime < end;
+		const trackIndex = el.timeline.trackIndex ?? 0;
+		const trackVisible = tracks[trackIndex]?.visible ?? true;
+		return trackVisible && currentTime >= start && currentTime < end;
 	});
 };
 

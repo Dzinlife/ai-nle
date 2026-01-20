@@ -44,6 +44,7 @@ export function buildTimelineMeta(
 		start: number;
 		end: number;
 		trackIndex?: number;
+		trackId?: string;
 		role?: TrackRole;
 	},
 	fps: number,
@@ -56,6 +57,7 @@ export function buildTimelineMeta(
 		startTimecode: framesToTimecode(start, fps),
 		endTimecode: framesToTimecode(end, fps),
 		...(data.trackIndex !== undefined ? { trackIndex: data.trackIndex } : {}),
+		...(data.trackId ? { trackId: data.trackId } : {}),
 		...(data.role ? { role: data.role } : {}),
 	};
 }

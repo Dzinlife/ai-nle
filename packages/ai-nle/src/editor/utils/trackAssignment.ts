@@ -1,4 +1,5 @@
 import { TimelineElement, TrackRole } from "@/dsl/types";
+import { TimelineTrack } from "../timeline/types";
 import { getTrackConfig } from "../timeline/trackConfig";
 import { TrackCategory } from "../timeline/types";
 
@@ -82,6 +83,20 @@ export function getTrackRoleMap(
 }
 
 /**
+ * 基于轨道列表生成角色映射
+ */
+export function getTrackRoleMapFromTracks(
+	tracks: TimelineTrack[],
+): Map<number, TrackRole> {
+	const roleMap = new Map<number, TrackRole>();
+	for (let index = 0; index < tracks.length; index += 1) {
+		const track = tracks[index];
+		roleMap.set(index, track.role);
+	}
+	return roleMap;
+}
+
+/**
  * 计算每个轨道高度（基于角色映射）
  */
 export function getTrackHeightsByIndex(
@@ -112,18 +127,14 @@ export interface TrackLayoutItem {
 /**
  * 构建轨道布局（从上到下）
  */
-export function buildTrackLayout(
-	elements: TimelineElement[],
-	assignments: Map<string, number>,
-): TrackLayoutItem[] {
-	const roleMap = getTrackRoleMap(elements, assignments);
-	const maxIndex = Math.max(0, ...assignments.values());
+export function buildTrackLayout(tracks: TimelineTrack[]): TrackLayoutItem[] {
 	const layout: TrackLayoutItem[] = [];
 	let currentY = 0;
 
-	for (let i = maxIndex; i >= 0; i--) {
+	for (let i = tracks.length - 1; i >= 0; i--) {
+		const track = tracks[i];
 		const role =
-			roleMap.get(i) ?? (i === MAIN_TRACK_INDEX ? "clip" : "overlay");
+			track?.role ?? (i === MAIN_TRACK_INDEX ? "clip" : "overlay");
 		const height = getTrackHeightByRole(role);
 		layout.push({
 			index: i,
@@ -385,6 +396,19 @@ export function getTrackCount(assignments: Map<string, number>): number {
 }
 
 /**
+ * 直接基于存储的 trackIndex 生成轨道分配
+ */
+export function getStoredTrackAssignments(
+	elements: TimelineElement[],
+): Map<string, number> {
+	const assignments = new Map<string, number>();
+	for (const el of elements) {
+		assignments.set(el.id, el.timeline.trackIndex ?? MAIN_TRACK_INDEX);
+	}
+	return assignments;
+}
+
+/**
  * 规范化轨道分配，移除空轨道（主轨道除外）
  * 当某个轨道没有元素时，将上方轨道的元素下移
  *
@@ -427,7 +451,7 @@ export function normalizeTrackAssignments(
 }
 
 /**
- * Apply normalized track assignments to elements.
+ * 将规范化后的轨道分配写回元素
  */
 export function applyTrackAssignments(
 	elements: TimelineElement[],

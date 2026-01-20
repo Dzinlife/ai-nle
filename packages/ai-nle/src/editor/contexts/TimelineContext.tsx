@@ -10,24 +10,22 @@ import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import { TimelineElement } from "@/dsl/types";
 import { clampFrame } from "@/utils/timecode";
-import { DropTarget, ExtendedDropTarget } from "../timeline/types";
+import { DropTarget, ExtendedDropTarget, TimelineTrack } from "../timeline/types";
 import { findAttachments } from "../utils/attachments";
 import { finalizeTimelineElements } from "../utils/mainTrackMagnet";
 import { SnapPoint } from "../utils/snap";
 import { updateElementTime } from "../utils/timelineTime";
+import { MAIN_TRACK_ID, reconcileTracks } from "../utils/trackState";
 import {
-	assignTracks,
-	applyTrackAssignments,
 	findAvailableTrack,
 	getDropTarget,
 	getElementRole,
-	getTrackCount,
 	getTrackFromY,
 	getYFromTrack,
 	hasOverlapOnStoredTrack,
 	hasRoleConflictOnStoredTrack,
 	insertTrackAt,
-	normalizeTrackAssignments,
+	getStoredTrackAssignments,
 	resolveDropTargetForRole,
 } from "../utils/trackAssignment";
 
@@ -69,6 +67,7 @@ interface TimelineStore {
 	currentTime: number;
 	previewTime: number | null; // hover 时的临时预览时间
 	elements: TimelineElement[];
+	tracks: TimelineTrack[];
 	canvasSize: { width: number; height: number };
 	isPlaying: boolean;
 	isDragging: boolean; // 是否正在拖拽元素
@@ -98,6 +97,11 @@ interface TimelineStore {
 			| TimelineElement[]
 			| ((prev: TimelineElement[]) => TimelineElement[]),
 	) => void;
+	setTracks: (
+		tracks: TimelineTrack[] | ((prev: TimelineTrack[]) => TimelineTrack[]),
+	) => void;
+	setTrackVisible: (trackId: string, visible: boolean) => void;
+	toggleTrackVisible: (trackId: string) => void;
 	setCanvasSize: (size: { width: number; height: number }) => void;
 	getCurrentTime: () => number;
 	getDisplayTime: () => number; // 返回 previewTime ?? currentTime
@@ -135,6 +139,13 @@ export const useTimelineStore = create<TimelineStore>()(
 		currentTime: 0,
 		previewTime: null,
 		elements: [],
+		tracks: [
+			{
+				id: MAIN_TRACK_ID,
+				role: "clip",
+				visible: true,
+			},
+		],
 		canvasSize: { width: 1920, height: 1080 },
 		isPlaying: false,
 		isDragging: false,
@@ -189,6 +200,35 @@ export const useTimelineStore = create<TimelineStore>()(
 			if (currentElements !== newElements) {
 				set({ elements: newElements });
 			}
+		},
+
+		setTracks: (
+			tracks: TimelineTrack[] | ((prev: TimelineTrack[]) => TimelineTrack[]),
+		) => {
+			const currentTracks = get().tracks;
+			const nextTracks =
+				typeof tracks === "function" ? tracks(currentTracks) : tracks;
+			if (currentTracks !== nextTracks) {
+				set({ tracks: nextTracks });
+			}
+		},
+
+		setTrackVisible: (trackId: string, visible: boolean) => {
+			set((state) => ({
+				tracks: state.tracks.map((track) =>
+					track.id === trackId ? { ...track, visible } : track,
+				),
+			}));
+		},
+
+		toggleTrackVisible: (trackId: string) => {
+			set((state) => ({
+				tracks: state.tracks.map((track) =>
+					track.id === trackId
+						? { ...track, visible: !track.visible }
+						: track,
+				),
+			}));
 		},
 
 		setCanvasSize: (size: { width: number; height: number }) => {
@@ -524,9 +564,26 @@ export const useMainTrackMagnet = () => {
 	};
 };
 
+export const useTracks = () => {
+	const tracks = useTimelineStore((state) => state.tracks);
+	const setTracks = useTimelineStore((state) => state.setTracks);
+	const setTrackVisible = useTimelineStore((state) => state.setTrackVisible);
+	const toggleTrackVisible = useTimelineStore(
+		(state) => state.toggleTrackVisible,
+	);
+
+	return {
+		tracks,
+		setTracks,
+		setTrackVisible,
+		toggleTrackVisible,
+	};
+};
+
 export const useTrackAssignments = () => {
 	const elements = useTimelineStore((state) => state.elements);
 	const setElements = useTimelineStore((state) => state.setElements);
+	const tracks = useTimelineStore((state) => state.tracks);
 	const fps = useTimelineStore((state) => state.fps);
 	const mainTrackMagnetEnabled = useTimelineStore(
 		(state) => state.mainTrackMagnetEnabled,
@@ -535,12 +592,10 @@ export const useTrackAssignments = () => {
 
 	// 基于 elements 计算轨道分配
 	const trackAssignments = useMemo(() => {
-		return assignTracks(elements);
+		return getStoredTrackAssignments(elements);
 	}, [elements]);
 
-	const trackCount = useMemo(() => {
-		return getTrackCount(trackAssignments);
-	}, [trackAssignments]);
+	const trackCount = tracks.length || 1;
 
 	// 更新元素的轨道位置
 	const updateElementTrack = useCallback(
@@ -570,7 +625,7 @@ export const useTrackAssignments = () => {
 				);
 
 				// 更新元素的 trackIndex
-				const updated = prev.map((el) => {
+				return prev.map((el) => {
 					if (el.id === elementId) {
 						return {
 							...el,
@@ -582,19 +637,6 @@ export const useTrackAssignments = () => {
 					}
 					return el;
 				});
-
-				// 规范化轨道（移除空轨道）
-				const newAssignments = assignTracks(updated);
-				const normalized = normalizeTrackAssignments(newAssignments);
-
-				// 应用规范化后的轨道索引
-				return updated.map((el) => ({
-					...el,
-					timeline: {
-						...el.timeline,
-						trackIndex: normalized.get(el.id) ?? el.timeline.trackIndex,
-					},
-				}));
 			});
 		},
 		[setElements, trackAssignments, trackCount],
@@ -605,7 +647,7 @@ export const useTrackAssignments = () => {
 		(elementId: string, start: number, end: number, dropTarget: DropTarget) => {
 			setElements((prev) => {
 				// 计算当前的轨道分配
-				const currentAssignments = assignTracks(prev);
+				const currentAssignments = getStoredTrackAssignments(prev);
 				const originalElement = prev.find((el) => el.id === elementId);
 				const elementRole = originalElement
 					? getElementRole(originalElement)
@@ -822,7 +864,7 @@ export const useTrackAssignments = () => {
 		) => {
 			setElements((prev) => {
 				// 计算当前的轨道分配
-				const currentAssignments = assignTracks(prev);
+				const currentAssignments = getStoredTrackAssignments(prev);
 				const originalElement = prev.find((el) => el.id === elementId);
 				const elementRole = originalElement
 					? getElementRole(originalElement)
@@ -1082,9 +1124,6 @@ export const useTrackAssignments = () => {
 					autoAttach,
 					fps,
 				});
-				if (!mainTrackMagnetEnabled && attachedChildren.length > 0) {
-					return applyTrackAssignments(finalized);
-				}
 				return finalized;
 			});
 		},
@@ -1235,37 +1274,19 @@ export const TimelineProvider = ({
 }) => {
 	const lastTimeRef = useRef<number | null>(null);
 	const frameRemainderRef = useRef(0);
-	const applyInitialTrackAssignments = useCallback(
-		(elements: TimelineElement[]) => {
-			if (elements.length === 0) return elements;
-			const assignments = assignTracks(elements);
-			let changed = false;
-			const updated = elements.map((el) => {
-				const assignedTrack = assignments.get(el.id);
-				if (assignedTrack === undefined) return el;
-				if (el.timeline.trackIndex === assignedTrack) return el;
-				changed = true;
-				return {
-					...el,
-					timeline: {
-						...el.timeline,
-						trackIndex: assignedTrack,
-					},
-				};
-			});
-			return changed ? updated : elements;
-		},
-		[],
-	);
 
 	// 在首次渲染前同步设置初始状态
 	// 使用 useLayoutEffect 确保在子组件渲染前执行
 	useLayoutEffect(() => {
 		if (initialElements) {
-			const normalizedElements = applyInitialTrackAssignments(initialElements);
+			const { tracks, elements } = reconcileTracks(
+				initialElements,
+				useTimelineStore.getState().tracks,
+			);
 			useTimelineStore.setState({
 				currentTime: clampFrame(initialCurrentTime ?? 0),
-				elements: normalizedElements,
+				elements,
+				tracks,
 				canvasSize: initialCanvasSize ?? { width: 1920, height: 1080 },
 				fps: normalizeFps(initialFps ?? DEFAULT_FPS),
 			});
@@ -1275,12 +1296,16 @@ export const TimelineProvider = ({
 	// 后续更新
 	useEffect(() => {
 		if (initialElements) {
-			const normalizedElements = applyInitialTrackAssignments(initialElements);
+			const { tracks, elements } = reconcileTracks(
+				initialElements,
+				useTimelineStore.getState().tracks,
+			);
 			useTimelineStore.setState({
-				elements: normalizedElements,
+				elements,
+				tracks,
 			});
 		}
-	}, [applyInitialTrackAssignments, initialElements]);
+	}, [initialElements]);
 
 	useEffect(() => {
 		if (initialCurrentTime !== undefined) {
@@ -1305,6 +1330,19 @@ export const TimelineProvider = ({
 			});
 		}
 	}, [initialFps]);
+
+	const elements = useTimelineStore((state) => state.elements);
+	const tracks = useTimelineStore((state) => state.tracks);
+
+	useEffect(() => {
+		const result = reconcileTracks(elements, tracks);
+		if (result.didChangeElements || result.didChangeTracks) {
+			useTimelineStore.setState({
+				elements: result.elements,
+				tracks: result.tracks,
+			});
+		}
+	}, [elements, tracks]);
 
 	// 播放循环
 	useEffect(() => {

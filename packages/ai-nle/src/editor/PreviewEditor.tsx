@@ -28,7 +28,7 @@ import {
 import { componentRegistry } from "@/dsl/model/componentRegistry";
 import type { TimelineElement } from "@/dsl/types";
 import { usePreview } from "./contexts/PreviewProvider";
-import { useTimelineStore } from "./contexts/TimelineContext";
+import { useTimelineStore, useTracks } from "./contexts/TimelineContext";
 import { LabelLayer } from "./preview/LabelLayer";
 import { usePreviewCoordinates } from "./preview/usePreviewCoordinates";
 import { usePreviewInteractions } from "./preview/usePreviewInteractions";
@@ -36,6 +36,7 @@ import { computeVisibleElements } from "./preview/utils";
 
 const Preview = () => {
 	const renderElementsRef = useRef<TimelineElement[]>([]);
+	const { tracks } = useTracks();
 
 	const { getDisplayTime, getElements } = useMemo(
 		() => useTimelineStore.getState(),
@@ -403,6 +404,7 @@ const Preview = () => {
 			const visibleElements = computeVisibleElements(
 				getElements(),
 				displayTime,
+				tracks,
 			);
 			const orderedElements = sortByTrackIndex(visibleElements);
 			const children = buildSkiaChildren(orderedElements);
@@ -433,7 +435,7 @@ const Preview = () => {
 			unsub1();
 			unsub2();
 		};
-	}, [buildSkiaChildren, getElements, sortByTrackIndex]);
+	}, [buildSkiaChildren, getElements, sortByTrackIndex, tracks]);
 
 	useEffect(() => {
 		return useTimelineStore.subscribe(
@@ -443,7 +445,7 @@ const Preview = () => {
 				if (!root) return;
 
 				const time = getDisplayTime();
-				const visibleElements = computeVisibleElements(newElements, time);
+				const visibleElements = computeVisibleElements(newElements, time, tracks);
 				const orderedElements = sortByTrackIndex(visibleElements);
 				const children = buildSkiaChildren(orderedElements);
 				root.render(children);
@@ -456,7 +458,7 @@ const Preview = () => {
 				fireImmediately: true,
 			},
 		);
-	}, [buildSkiaChildren, getDisplayTime, sortByTrackIndex]);
+	}, [buildSkiaChildren, getDisplayTime, sortByTrackIndex, tracks]);
 
 	// Stable Canvas component - only re-creates when size changes
 	// Children are rendered directly via root.render() above

@@ -2,7 +2,7 @@
  * 时间线拖拽系统类型定义
  */
 
-import { TimelineElement } from "@/dsl/types";
+import { TimelineElement, TrackRole } from "@/dsl/types";
 
 // ============================================================================
 // 轨道系统类型
@@ -54,6 +54,15 @@ export interface TrackInstance {
 	config: TrackConfig;
 	/** 计算出的 Y 坐标（从顶部开始） */
 	y: number;
+}
+
+/**
+ * 轨道状态（时间线编辑器）
+ */
+export interface TimelineTrack {
+	id: string;
+	role: TrackRole;
+	visible: boolean;
 }
 
 // ============================================================================

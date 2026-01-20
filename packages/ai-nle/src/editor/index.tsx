@@ -23,8 +23,8 @@ import {
 } from "./utils/mainTrackMagnet";
 import { buildTimelineMeta } from "./utils/timelineTime";
 import {
-	assignTracks,
 	findAvailableTrack,
+	getStoredTrackAssignments,
 	getTrackCount,
 } from "./utils/trackAssignment";
 
@@ -199,7 +199,7 @@ const EditorContent: React.FC = () => {
 				const startFrame = clampFrame(currentTime);
 				const endFrame = startFrame + durationFrames;
 				const newId = `element-${Date.now()}`;
-				const trackAssignments = assignTracks(prev);
+				const trackAssignments = getStoredTrackAssignments(prev);
 				const trackCount = getTrackCount(trackAssignments);
 				// 预览投放默认落在非主轨，避免主轨磁吸造成意外移动
 				const targetTrackIndex = 1; // 预览投放默认非主轨

@@ -35,6 +35,7 @@ export interface TimelineMeta {
 	startTimecode: string; // 可读时间戳 (HH:MM:SS:FF)
 	endTimecode: string; // 可读时间戳 (HH:MM:SS:FF)
 	trackIndex?: number; // 轨道索引（0 为主轨道，在底部）
+	trackId?: string; // 轨道标识（用于稳定轨道身份）
 	role?: TrackRole; // 轨道角色（语义标识，用于 agent 理解）
 }
 

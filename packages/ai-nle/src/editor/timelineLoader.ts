@@ -238,6 +238,14 @@ function validateTimelineProps(
 		}
 	}
 
+	let trackId: string | undefined;
+	if (timeline.trackId !== undefined) {
+		if (typeof timeline.trackId !== "string") {
+			throw new Error(`${path}.trackId: must be a string`);
+		}
+		trackId = timeline.trackId;
+	}
+
 	let role: TrackRole | undefined;
 	if (timeline.role !== undefined) {
 		if (typeof timeline.role !== "string") {
@@ -265,6 +273,7 @@ function validateTimelineProps(
 		...(timeline.trackIndex !== undefined
 			? { trackIndex: timeline.trackIndex }
 			: {}),
+		...(trackId ? { trackId } : {}),
 		...(role ? { role } : {}),
 	};
 }

@@ -11,10 +11,6 @@ import {
 	useTimelineStore,
 	useTrackAssignments,
 } from "../contexts/TimelineContext";
-import {
-	assignTracks,
-	normalizeTrackAssignments,
-} from "../utils/trackAssignment";
 import type { CanvasConvertOptions } from "./utils";
 
 const SNAP_GUIDE_THRESHOLD = 6;
@@ -572,17 +568,7 @@ export const usePreviewInteractions = ({
 
 	const applyTrackAssignments = useCallback(
 		(nextElements: TimelineElement[]) => {
-			if (nextElements.length === 0) return nextElements;
-			const normalized = normalizeTrackAssignments(assignTracks(nextElements));
-			let didChange = false;
-			const withTracks = nextElements.map((el) => {
-				const nextTrack = normalized.get(el.id);
-				const currentTrack = el.timeline.trackIndex ?? 0;
-				if (nextTrack === undefined || nextTrack === currentTrack) return el;
-				didChange = true;
-				return { ...el, timeline: { ...el.timeline, trackIndex: nextTrack } };
-			});
-			return didChange ? withTracks : nextElements;
+			return nextElements;
 		},
 		[],
 	);
@@ -999,7 +985,6 @@ export const usePreviewInteractions = ({
 						setSelection(copyIds, primaryCopyId ?? null);
 					}
 
-					// Align stored trackIndex with TimelineEditor's post-drop behavior.
 					const currentElements = useTimelineStore.getState().elements;
 					useTimelineStore.setState({
 						elements: applyTrackAssignments(currentElements),

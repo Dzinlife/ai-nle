@@ -42,6 +42,7 @@ interface TimelineElementProps {
 	ratio: number;
 	trackHeight: number;
 	trackCount: number;
+	trackVisible?: boolean;
 	updateTimeRange: (elementId: string, start: number, end: number) => void;
 }
 
@@ -223,6 +224,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	ratio,
 	trackHeight,
 	trackCount,
+	trackVisible = true,
 	updateTimeRange,
 }) => {
 	const { id, timeline } = element;
@@ -333,6 +335,8 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	// 判断当前元素是否正在被拖拽
 	const isBeingDragged = dragGhosts.some((ghost) => ghost.elementId === id);
 	const isMultiDragging = dragGhosts.length > 1;
+	const trackOpacity = trackVisible ? 1 : 0.35;
+	const dragOpacity = isBeingDragged ? (isMultiDragging ? 0.5 : 0) : 1;
 
 	// 容器样式
 	const containerClassName = useMemo(() => {
@@ -354,7 +358,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				top: displayY,
 				height: elementHeight,
 				// 拖拽时降低透明度，但保持在 DOM 中以维持拖拽手势
-				opacity: isBeingDragged ? (isMultiDragging ? 0.5 : 0) : 1,
+				opacity: trackOpacity * dragOpacity,
 			}}
 			onClick={handleClick}
 		>

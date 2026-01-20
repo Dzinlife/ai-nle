@@ -6,6 +6,7 @@ import {
 	useFps,
 	useTimelineScale,
 	useTimelineStore,
+	useTracks,
 } from "../contexts/TimelineContext";
 import {
 	calculateAutoScrollSpeed,
@@ -17,9 +18,8 @@ import {
 import { DEFAULT_TRACK_HEIGHT } from "../timeline/trackConfig";
 import { getPixelsPerFrame } from "../utils/timelineScale";
 import {
-	assignTracks,
-	getTrackCount,
-	getTrackRoleMap,
+	getStoredTrackAssignments,
+	getTrackRoleMapFromTracks,
 	hasOverlapOnTrack,
 	isRoleCompatibleWithTrack,
 	MAIN_TRACK_INDEX,
@@ -60,15 +60,16 @@ export function useMaterialDndContext(): MaterialDndContext {
 	const mainTrackMagnetEnabled = useTimelineStore(
 		(state) => state.mainTrackMagnetEnabled,
 	);
-	const trackAssignments = useMemo(() => assignTracks(elements), [elements]);
+	const { tracks } = useTracks();
+	const trackAssignments = useMemo(
+		() => getStoredTrackAssignments(elements),
+		[elements],
+	);
 	const trackRoleMap = useMemo(
-		() => getTrackRoleMap(elements, trackAssignments),
-		[elements, trackAssignments],
+		() => getTrackRoleMapFromTracks(tracks),
+		[tracks],
 	);
-	const trackCount = useMemo(
-		() => getTrackCount(trackAssignments),
-		[trackAssignments],
-	);
+	const trackCount = tracks.length || 1;
 	const defaultDurationFrames = useMemo(
 		() => secondsToFrames(5, fps),
 		[fps],
