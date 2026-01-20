@@ -1,10 +1,8 @@
-import React from "react";
-
-import type { SkiaProps } from "../../processors";
 import type { DisplacementMapImageFilterProps } from "../../../dom/types";
+import type { SkiaProps } from "../../processors";
 
 export const DisplacementMap = (
-  props: SkiaProps<DisplacementMapImageFilterProps>
+	props: SkiaProps<DisplacementMapImageFilterProps>,
 ) => {
-  return <skDisplacementMapImageFilter {...props} />;
+	return <skDisplacementMapImageFilter {...props} />;
 };

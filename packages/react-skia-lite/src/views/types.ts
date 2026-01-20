@@ -1,6 +1,5 @@
-import type { SharedValue } from "react-native-reanimated";
 import type { Node } from "../dom/types";
-import type { ViewProps } from "../react-native-types";
+import type { SharedValue, ViewProps } from "../react-native-types";
 import type { SkImage, SkPicture, SkRect, SkSize } from "../skia/types";
 
 export type NativeSkiaViewProps = ViewProps & {

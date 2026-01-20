@@ -1,15 +1,17 @@
 import { useTimelineStore } from "@/editor/contexts/TimelineContext";
-import { useModelSelector } from "../model/registry";
+import { createModelSelector } from "../model/registry";
 import type { TimelineProps } from "../model/types";
-import type { ImageProps } from "./model";
+import type { ImageInternal, ImageProps } from "./model";
 
 interface ImageTimelineProps extends TimelineProps {
 	id: string;
 }
 
+const useImageSelector = createModelSelector<ImageProps, ImageInternal>();
+
 export const ImageTimeline: React.FC<ImageTimelineProps> = ({ id }) => {
 	// 订阅 model 状态
-	const uri = useModelSelector<ImageProps, string | undefined>(
+	const uri = useImageSelector(
 		id,
 		(state) => state.props.uri,
 	);

@@ -1,5 +1,3 @@
-import "./skia/NativeSetup";
-
 export * from "./dom/nodes";
 // export * from "./external";
 // export * from "./animation";

@@ -9,7 +9,7 @@ export type ISkiaViewApiWeb = ISkiaViewApi & {
 	registerView(nativeId: string, view: SkiaPictureViewHandle): void;
 };
 
-global.SkiaViewApi = {
+export const SkiaViewApi = {
 	views: {},
 	deferedPictures: {},
 	deferedOnSize: {},
@@ -55,6 +55,3 @@ global.SkiaViewApi = {
 		});
 	},
 } as ISkiaViewApiWeb;
-
-// eslint-disable-next-line import/no-default-export
-export default {};

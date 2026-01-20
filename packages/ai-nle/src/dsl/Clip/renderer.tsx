@@ -5,7 +5,7 @@ import {
 	usePlaybackControl,
 	useTimelineStore,
 } from "@/editor/contexts/TimelineContext";
-import { useModelSelector } from "../model/registry";
+import { createModelSelector } from "../model/registry";
 import { useRenderLayout } from "../useRenderLayout";
 import { type ClipInternal, type ClipProps, calculateVideoTime } from "./model";
 import { framesToSeconds } from "@/utils/timecode";
@@ -13,6 +13,8 @@ import { framesToSeconds } from "@/utils/timecode";
 interface ClipRendererProps extends ClipProps {
 	id: string;
 }
+
+const useClipSelector = createModelSelector<ClipProps, ClipInternal>();
 
 const ClipRenderer: React.FC<ClipRendererProps> = ({ id }) => {
 	// 播放时使用真正的 currentTime，非播放时使用 previewTime ?? currentTime
@@ -37,42 +39,36 @@ const ClipRenderer: React.FC<ClipRendererProps> = ({ id }) => {
 	const y = cy - height / 2;
 
 	// 订阅需要的状态
-	const isLoading = useModelSelector<ClipProps, boolean>(
+	const isLoading = useClipSelector(
 		id,
 		(state) => state.constraints.isLoading ?? false,
 	);
-	const hasError = useModelSelector<ClipProps, boolean>(
+	const hasError = useClipSelector(
 		id,
 		(state) => state.constraints.hasError ?? false,
 	);
-	const currentFrame = useModelSelector<
-		ClipProps,
-		ClipInternal["currentFrame"]
-	>(id, (state) => (state.internal as unknown as ClipInternal).currentFrame);
-	const props = useModelSelector<ClipProps, ClipProps>(
+	const currentFrame = useClipSelector(
 		id,
-		(state) => state.props,
+		(state) => state.internal.currentFrame,
 	);
-	const videoDuration = useModelSelector<ClipProps, number>(
+	const props = useClipSelector(id, (state) => state.props);
+	const videoDuration = useClipSelector(
 		id,
-		(state) => (state.internal as unknown as ClipInternal).videoDuration,
+		(state) => state.internal.videoDuration,
 	);
-	const seekToTime = useModelSelector<ClipProps, ClipInternal["seekToTime"]>(
+	const seekToTime = useClipSelector(id, (state) => state.internal.seekToTime);
+	const startPlayback = useClipSelector(
 		id,
-		(state) => (state.internal as unknown as ClipInternal).seekToTime,
+		(state) => state.internal.startPlayback,
 	);
-	const startPlayback = useModelSelector<
-		ClipProps,
-		ClipInternal["startPlayback"]
-	>(id, (state) => (state.internal as unknown as ClipInternal).startPlayback);
-	const getNextFrame = useModelSelector<
-		ClipProps,
-		ClipInternal["getNextFrame"]
-	>(id, (state) => (state.internal as unknown as ClipInternal).getNextFrame);
-	const stopPlayback = useModelSelector<
-		ClipProps,
-		ClipInternal["stopPlayback"]
-	>(id, (state) => (state.internal as unknown as ClipInternal).stopPlayback);
+	const getNextFrame = useClipSelector(
+		id,
+		(state) => state.internal.getNextFrame,
+	);
+	const stopPlayback = useClipSelector(
+		id,
+		(state) => state.internal.stopPlayback,
+	);
 
 	// 跟踪播放状态
 	const wasPlayingRef = useRef(false);

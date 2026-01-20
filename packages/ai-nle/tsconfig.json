@@ -1,6 +1,6 @@
 {
   "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["**/*.flow", "**/node_modules/**/*.flow"],
+  "exclude": ["**/*.flow", "**/node_modules/**/*.flow", "../react-skia-lite/**/*"],
   "compilerOptions": {
     "target": "ES2022",
     "jsx": "react-jsx",

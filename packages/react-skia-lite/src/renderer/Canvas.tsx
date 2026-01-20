@@ -28,6 +28,7 @@ import { Skia } from "../skia";
 import type { SkImage, SkRect, SkSize } from "../skia/types";
 import { SkiaSGRoot } from "../sksg/Reconciler";
 import SkiaPictureViewNativeComponent from "../specs/SkiaPictureViewNativeComponent";
+import { SkiaViewApi } from "../views/api";
 import { SkiaViewNativeId } from "../views/SkiaViewNativeId";
 
 export interface CanvasRef extends FC<CanvasProps> {
@@ -46,16 +47,15 @@ export interface CanvasRef extends FC<CanvasProps> {
 
 export const useCanvasRef = () => useRef<CanvasRef>(null);
 
-const useReanimatedFrame = () => {};
-const measure = null;
+// const useReanimatedFrame = () => {};
+// const measure = null;
 
-const useCanvasRefPriv: typeof useRef<View> = useRef;
+const useCanvasRefPriv = useRef<View>;
 
 export const useCanvasSize = (userRef?: RefObject<CanvasRef | null>) => {
 	const ourRef = useCanvasRef();
 	const ref = userRef ?? ourRef;
 	const [size, setSize] = useState<SkSize>({ width: 0, height: 0 });
-	// biome-ignore lint/correctness/useExhaustiveDependencies: ...
 	useLayoutEffect(() => {
 		if (ref.current) {
 			ref.current.measure((_x, _y, width, height) => {
@@ -124,7 +124,6 @@ export const Canvas = ({
 	// }, !!onSize);
 
 	// Render effects
-	// biome-ignore lint/correctness/useExhaustiveDependencies: ...
 	useLayoutEffect(() => {
 		root.render(children);
 	}, [children, root, nativeId]);
@@ -184,8 +183,8 @@ export const Canvas = ({
 			nativeID={`${nativeId}`}
 			debug={debug}
 			opaque={opaque}
-			colorSpace={colorSpace}
-			androidWarmup={androidWarmup}
+			// colorSpace={colorSpace}
+			// androidWarmup={androidWarmup}
 			onLayout={
 				Platform.OS === "web" && (onSize || onLayout) ? onLayoutWeb : onLayout
 			}

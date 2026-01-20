@@ -6,7 +6,7 @@ import {
 	useTimelineStore,
 } from "@/editor/contexts/TimelineContext";
 import { framesToSeconds } from "@/utils/timecode";
-import { useModelSelector } from "../model/registry";
+import { createModelSelector } from "../model/registry";
 import { useRenderLayout } from "../useRenderLayout";
 import type { LottieInternal, LottieProps } from "./model";
 
@@ -16,6 +16,8 @@ interface LottieRendererProps extends LottieProps {
 	speed?: number;
 	loop?: boolean;
 }
+
+const useLottieSelector = createModelSelector<LottieProps, LottieInternal>();
 
 const Lottie: React.FC<LottieRendererProps> = ({
 	id,
@@ -42,15 +44,12 @@ const Lottie: React.FC<LottieRendererProps> = ({
 	const y = cy - height / 2;
 
 	// 从 model 获取动画和状态
-	const animation = useModelSelector<LottieProps, LottieInternal["animation"]>(
-		id,
-		(state) => (state.internal as unknown as LottieInternal).animation,
-	);
-	const isLoading = useModelSelector<LottieProps, boolean>(
+	const animation = useLottieSelector(id, (state) => state.internal.animation);
+	const isLoading = useLottieSelector(
 		id,
 		(state) => state.constraints.isLoading ?? false,
 	);
-	const hasError = useModelSelector<LottieProps, boolean>(
+	const hasError = useLottieSelector(
 		id,
 		(state) => state.constraints.hasError ?? false,
 	);

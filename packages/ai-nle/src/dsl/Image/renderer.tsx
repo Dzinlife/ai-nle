@@ -1,11 +1,13 @@
 import { Group, ImageShader, Rect } from "react-skia-lite";
-import { useModelSelector } from "../model/registry";
+import { createModelSelector } from "../model/registry";
 import { useRenderLayout } from "../useRenderLayout";
 import type { ImageInternal, ImageProps } from "./model";
 
 interface ImageRendererProps extends ImageProps {
 	id: string;
 }
+
+const useImageSelector = createModelSelector<ImageProps, ImageInternal>();
 
 const ImageRenderer: React.FC<ImageRendererProps> = ({ id }) => {
 	const renderLayout = useRenderLayout(id);
@@ -15,18 +17,15 @@ const ImageRenderer: React.FC<ImageRendererProps> = ({ id }) => {
 	const y = cy - height / 2;
 
 	// 订阅需要的状态
-	const isLoading = useModelSelector<ImageProps, boolean>(
+	const isLoading = useImageSelector(
 		id,
 		(state) => state.constraints.isLoading ?? false,
 	);
-	const hasError = useModelSelector<ImageProps, boolean>(
+	const hasError = useImageSelector(
 		id,
 		(state) => state.constraints.hasError ?? false,
 	);
-	const image = useModelSelector<ImageProps, ImageInternal["image"]>(
-		id,
-		(state) => (state.internal as unknown as ImageInternal).image,
-	);
+	const image = useImageSelector(id, (state) => state.internal.image);
 
 	// Loading 状态
 	if (isLoading) {

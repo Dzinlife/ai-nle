@@ -31,9 +31,9 @@ export class JsiVideo implements Video {
 
   private webglBuffer: CanvasKitWebGLBuffer | null = null;
 
-  constructor(
+ constructor(
     private ImageFactory: ImageFactory,
-    private videoElement: HTMLVideoElement
+    public videoElement: HTMLVideoElement
   ) {
     document.body.appendChild(this.videoElement);
   }

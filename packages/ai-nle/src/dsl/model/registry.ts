@@ -7,11 +7,14 @@ import type {
 
 // Model 注册表（单例）
 class ModelRegistryClass {
-	private models = new Map<string, ComponentModelStore<any>>();
+	private models = new Map<string, ComponentModelStore<any, any>>();
 	private listeners = new Set<() => void>();
 
 	// 注册 model
-	register<P>(id: string, store: ComponentModelStore<P>): void {
+	register<P, Internal>(
+		id: string,
+		store: ComponentModelStore<P, Internal>,
+	): void {
 		if (this.models.has(id)) {
 			console.warn(`Model with id "${id}" already exists, replacing...`);
 			this.unregister(id);
@@ -31,8 +34,8 @@ class ModelRegistryClass {
 	}
 
 	// 获取 model
-	get<P>(id: string): ComponentModelStore<P> | undefined {
-		return this.models.get(id) as ComponentModelStore<P> | undefined;
+	get<P, Internal>(id: string): ComponentModelStore<P, Internal> | undefined {
+		return this.models.get(id) as ComponentModelStore<P, Internal> | undefined;
 	}
 
 	// 检查是否存在
@@ -54,7 +57,7 @@ class ModelRegistryClass {
 	}
 
 	// 获取快照（用于 useSyncExternalStore）
-	getSnapshot(): Map<string, ComponentModelStore<any>> {
+	getSnapshot(): Map<string, ComponentModelStore<any, any>> {
 		return this.models;
 	}
 
@@ -75,10 +78,13 @@ export const modelRegistry = new ModelRegistryClass();
  * 注意：这个 hook 不会自动订阅 model 内部状态变化
  * 需要配合 useModelState 或 useModelSelector 使用
  */
-export function useModel<P = Record<string, unknown>>(
+export function useModel<
+	P = Record<string, unknown>,
+	Internal = Record<string, unknown>,
+>(
 	id: string,
-): ComponentModelStore<P> {
-	const store = modelRegistry.get<P>(id);
+): ComponentModelStore<P, Internal> {
+	const store = modelRegistry.get<P, Internal>(id);
 	if (!store) {
 		throw new Error(`Model not found: ${id}`);
 	}
@@ -88,19 +94,25 @@ export function useModel<P = Record<string, unknown>>(
 /**
  * 安全获取 model（可能不存在）
  */
-export function useModelSafe<P = Record<string, unknown>>(
+export function useModelSafe<
+	P = Record<string, unknown>,
+	Internal = Record<string, unknown>,
+>(
 	id: string,
-): ComponentModelStore<P> | undefined {
-	return modelRegistry.get<P>(id);
+): ComponentModelStore<P, Internal> | undefined {
+	return modelRegistry.get<P, Internal>(id);
 }
 
 /**
  * 订阅 model 的完整状态
  */
-export function useModelState<P = Record<string, unknown>>(
+export function useModelState<
+	P = Record<string, unknown>,
+	Internal = Record<string, unknown>,
+>(
 	id: string,
-): ComponentModel<P> {
-	const store = useModel<P>(id);
+): ComponentModel<P, Internal> {
+	const store = useModel<P, Internal>(id);
 
 	return useSyncExternalStore(
 		store.subscribe,
@@ -112,12 +124,16 @@ export function useModelState<P = Record<string, unknown>>(
 /**
  * 订阅 model 的特定字段（性能优化）
  */
-export function useModelSelector<P, T>(
+export function useModelSelector<
+	P,
+	Internal = Record<string, unknown>,
+	T = unknown,
+>(
 	id: string,
-	selector: (state: ComponentModel<P>) => T,
+	selector: (state: ComponentModel<P, Internal>) => T,
 	equalityFn?: (a: T, b: T) => boolean,
 ): T {
-	const store = useModel<P>(id);
+	const store = useModel<P, Internal>(id);
 
 	const getSnapshot = useCallback(() => {
 		return selector(store.getState());
@@ -147,6 +163,19 @@ export function useModelSelector<P, T>(
 	);
 }
 
+export function createModelSelector<
+	P,
+	Internal = Record<string, unknown>,
+>() {
+	return function <T>(
+		id: string,
+		selector: (state: ComponentModel<P, Internal>) => T,
+		equalityFn?: (a: T, b: T) => boolean,
+	): T {
+		return useModelSelector<P, Internal, T>(id, selector, equalityFn);
+	};
+}
+
 /**
  * 只订阅 constraints
  */
@@ -157,9 +186,13 @@ export function useModelConstraints(id: string): ComponentConstraints {
 /**
  * 安全订阅任意字段（id 可为空或不存在）
  */
-export function useModelSelectorSafe<P, T>(
+export function useModelSelectorSafe<
+	P,
+	Internal = Record<string, unknown>,
+	T = unknown,
+>(
 	id: string | undefined,
-	selector: (state: ComponentModel<P>) => T,
+	selector: (state: ComponentModel<P, Internal>) => T,
 	defaultValue: T,
 	equalityFn?: (a: T, b: T) => boolean,
 ): T {
@@ -168,7 +201,7 @@ export function useModelSelectorSafe<P, T>(
 			const unsubs: Array<() => void> = [];
 			unsubs.push(modelRegistry.subscribe(onStoreChange));
 			if (id) {
-				const store = modelRegistry.get<P>(id);
+				const store = modelRegistry.get<P, Internal>(id);
 				if (store) {
 					let currentValue = selector(store.getState());
 					unsubs.push(
@@ -194,7 +227,7 @@ export function useModelSelectorSafe<P, T>(
 
 	const getSnapshot = useCallback(() => {
 		if (!id) return defaultValue;
-		const store = modelRegistry.get<P>(id);
+		const store = modelRegistry.get<P, Internal>(id);
 		return store ? selector(store.getState()) : defaultValue;
 	}, [id, selector, defaultValue]);
 
@@ -204,8 +237,11 @@ export function useModelSelectorSafe<P, T>(
 /**
  * 只订阅 props
  */
-export function useModelProps<P = Record<string, unknown>>(id: string): P {
-	return useModelSelector<P, P>(id, (state) => state.props);
+export function useModelProps<
+	P = Record<string, unknown>,
+	Internal = Record<string, unknown>,
+>(id: string): P {
+	return useModelSelector<P, Internal, P>(id, (state) => state.props);
 }
 
 /**

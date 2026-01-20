@@ -4,7 +4,7 @@ import { Platform } from "../Platform";
 import type { LayoutChangeEvent } from "../react-native-types";
 import type { SkImage, SkPicture, SkRect } from "../skia/types";
 import { JsiSkSurface } from "../skia/web/JsiSkSurface";
-import type { ISkiaViewApiWeb } from "../specs/NativeSkiaModule";
+import { SkiaViewApi } from "./api";
 import { SkiaViewNativeId } from "./SkiaViewNativeId";
 import type { SkiaPictureViewNativeProps } from "./types";
 
@@ -368,7 +368,7 @@ export const SkiaPictureView = (props: SkiaPictureViewProps) => {
 
 	useEffect(() => {
 		const nativeID = props.nativeID ?? `${SkiaViewNativeId.current++}`;
-		(global.SkiaViewApi as ISkiaViewApiWeb).registerView(nativeID, {
+		SkiaViewApi.registerView(nativeID, {
 			setPicture,
 			getSize,
 			redraw,

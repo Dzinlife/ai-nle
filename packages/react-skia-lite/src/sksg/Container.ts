@@ -4,6 +4,7 @@ const HAS_REANIMATED_3 = false;
 // import { HAS_REANIMATED_3 } from "../external/reanimated/renderHelpers";
 
 import type { Skia } from "../skia/types";
+import { SkiaViewApi } from "../views/api";
 import { createDrawingContext } from "./Recorder/DrawingContext";
 import { replay } from "./Recorder/Player";
 import type { Recording } from "./Recorder/Recorder";
@@ -11,8 +12,9 @@ import { Recorder } from "./Recorder/Recorder";
 import { visit } from "./Recorder/Visitor";
 import { Container, StaticContainer } from "./StaticContainer";
 
-import "../skia/NativeSetup";
 import "../views/api";
+
+let Rea: any;
 
 const drawOnscreen = (Skia: Skia, nativeId: number, recording: Recording) => {
 	"worklet";

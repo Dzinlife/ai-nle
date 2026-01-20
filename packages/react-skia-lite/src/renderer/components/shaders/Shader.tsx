@@ -1,11 +1,9 @@
-import React from "react";
-
-import type { SkiaDefaultProps } from "../../processors";
 import type { ShaderProps } from "../../../dom/types";
+import type { SkiaDefaultProps } from "../../processors";
 
 export const Shader = ({
-  uniforms = {},
-  ...props
+	uniforms = {},
+	...props
 }: SkiaDefaultProps<ShaderProps, "uniforms">) => {
-  return <skShader uniforms={uniforms} {...props} />;
+	return <skShader uniforms={uniforms} {...props} />;
 };

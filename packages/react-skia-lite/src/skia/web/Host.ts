@@ -3,8 +3,9 @@ import type { CanvasKit, EmbindEnumEntity } from "canvaskit-wasm";
 import type { SkJSIInstance } from "../types";
 
 export const throwNotImplementedOnRNWeb = <T>(): T => {
-	if (typeof jest !== "undefined") {
-		return jest.fn() as unknown as T;
+	const jestFn = (globalThis as { jest?: { fn: () => unknown } }).jest?.fn;
+	if (jestFn) {
+		return jestFn() as T;
 	}
 	throw new Error("Not implemented on React Native Web");
 };

@@ -16,7 +16,7 @@ export interface CloudBackgroundInternal {
 }
 
 export type CloudBackgroundModelStore =
-	ComponentModelStore<CloudBackgroundProps>;
+	ComponentModelStore<CloudBackgroundProps, CloudBackgroundInternal>;
 
 const CLOUD_SHADER_CODE = `
 uniform float iTime;
@@ -99,7 +99,9 @@ export function createCloudBackgroundModel(
 	id: string,
 	initialProps: CloudBackgroundProps,
 ): CloudBackgroundModelStore {
-	const store = createStore<ComponentModel<CloudBackgroundProps>>()(
+	const store = createStore<
+		ComponentModel<CloudBackgroundProps, CloudBackgroundInternal>
+	>()(
 		subscribeWithSelector((set, get) => ({
 			id,
 			type: "CloudBackground",

@@ -1,11 +1,9 @@
-import React from "react";
-
-import type { SkiaDefaultProps } from "../../processors/Animations/Animations";
 import type { BlurImageFilterProps } from "../../../dom/types";
+import type { SkiaDefaultProps } from "../../processors/Animations/Animations";
 
 export const Blur = ({
-  mode = "decal",
-  ...props
+	mode = "decal",
+	...props
 }: SkiaDefaultProps<BlurImageFilterProps, "mode">) => {
-  return <skBlurImageFilter mode={mode} {...props} />;
+	return <skBlurImageFilter mode={mode} {...props} />;
 };

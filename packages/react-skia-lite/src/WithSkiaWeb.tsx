@@ -5,7 +5,9 @@ import {
 	Suspense,
 	useMemo,
 } from "react";
-import { ckSharedPromise, LoadSkiaWeb } from "./LoadSkiaWeb";
+import { LoadSkiaWeb } from "./LoadSkiaWeb";
+
+// import { ckSharedPromise, LoadSkiaWeb } from "./LoadSkiaWeb";
 
 type NonOptionalKeys<T> = {
 	[k in keyof T]-?: undefined extends T[k] ? never : k;

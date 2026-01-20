@@ -6,7 +6,7 @@ import {
 	useTimelineStore,
 } from "@/editor/contexts/TimelineContext";
 import { framesToSeconds } from "@/utils/timecode";
-import { useModelSelector } from "../model/registry";
+import { createModelSelector } from "../model/registry";
 import { parseStartEndSchema } from "../startEndSchema";
 import { useRenderLayout } from "../useRenderLayout";
 import type { CloudBackgroundInternal, CloudBackgroundProps } from "./model";
@@ -14,6 +14,9 @@ import type { CloudBackgroundInternal, CloudBackgroundProps } from "./model";
 interface CloudBackgroundRendererProps extends CloudBackgroundProps {
 	id: string;
 }
+
+const useCloudBackgroundSelector =
+	createModelSelector<CloudBackgroundProps, CloudBackgroundInternal>();
 
 const CloudBackgroundRenderer: React.FC<CloudBackgroundRendererProps> = ({
 	id,
@@ -37,19 +40,12 @@ const CloudBackgroundRenderer: React.FC<CloudBackgroundRendererProps> = ({
 	const y = cy - height / 2;
 
 	// 订阅状态
-	const props = useModelSelector<CloudBackgroundProps, CloudBackgroundProps>(
+	const props = useCloudBackgroundSelector(id, (state) => state.props);
+	const shaderSource = useCloudBackgroundSelector(
 		id,
-		(state) => state.props,
+		(state) => state.internal.shaderSource,
 	);
-	const shaderSource = useModelSelector<
-		CloudBackgroundProps,
-		CloudBackgroundInternal["shaderSource"]
-	>(
-		id,
-		(state) =>
-			(state.internal as unknown as CloudBackgroundInternal).shaderSource,
-	);
-	const hasError = useModelSelector<CloudBackgroundProps, boolean>(
+	const hasError = useCloudBackgroundSelector(
 		id,
 		(state) => state.constraints.hasError ?? false,
 	);

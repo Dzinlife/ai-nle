@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useFps } from "@/editor/contexts/TimelineContext";
-import { useModelSelector } from "../model/registry";
+import { createModelSelector } from "../model/registry";
 import type { TimelineProps } from "../model/types";
 import { type ClipInternal, type ClipProps, calculateVideoTime } from "./model";
 import { framesToSeconds, framesToTimecode } from "@/utils/timecode";
@@ -8,6 +8,8 @@ import { framesToSeconds, framesToTimecode } from "@/utils/timecode";
 interface ClipTimelineProps extends TimelineProps {
 	id: string;
 }
+
+const useClipSelector = createModelSelector<ClipProps, ClipInternal>();
 
 export const ClipTimeline: React.FC<ClipTimelineProps> = ({
 	id,
@@ -19,31 +21,22 @@ export const ClipTimeline: React.FC<ClipTimelineProps> = ({
 	const isGeneratingRef = useRef(false);
 
 	// 订阅 model 状态
-	const uri = useModelSelector<ClipProps, string | undefined>(
-		id,
-		(state) => state.props.uri,
-	);
-	const reversed = useModelSelector<ClipProps, boolean | undefined>(
-		id,
-		(state) => state.props.reversed,
-	);
-	const maxDuration = useModelSelector<ClipProps, number | undefined>(
+	const uri = useClipSelector(id, (state) => state.props.uri);
+	const reversed = useClipSelector(id, (state) => state.props.reversed);
+	const maxDuration = useClipSelector(
 		id,
 		(state) => state.constraints.maxDuration,
 	);
-	const isLoading = useModelSelector<ClipProps, boolean>(
+	const isLoading = useClipSelector(
 		id,
 		(state) => state.constraints.isLoading ?? false,
 	);
 
 	// 从 Model 获取 videoSink 和 duration
-	const videoSink = useModelSelector<ClipProps, ClipInternal["videoSink"]>(
+	const videoSink = useClipSelector(id, (state) => state.internal.videoSink);
+	const videoDuration = useClipSelector(
 		id,
-		(state) => (state.internal as unknown as ClipInternal).videoSink,
-	);
-	const videoDuration = useModelSelector<ClipProps, number>(
-		id,
-		(state) => (state.internal as unknown as ClipInternal).videoDuration,
+		(state) => state.internal.videoDuration,
 	);
 
 	const clipDurationRef = useRef(end - start);
