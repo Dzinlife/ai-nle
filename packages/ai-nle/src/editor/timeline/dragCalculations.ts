@@ -189,7 +189,7 @@ function calculateFinalTrackForGap(
 	timeRange: TimeRange,
 	elements: TimelineElement[],
 	elementId: string,
-	_originalTrackIndex: number,
+	originalTrackIndex: number,
 	maxStoredTrack: number,
 	elementRole: ReturnType<typeof getElementRole>
 ): FinalTrackResult {
@@ -197,15 +197,18 @@ function calculateFinalTrackForGap(
 	const belowTrack = gapTrackIndex - 1;
 	const aboveTrack = gapTrackIndex;
 
+	// Gap preview should not snap back to the original track; this keeps insert intent.
 	// 检查下方轨道是否有空位
 	const belowHasSpace =
 		belowTrack >= 0 &&
+		belowTrack !== originalTrackIndex &&
 		!hasRoleConflictOnStoredTrack(elementRole, belowTrack, elements, elementId) &&
 		!hasOverlapOnTrack(timeRange, belowTrack, elements, elementId);
 
 	// 检查上方轨道是否有空位
 	const aboveHasSpace =
 		aboveTrack <= maxStoredTrack &&
+		aboveTrack !== originalTrackIndex &&
 		!hasRoleConflictOnStoredTrack(elementRole, aboveTrack, elements, elementId) &&
 		!hasOverlapOnTrack(timeRange, aboveTrack, elements, elementId);
 

@@ -1233,8 +1233,12 @@ export const useTimelineElementDnd = ({
 								.filter((el) => (el.timeline.trackIndex ?? 0) === trackIndex)
 								.every((el) => selectedSet.has(el.id)),
 						);
+					// Main track is not reorderable; keep it in the normal move/insert flow.
+					const hasMainTrackSelected = selectedTrackIndices.has(0);
 					const shouldReorderTrackBlock =
-						hasSignificantVerticalMove && allTracksFullySelected;
+						hasSignificantVerticalMove &&
+						allTracksFullySelected &&
+						!hasMainTrackSelected;
 
 					if (shouldReorderTrackBlock) {
 						const remainingTracks = allTracks.filter(
@@ -1342,7 +1346,8 @@ export const useTimelineElementDnd = ({
 					const shouldReorderTracks =
 						hasSignificantVerticalMove &&
 						isFullTrackSelection &&
-						selectedTrackIndex !== null;
+						selectedTrackIndex !== null &&
+						selectedTrackIndex !== 0;
 					const shouldInsertTrack =
 						finalTrackResult.displayType === "gap" && !shouldReorderTracks;
 					const insertTrackIndex = shouldInsertTrack

@@ -54,24 +54,25 @@ export function findTimelineDropTargetFromScreenPosition(
 	if (otherZone) {
 		const rect = otherZone.getBoundingClientRect();
 		const datasetTrackCount = parseInt(otherZone.dataset.trackCount || "0", 10);
-		const otherTrackCount =
+		const baseTrackCount =
 			datasetTrackCount > 0
 				? datasetTrackCount
 				: Math.max(otherTrackCountFallback, 0);
+		const trackHeights = parseTrackHeights(otherZone.dataset.trackHeights);
+		// Use rendered heights as a fallback so an empty "other" zone still accepts drops.
+		const otherTrackCount = Math.max(baseTrackCount, trackHeights.length);
 		const datasetTrackHeight = parseInt(
 			otherZone.dataset.trackHeight || "0",
 			10,
 		);
 		const zoneTrackHeight =
 			datasetTrackHeight > 0 ? datasetTrackHeight : trackHeightFallback;
-		const trackHeights = parseTrackHeights(otherZone.dataset.trackHeights);
 
 		if (
 			mouseY >= rect.top &&
 			mouseY <= rect.bottom &&
 			mouseX >= rect.left &&
-			mouseX <= rect.right &&
-			otherTrackCount > 0
+			mouseX <= rect.right
 		) {
 			const contentArea = otherZone.querySelector<HTMLElement>(
 				'[data-track-content-area="other"]',
@@ -80,6 +81,11 @@ export function findTimelineDropTargetFromScreenPosition(
 			if (contentArea) {
 				const contentRect = contentArea.getBoundingClientRect();
 				contentTop = contentRect.top;
+			}
+
+			// No other tracks yet: treat the zone as an insert gap at index 1.
+			if (otherTrackCount <= 0) {
+				return { trackIndex: 1, type: "gap" };
 			}
 
 			const contentRelativeY = mouseY - contentTop;
