@@ -18,6 +18,8 @@ import { updateElementTime } from "../utils/timelineTime";
 import {
 	assignTracks,
 	getElementRole,
+	hasOverlapOnStoredTrack,
+	hasRoleConflictOnStoredTrack,
 	normalizeTrackAssignments,
 	resolveDropTargetForRole,
 } from "../utils/trackAssignment";
@@ -267,6 +269,59 @@ export const useTimelineElementDnd = ({
 			fps,
 		],
 	);
+
+	const resolveMovedChildrenTracks = (
+		nextElements: TimelineElement[],
+		movedChildren: Map<string, { start: number; end: number }>,
+	) => {
+		if (movedChildren.size === 0) return nextElements;
+		let updated = nextElements;
+		for (const childId of movedChildren.keys()) {
+			const child = updated.find((el) => el.id === childId);
+			if (!child) continue;
+			const currentTrack = child.timeline.trackIndex ?? 1;
+			const childRole = getElementRole(child);
+			const maxStoredTrack = Math.max(
+				0,
+				...updated.map((el) => el.timeline.trackIndex ?? 0),
+			);
+			let availableTrack = currentTrack;
+			// 从当前轨道向上查找空位，避免联动后重叠
+			for (let track = currentTrack; track <= maxStoredTrack + 1; track++) {
+				if (
+					hasRoleConflictOnStoredTrack(childRole, track, updated, childId)
+				) {
+					continue;
+				}
+				if (
+					!hasOverlapOnStoredTrack(
+						child.timeline.start,
+						child.timeline.end,
+						track,
+						updated,
+						childId,
+					)
+				) {
+					availableTrack = track;
+					break;
+				}
+			}
+			if (availableTrack !== currentTrack) {
+				updated = updated.map((el) =>
+					el.id === childId
+						? {
+								...el,
+								timeline: {
+									...el.timeline,
+									trackIndex: availableTrack,
+								},
+							}
+						: el,
+				);
+			}
+		}
+		return updated;
+	};
 
 	const getCopyId = (sourceId: string) => copyIdMapRef.current.get(sourceId);
 	const createCopyElement = (source: TimelineElement, copyId: string) => ({
@@ -813,8 +868,10 @@ export const useTimelineElementDnd = ({
 					trackAssignments,
 				);
 				const dragSelectedIds = dragSelectedIdsRef.current;
+				// 多轨选中时不强制落主轨，避免轨道被压到 0
 				const canDropToMainTrack =
 					mainDropTime !== null &&
+					!isMultiTrackSelection &&
 					dragSelectedIds.every((selectedId) => {
 						const selectedElement = elements.find((el) => el.id === selectedId);
 						return (
@@ -1199,7 +1256,11 @@ export const useTimelineElementDnd = ({
 								return el;
 							});
 
-							return finalizeTimelineElements(updated, {
+							const withChildrenTracks = resolveMovedChildrenTracks(
+								updated,
+								movedChildren,
+							);
+							return finalizeTimelineElements(withChildrenTracks, {
 								mainTrackMagnetEnabled,
 								attachments,
 								autoAttach,
@@ -1314,7 +1375,11 @@ export const useTimelineElementDnd = ({
 								return el;
 							});
 
-							return finalizeTimelineElements(updated, {
+							const withChildrenTracks = resolveMovedChildrenTracks(
+								updated,
+								movedChildren,
+							);
+							return finalizeTimelineElements(withChildrenTracks, {
 								mainTrackMagnetEnabled,
 								attachments,
 								autoAttach,
@@ -1439,7 +1504,11 @@ export const useTimelineElementDnd = ({
 							return el;
 						});
 
-						return finalizeTimelineElements(updated, {
+						const withChildrenTracks = resolveMovedChildrenTracks(
+							updated,
+							movedChildren,
+						);
+						return finalizeTimelineElements(withChildrenTracks, {
 							mainTrackMagnetEnabled,
 							attachments,
 							autoAttach,

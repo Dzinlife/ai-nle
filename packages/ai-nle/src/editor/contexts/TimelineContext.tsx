@@ -1028,20 +1028,36 @@ export const useTrackAssignments = () => {
 
 					const currentTrack = child.timeline.trackIndex ?? 1;
 					const childRole = getElementRole(child);
-					const childAssignments = assignTracks(updated);
-					const childCount = getTrackCount(childAssignments);
-
-					// 检查当前轨道是否有重叠，如果有则向上查找
-					const availableTrack = findAvailableTrack(
-						childMove.start,
-						childMove.end,
-						currentTrack,
-						childRole,
-						updated,
-						childAssignments,
-						childMove.id,
-						childCount,
+					const maxStoredTrack = Math.max(
+						0,
+						...updated.map((el) => el.timeline.trackIndex ?? 0),
 					);
+					let availableTrack = currentTrack;
+					// 基于存储轨道判断，避免 assignTracks 提前重排掩盖重叠
+					for (let track = currentTrack; track <= maxStoredTrack + 1; track++) {
+						if (
+							hasRoleConflictOnStoredTrack(
+								childRole,
+								track,
+								updated,
+								childMove.id,
+							)
+						) {
+							continue;
+						}
+						if (
+							!hasOverlapOnStoredTrack(
+								childMove.start,
+								childMove.end,
+								track,
+								updated,
+								childMove.id,
+							)
+						) {
+							availableTrack = track;
+							break;
+						}
+					}
 
 					// 如果需要移动到新轨道
 					if (availableTrack !== currentTrack) {
