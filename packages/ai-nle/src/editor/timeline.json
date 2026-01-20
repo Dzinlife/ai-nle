@@ -5,6 +5,36 @@
 		"width": 1920,
 		"height": 1080
 	},
+	"tracks": [
+		{
+			"id": "main",
+			"role": "clip",
+			"visible": true,
+			"locked": false,
+			"muted": false
+		},
+		{
+			"id": "track-1",
+			"role": "effect",
+			"visible": true,
+			"locked": false,
+			"muted": false
+		},
+		{
+			"id": "track-2",
+			"role": "effect",
+			"visible": true,
+			"locked": false,
+			"muted": false
+		},
+		{
+			"id": "track-3",
+			"role": "overlay",
+			"visible": true,
+			"locked": false,
+			"muted": false
+		}
+	],
 	"elements": [
 		{
 			"id": "clip1",
@@ -23,6 +53,7 @@
 				"startTimecode": "00:00:00:00",
 				"endTimecode": "00:00:05:28",
 				"trackIndex": 0,
+				"trackId": "main",
 				"role": "clip"
 			},
 			"render": {
@@ -49,6 +80,7 @@
 				"startTimecode": "00:00:06:00",
 				"endTimecode": "00:00:16:00",
 				"trackIndex": 0,
+				"trackId": "main",
 				"role": "clip"
 			},
 			"render": {
@@ -78,6 +110,7 @@
 				"startTimecode": "00:00:16:00",
 				"endTimecode": "00:00:24:00",
 				"trackIndex": 0,
+				"trackId": "main",
 				"role": "clip"
 			},
 			"render": {
@@ -104,6 +137,7 @@
 				"startTimecode": "00:00:02:00",
 				"endTimecode": "00:00:12:00",
 				"trackIndex": 1,
+				"trackId": "track-1",
 				"role": "effect"
 			},
 			"render": {
@@ -132,6 +166,7 @@
 				"startTimecode": "00:00:08:00",
 				"endTimecode": "00:00:20:00",
 				"trackIndex": 1,
+				"trackId": "track-1",
 				"role": "overlay"
 			},
 			"render": {
@@ -160,6 +195,7 @@
 				"startTimecode": "00:00:10:00",
 				"endTimecode": "00:00:18:00",
 				"trackIndex": 2,
+				"trackId": "track-2",
 				"role": "effect"
 			},
 			"render": {
@@ -190,6 +226,7 @@
 				"startTimecode": "00:00:00:00",
 				"endTimecode": "00:00:24:00",
 				"trackIndex": 3,
+				"trackId": "track-3",
 				"role": "overlay"
 			},
 			"render": {

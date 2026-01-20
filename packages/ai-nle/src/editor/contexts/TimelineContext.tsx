@@ -144,6 +144,8 @@ export const useTimelineStore = create<TimelineStore>()(
 				id: MAIN_TRACK_ID,
 				role: "clip",
 				visible: true,
+				locked: false,
+				muted: false,
 			},
 		],
 		canvasSize: { width: 1920, height: 1080 },
@@ -1263,12 +1265,14 @@ export const TimelineProvider = ({
 	children,
 	currentTime: initialCurrentTime,
 	elements: initialElements,
+	tracks: initialTracks,
 	canvasSize: initialCanvasSize,
 	fps: initialFps,
 }: {
 	children: React.ReactNode;
 	currentTime?: number;
 	elements?: TimelineElement[];
+	tracks?: TimelineTrack[];
 	canvasSize?: { width: number; height: number };
 	fps?: number;
 }) => {
@@ -1279,9 +1283,11 @@ export const TimelineProvider = ({
 	// 使用 useLayoutEffect 确保在子组件渲染前执行
 	useLayoutEffect(() => {
 		if (initialElements) {
+			const baseTracks =
+				initialTracks ?? useTimelineStore.getState().tracks;
 			const { tracks, elements } = reconcileTracks(
 				initialElements,
-				useTimelineStore.getState().tracks,
+				baseTracks,
 			);
 			useTimelineStore.setState({
 				currentTime: clampFrame(initialCurrentTime ?? 0),
@@ -1290,22 +1296,38 @@ export const TimelineProvider = ({
 				canvasSize: initialCanvasSize ?? { width: 1920, height: 1080 },
 				fps: normalizeFps(initialFps ?? DEFAULT_FPS),
 			});
+			return;
+		}
+		if (initialTracks) {
+			useTimelineStore.setState({
+				tracks: initialTracks,
+			});
 		}
 	}, []);
 
 	// 后续更新
 	useEffect(() => {
 		if (initialElements) {
+			const baseTracks =
+				initialTracks ?? useTimelineStore.getState().tracks;
 			const { tracks, elements } = reconcileTracks(
 				initialElements,
-				useTimelineStore.getState().tracks,
+				baseTracks,
 			);
 			useTimelineStore.setState({
 				elements,
 				tracks,
 			});
 		}
-	}, [initialElements]);
+	}, [initialElements, initialTracks]);
+
+	useEffect(() => {
+		if (!initialElements && initialTracks) {
+			useTimelineStore.setState({
+				tracks: initialTracks,
+			});
+		}
+	}, [initialElements, initialTracks]);
 
 	useEffect(() => {
 		if (initialCurrentTime !== undefined) {

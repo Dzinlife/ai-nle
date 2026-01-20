@@ -8,10 +8,16 @@ import {
 
 export const MAIN_TRACK_ID = "main";
 
-const createMainTrack = (visible: boolean): TimelineTrack => ({
+const createMainTrack = (
+	visible: boolean,
+	locked: boolean,
+	muted: boolean,
+): TimelineTrack => ({
 	id: MAIN_TRACK_ID,
 	role: "clip",
 	visible,
+	locked,
+	muted,
 });
 
 const createTrackId = (): string => {
@@ -72,7 +78,13 @@ const isSameTracks = (next: TimelineTrack[], prev: TimelineTrack[]): boolean => 
 		const a = next[i];
 		const b = prev[i];
 		if (!b) return false;
-		if (a.id !== b.id || a.role !== b.role || a.visible !== b.visible) {
+		if (
+			a.id !== b.id ||
+			a.role !== b.role ||
+			a.visible !== b.visible ||
+			a.locked !== b.locked ||
+			a.muted !== b.muted
+		) {
 			return false;
 		}
 	}
@@ -91,9 +103,14 @@ export const reconcileTracks = (
 	prevTracks: TimelineTrack[],
 ): TrackReconcileResult => {
 	if (elements.length === 0) {
-		const mainVisible =
-			prevTracks.find((track) => track.id === MAIN_TRACK_ID)?.visible ?? true;
-		const nextTracks = [createMainTrack(mainVisible)];
+		const prevMain = prevTracks.find((track) => track.id === MAIN_TRACK_ID);
+		const nextTracks = [
+			createMainTrack(
+				prevMain?.visible ?? true,
+				prevMain?.locked ?? false,
+				prevMain?.muted ?? false,
+			),
+		];
 		const didChangeTracks = !isSameTracks(nextTracks, prevTracks);
 		return {
 			tracks: didChangeTracks ? nextTracks : prevTracks,
@@ -222,11 +239,15 @@ export const reconcileTracks = (
 		const prevTrack = prevTrackById.get(trackId);
 		const elementsInIndex = elementsByIndex.get(index) ?? [];
 		const derivedRole =
-			elementsInIndex[0] ? getElementRole(elementsInIndex[0]) : prevTrack?.role ?? "overlay";
+			elementsInIndex[0]
+				? getElementRole(elementsInIndex[0])
+				: prevTrack?.role ?? "overlay";
 		nextTracks.push({
 			id: trackId,
 			role: index === MAIN_TRACK_INDEX ? "clip" : derivedRole,
 			visible: prevTrack?.visible ?? true,
+			locked: prevTrack?.locked ?? false,
+			muted: prevTrack?.muted ?? false,
 		});
 	}
 

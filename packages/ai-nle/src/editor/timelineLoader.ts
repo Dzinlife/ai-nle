@@ -6,6 +6,7 @@ import type {
 	TransformMeta,
 } from "../dsl/types";
 import { framesToTimecode, timecodeToFrames } from "@/utils/timecode";
+import type { TimelineTrack } from "./timeline/types";
 
 /**
  * 时间线 JSON 格式定义
@@ -17,13 +18,23 @@ export interface TimelineJSON {
 		width: number;
 		height: number;
 	};
+	tracks?: TimelineTrackJSON[];
 	elements: TimelineElement[];
 }
 
 export interface TimelineData {
 	fps: number;
 	canvas: { width: number; height: number };
+	tracks: TimelineTrack[];
 	elements: TimelineElement[];
+}
+
+export interface TimelineTrackJSON {
+	id: string;
+	role?: TrackRole;
+	visible?: boolean;
+	locked?: boolean;
+	muted?: boolean;
 }
 
 /**
@@ -55,14 +66,13 @@ export function saveTimelineToJSON(
 	elements: TimelineElement[],
 	fps: number,
 	canvasSize: { width: number; height: number } = { width: 1920, height: 1080 },
+	tracks?: TimelineTrack[],
 ): string {
-	const timeline: TimelineJSON = {
-		version: "1.0",
-		fps,
-		canvas: canvasSize,
-		elements: elements.map((el) => ensureTimecodes(el, fps)),
-	};
-	return JSON.stringify(timeline, null, 2);
+	return JSON.stringify(
+		saveTimelineToObject(elements, fps, canvasSize, tracks),
+		null,
+		2,
+	);
 }
 
 /**
@@ -72,11 +82,14 @@ export function saveTimelineToObject(
 	elements: TimelineElement[],
 	fps: number,
 	canvasSize: { width: number; height: number } = { width: 1920, height: 1080 },
+	tracks?: TimelineTrack[],
 ): TimelineJSON {
+	const serializedTracks = serializeTracks(tracks);
 	return {
 		version: "1.0",
 		fps,
 		canvas: canvasSize,
+		...(serializedTracks ? { tracks: serializedTracks } : {}),
 		elements: elements.map((el) => ensureTimecodes(el, fps)),
 	};
 }
@@ -108,6 +121,7 @@ function validateTimeline(data: TimelineJSON): TimelineData {
 	return {
 		fps: data.fps,
 		canvas: data.canvas,
+		tracks: validateTracks(data.tracks, "tracks"),
 		elements: data.elements.map((el, index) =>
 			validateElement(el, index, data.fps),
 		),
@@ -156,6 +170,100 @@ function validateElement(el: any, index: number, fps: number): TimelineElement {
 		props,
 		clip,
 	};
+}
+
+function validateTracks(
+	tracks: any,
+	path: string,
+): TimelineTrack[] {
+	if (tracks === undefined) {
+		return [];
+	}
+	if (!Array.isArray(tracks)) {
+		throw new Error(`${path}: must be an array`);
+	}
+	return tracks.map((track, index) =>
+		validateTrack(track, `${path}[${index}]`, index),
+	);
+}
+
+function validateTrack(
+	track: any,
+	path: string,
+	index: number,
+): TimelineTrack {
+	if (!track || typeof track !== "object") {
+		throw new Error(`${path}: must be an object`);
+	}
+
+	if (!track.id || typeof track.id !== "string") {
+		throw new Error(`${path}.id: must be a string`);
+	}
+
+	let role: TrackRole = index === 0 ? "clip" : "overlay";
+	if (track.role !== undefined) {
+		if (typeof track.role !== "string") {
+			throw new Error(`${path}.role: must be a string`);
+		}
+		if (
+			track.role !== "clip" &&
+			track.role !== "overlay" &&
+			track.role !== "effect" &&
+			track.role !== "audio"
+		) {
+			throw new Error(
+				`${path}.role: must be one of clip | overlay | effect | audio`,
+			);
+		}
+		role = track.role as TrackRole;
+	}
+
+	let visible = true;
+	if (track.visible !== undefined) {
+		if (typeof track.visible !== "boolean") {
+			throw new Error(`${path}.visible: must be a boolean`);
+		}
+		visible = track.visible;
+	}
+
+	let locked = false;
+	if (track.locked !== undefined) {
+		if (typeof track.locked !== "boolean") {
+			throw new Error(`${path}.locked: must be a boolean`);
+		}
+		locked = track.locked;
+	}
+
+	let muted = false;
+	if (track.muted !== undefined) {
+		if (typeof track.muted !== "boolean") {
+			throw new Error(`${path}.muted: must be a boolean`);
+		}
+		muted = track.muted;
+	}
+
+	return {
+		id: track.id,
+		role,
+		visible,
+		locked,
+		muted,
+	};
+}
+
+function serializeTracks(
+	tracks?: TimelineTrack[],
+): TimelineTrack[] | undefined {
+	if (!tracks || tracks.length === 0) {
+		return undefined;
+	}
+	return tracks.map((track) => ({
+		id: track.id,
+		role: track.role,
+		visible: track.visible ?? true,
+		locked: track.locked ?? false,
+		muted: track.muted ?? false,
+	}));
 }
 
 /**

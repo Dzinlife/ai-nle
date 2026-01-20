@@ -17,6 +17,7 @@ import PreviewEditor from "./PreviewEditor";
 import TimelineEditor from "./TimelineEditor";
 import timelineData from "./timeline.json";
 import { loadTimelineFromObject } from "./timelineLoader";
+import type { TimelineTrack } from "./timeline/types";
 import {
 	finalizeTimelineElements,
 	insertElementIntoMainTrack,
@@ -277,6 +278,7 @@ const EditorContent: React.FC = () => {
 
 const Editor = () => {
 	const [elements, setElements] = useState<TimelineElement[]>([]);
+	const [tracks, setTracks] = useState<TimelineTrack[]>([]);
 	const [timelineFps, setTimelineFps] = useState(30);
 	const [canvasSize, setCanvasSize] = useState({ width: 1920, height: 1080 });
 	const [isLoading, setIsLoading] = useState(true);
@@ -285,6 +287,7 @@ const Editor = () => {
 		try {
 			const loaded = loadTimelineFromObject(timelineData as any);
 			setElements(loaded.elements);
+			setTracks(loaded.tracks);
 			setTimelineFps(loaded.fps);
 			setCanvasSize(loaded.canvas);
 		} catch (error) {
@@ -304,6 +307,7 @@ const Editor = () => {
 		<QueryClientProvider client={queryClient}>
 			<TimelineProvider
 				elements={elements}
+				tracks={tracks}
 				canvasSize={canvasSize}
 				fps={timelineFps}
 			>

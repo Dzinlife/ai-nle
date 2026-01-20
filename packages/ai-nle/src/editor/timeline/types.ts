@@ -63,6 +63,8 @@ export interface TimelineTrack {
 	id: string;
 	role: TrackRole;
 	visible: boolean;
+	locked: boolean;
+	muted: boolean;
 }
 
 // ============================================================================
