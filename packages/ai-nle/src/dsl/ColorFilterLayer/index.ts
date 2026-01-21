@@ -23,6 +23,7 @@ export const ColorFilterLayerDefinition: DSLComponentDefinition<ColorFilterLayer
 		meta: {
 			name: "Color Filter",
 			category: "effect",
+			trackRole: "effect",
 			description: "Color adjustment and filter effects",
 		},
 	};

@@ -1,4 +1,5 @@
 import type React from "react";
+import type { TrackRole } from "../types";
 import type { ComponentModelStore } from "./types";
 
 /**
@@ -24,6 +25,7 @@ export interface DSLComponentDefinition<Props = any, Internal = any> {
 	meta: {
 		name: string; // 显示名称
 		category: string; // 分类
+		trackRole?: TrackRole; // 轨道角色
 		icon?: React.ComponentType; // 图标组件
 		description?: string; // 描述
 		defaultProps?: Partial<Props>; // 默认 props

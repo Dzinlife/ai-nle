@@ -3,7 +3,9 @@
  * 定义不同类型轨道的属性和兼容性规则
  */
 
-import { TrackCategory, TrackConfig, TrackInstance } from "./types";
+import type { TrackRole } from "@/dsl/types";
+import { componentRegistry } from "@/dsl/model/componentRegistry";
+import { TrackConfig, TrackInstance } from "./types";
 
 // ============================================================================
 // 默认轨道配置
@@ -39,51 +41,35 @@ export const GAP_THRESHOLD = 12;
 export const SIGNIFICANT_VERTICAL_MOVE_RATIO = 0.5;
 
 /**
- * 各类别轨道的默认配置
+ * 各角色轨道的默认配置
  */
-export const DEFAULT_TRACK_CONFIGS: Record<TrackCategory, TrackConfig> = {
-	main: {
-		category: "main",
+export const DEFAULT_TRACK_CONFIGS: Record<TrackRole, TrackConfig> = {
+	clip: {
+		role: "clip",
 		height: 64,
-		compatibleWith: ["main"], // 主轨道只能放主要内容
+		compatibleWith: ["clip"], // 主轨道只能放主要内容
 		canCreateNew: false, // 主轨道不能创建新的
 		minTracks: 1,
 		maxTracks: 1,
 	},
 	overlay: {
-		category: "overlay",
+		role: "overlay",
 		height: 32,
 		compatibleWith: ["overlay"], // 贴纸、水印等可以共存
 		canCreateNew: true,
 		minTracks: 0,
 		maxTracks: -1,
 	},
-	subtitle: {
-		category: "subtitle",
+	effect: {
+		role: "effect",
 		height: 32,
-		compatibleWith: ["subtitle"],
+		compatibleWith: ["effect"],
 		canCreateNew: true,
 		minTracks: 0,
 		maxTracks: -1,
-	},
-	filter: {
-		category: "filter",
-		height: 32,
-		compatibleWith: ["filter"],
-		canCreateNew: true,
-		minTracks: 0,
-		maxTracks: -1,
-	},
-	transition: {
-		category: "transition",
-		height: 32,
-		compatibleWith: ["transition"],
-		canCreateNew: true,
-		minTracks: 0,
-		maxTracks: 1, // 转场一般只有一个轨道
 	},
 	audio: {
-		category: "audio",
+		role: "audio",
 		height: 32,
 		compatibleWith: ["audio"],
 		canCreateNew: true,
@@ -93,48 +79,25 @@ export const DEFAULT_TRACK_CONFIGS: Record<TrackCategory, TrackConfig> = {
 };
 
 // ============================================================================
-// 元素类型到轨道类别的映射
+// 元素类型到轨道角色的映射
 // ============================================================================
 
 /**
- * 元素类型到轨道类别的默认映射
- * 可以通过 registerElementCategory 扩展
+ * 从 DSL 组件元数据获取轨道角色
  */
-const elementCategoryMap = new Map<string, TrackCategory>([
-	// 主要内容
-	["Clip", "main"],
-	["Image", "main"],
-	["CloudBackground", "main"],
-	// 叠加层
-	["Lottie", "overlay"],
-	["BackdropZoom", "overlay"],
-	// 滤镜
-	["ColorFilterLayer", "filter"],
-	// 更多类型可以通过 registerElementCategory 添加
-]);
-
-/**
- * 注册元素类型的轨道类别
- */
-export function registerElementCategory(
+export function getElementRoleFromType(
 	elementType: string,
-	category: TrackCategory,
-): void {
-	elementCategoryMap.set(elementType, category);
-}
-
-/**
- * 获取元素类型的轨道类别
- */
-export function getElementCategory(elementType: string): TrackCategory {
-	return elementCategoryMap.get(elementType) ?? "overlay"; // 默认为叠加层
+	fallback: TrackRole = "overlay",
+): TrackRole {
+	const definition = componentRegistry.get(elementType);
+	return definition?.meta.trackRole ?? fallback;
 }
 
 /**
  * 获取轨道配置
  */
-export function getTrackConfig(category: TrackCategory): TrackConfig {
-	return DEFAULT_TRACK_CONFIGS[category] ?? DEFAULT_TRACK_CONFIGS.overlay;
+export function getTrackConfig(role: TrackRole): TrackConfig {
+	return DEFAULT_TRACK_CONFIGS[role] ?? DEFAULT_TRACK_CONFIGS.overlay;
 }
 
 // ============================================================================
@@ -142,15 +105,15 @@ export function getTrackConfig(category: TrackCategory): TrackConfig {
 // ============================================================================
 
 /**
- * 检查元素是否可以放置在指定类别的轨道上
+ * 检查元素是否可以放置在指定角色的轨道上
  */
 export function canElementBeOnTrack(
 	elementType: string,
-	trackCategory: TrackCategory,
+	trackRole: TrackRole,
 ): boolean {
-	const elementCategory = getElementCategory(elementType);
-	const trackConfig = getTrackConfig(trackCategory);
-	return trackConfig.compatibleWith.includes(elementCategory);
+	const elementRole = getElementRoleFromType(elementType);
+	const trackConfig = getTrackConfig(trackRole);
+	return trackConfig.compatibleWith.includes(elementRole);
 }
 
 /**
@@ -160,10 +123,10 @@ export function canElementsCoexist(
 	elementType1: string,
 	elementType2: string,
 ): boolean {
-	const category1 = getElementCategory(elementType1);
-	const category2 = getElementCategory(elementType2);
-	const config1 = getTrackConfig(category1);
-	return config1.compatibleWith.includes(category2);
+	const role1 = getElementRoleFromType(elementType1);
+	const role2 = getElementRoleFromType(elementType2);
+	const config1 = getTrackConfig(role1);
+	return config1.compatibleWith.includes(role2);
 }
 
 // ============================================================================
@@ -174,8 +137,8 @@ export function canElementsCoexist(
  * 轨道布局配置
  */
 export interface TrackLayoutConfig {
-	/** 各类别的轨道配置覆盖 */
-	trackConfigs?: Partial<Record<TrackCategory, Partial<TrackConfig>>>;
+	/** 各角色的轨道配置覆盖 */
+	trackConfigs?: Partial<Record<TrackRole, Partial<TrackConfig>>>;
 	/** 轨道间距 */
 	trackGap?: number;
 }
@@ -197,15 +160,15 @@ export function calculateTrackLayout(
 	let currentY = 0;
 	for (let i = maxTrackIndex; i >= 0; i--) {
 		// 从上到下排列，高索引在上
-		const category: TrackCategory = i === 0 ? "main" : "overlay";
-		const trackConfig = getTrackConfig(category);
+		const role: TrackRole = i === 0 ? "clip" : "overlay";
+		const trackConfig = getTrackConfig(role);
 		const height =
-			config?.trackConfigs?.[category]?.height ?? trackConfig.height;
+			config?.trackConfigs?.[role]?.height ?? trackConfig.height;
 
 		tracks.push({
 			id: `track-${i}`,
 			index: i,
-			category,
+			role,
 			config: { ...trackConfig, height },
 			y: currentY,
 		});

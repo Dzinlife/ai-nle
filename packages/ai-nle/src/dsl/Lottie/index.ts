@@ -16,6 +16,7 @@ export const LottieDefinition: DSLComponentDefinition<LottieProps> = {
 	meta: {
 		name: "Lottie Animation",
 		category: "animation",
+		trackRole: "overlay",
 		description: "Lottie animation playback",
 	},
 };

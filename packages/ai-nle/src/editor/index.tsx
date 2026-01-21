@@ -15,9 +15,9 @@ import {
 import MaterialLibrary, { type MaterialItem } from "./MaterialLibrary";
 import PreviewEditor from "./PreviewEditor";
 import TimelineEditor from "./TimelineEditor";
+import type { TimelineTrack } from "./timeline/types";
 import timelineData from "./timeline.json";
 import { loadTimelineFromObject } from "./timelineLoader";
-import type { TimelineTrack } from "./timeline/types";
 import {
 	finalizeTimelineElements,
 	insertElementIntoMainTrack,
@@ -36,6 +36,7 @@ import "@/dsl/CloudBackground";
 import "@/dsl/ColorFilterLayer";
 import "@/dsl/Image";
 import "@/dsl/Lottie";
+import "@/dsl/SeaWave";
 
 // 调试：检查组件注册情况
 import { componentRegistry } from "@/dsl/model/componentRegistry";

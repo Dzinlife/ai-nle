@@ -1,33 +1,15 @@
 import { TimelineElement, TrackRole } from "@/dsl/types";
 import { TimelineTrack } from "../timeline/types";
-import { getTrackConfig } from "../timeline/trackConfig";
-import { TrackCategory } from "../timeline/types";
+import { getElementRoleFromType, getTrackConfig } from "../timeline/trackConfig";
 
 /**
  * 主轨道索引（固定为 0，显示在最底部）
  */
 export const MAIN_TRACK_INDEX = 0;
 
-const roleCategoryMap: Record<TrackRole, TrackCategory> = {
-	clip: "main",
-	overlay: "overlay",
-	effect: "filter",
-	audio: "audio",
-};
-
 export function getTrackHeightByRole(role: TrackRole): number {
-	const category = roleCategoryMap[role] ?? "overlay";
-	return getTrackConfig(category).height;
+	return getTrackConfig(role).height;
 }
-
-const elementRoleMap = new Map<string, TrackRole>([
-	["Clip", "clip"],
-	["Image", "clip"],
-	["CloudBackground", "clip"],
-	["ColorFilterLayer", "effect"],
-	["BackdropZoom", "effect"],
-	["Lottie", "overlay"],
-]);
 
 /**
  * 获取元素 role（缺省时按轨道索引兜底）
@@ -36,13 +18,7 @@ export function getElementRole(element: TimelineElement): TrackRole {
 	if (element.timeline.role) {
 		return element.timeline.role;
 	}
-
-	const mappedRole = elementRoleMap.get(element.type);
-	if (mappedRole) {
-		return mappedRole;
-	}
-
-	return "clip";
+	return getElementRoleFromType(element.type, "clip");
 }
 
 /**

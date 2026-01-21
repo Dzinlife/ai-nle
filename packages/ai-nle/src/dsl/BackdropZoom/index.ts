@@ -17,6 +17,7 @@ export const BackdropZoomDefinition: DSLComponentDefinition<BackdropZoomProps> =
 		meta: {
 			name: "Backdrop Zoom",
 			category: "effect",
+			trackRole: "effect",
 			description: "Zoom effect for backdrop elements",
 		},
 	};

@@ -33,6 +33,13 @@
 			"visible": true,
 			"locked": false,
 			"muted": false
+		},
+		{
+			"id": "track-4",
+			"role": "overlay",
+			"visible": true,
+			"locked": false,
+			"muted": false
 		}
 	],
 	"elements": [
@@ -165,8 +172,8 @@
 				"end": 600,
 				"startTimecode": "00:00:08:00",
 				"endTimecode": "00:00:20:00",
-				"trackIndex": 1,
-				"trackId": "track-1",
+				"trackIndex": 4,
+				"trackId": "track-4",
 				"role": "overlay"
 			},
 			"render": {
@@ -234,6 +241,38 @@
 			},
 			"props": {
 				"uri": "/logo512.png"
+			}
+		},
+		{
+			"id": "seaWave1",
+			"type": "SeaWave",
+			"name": "海浪特效",
+			"transform": {
+				"centerX": 0,
+				"centerY": 0,
+				"width": 1920,
+				"height": 1080,
+				"rotation": 0
+			},
+			"timeline": {
+				"start": 720,
+				"end": 1020,
+				"startTimecode": "00:00:24:00",
+				"endTimecode": "00:00:34:00",
+				"trackIndex": 0,
+				"trackId": "main",
+				"role": "clip"
+			},
+			"render": {
+				"zIndex": 0
+			},
+			"props": {
+				"speed": 1.0,
+				"amplitude": 1.2,
+				"frequency": 2.5,
+				"waveColor": "#1e40af",
+				"foamColor": "#f8fafc",
+				"deepWaterColor": "#0f172a"
 			}
 		}
 	]

@@ -16,6 +16,7 @@ export const ImageDefinition: DSLComponentDefinition<ImageProps> = {
 	meta: {
 		name: "Image",
 		category: "media",
+		trackRole: "clip",
 		description: "Static image component",
 	},
 };

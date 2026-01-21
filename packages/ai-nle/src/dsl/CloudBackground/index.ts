@@ -14,6 +14,7 @@ export const CloudBackgroundDefinition: DSLComponentDefinition<CloudBackgroundPr
 		meta: {
 			name: "Cloud Background",
 			category: "background",
+			trackRole: "clip",
 			description: "Animated cloud background with shader effects",
 			defaultProps: {
 				speed: 1.0,

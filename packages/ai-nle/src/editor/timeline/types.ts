@@ -9,33 +9,13 @@ import { TimelineElement, TrackRole } from "@/dsl/types";
 // ============================================================================
 
 /**
- * 轨道类别
- * 不同类别的轨道具有不同的高度和兼容性规则
- */
-export type TrackCategory =
-	| "main" // 主轨道：视频、图片等主要内容
-	| "overlay" // 叠加轨道：贴纸、水印等
-	| "subtitle" // 字幕轨道
-	| "filter" // 滤镜轨道
-	| "transition" // 转场轨道
-	| "audio"; // 音频轨道
-
-/**
- * 元素类型到轨道类别的映射
- */
-export type ElementTypeCategory = {
-	elementType: string;
-	category: TrackCategory;
-};
-
-/**
  * 轨道配置
  */
 export interface TrackConfig {
-	category: TrackCategory;
+	role: TrackRole;
 	height: number;
-	/** 可以与哪些类别的元素共存于同一轨道 */
-	compatibleWith: TrackCategory[];
+	/** 可以与哪些角色的元素共存于同一轨道 */
+	compatibleWith: TrackRole[];
 	/** 是否可以创建新轨道 */
 	canCreateNew: boolean;
 	/** 最小轨道数（0 表示可以没有） */
@@ -50,7 +30,7 @@ export interface TrackConfig {
 export interface TrackInstance {
 	id: string;
 	index: number;
-	category: TrackCategory;
+	role: TrackRole;
 	config: TrackConfig;
 	/** 计算出的 Y 坐标（从顶部开始） */
 	y: number;

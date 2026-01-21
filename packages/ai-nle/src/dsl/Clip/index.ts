@@ -13,6 +13,7 @@ export const ClipDefinition: DSLComponentDefinition<ClipProps> = {
 	meta: {
 		name: "Video Clip",
 		category: "media",
+		trackRole: "clip",
 		description: "Video clip with support for trimming and playback",
 		defaultProps: {
 			reversed: false,
