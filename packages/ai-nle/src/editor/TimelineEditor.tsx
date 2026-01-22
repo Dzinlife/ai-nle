@@ -166,6 +166,8 @@ const TimelineEditor = () => {
 	const ratio = getPixelsPerFrame(fps, timelineScale);
 
 	const timelinePaddingLeft = 48;
+	const zoomAnchorRef = useRef<{ clientX: number } | null>(null);
+	const prevScaleRef = useRef(timelineScale);
 
 	// 同步 scrollLeft 到全局拖拽 store
 	const setTimelineScrollLeft = useDragStore(
@@ -440,6 +442,22 @@ const TimelineEditor = () => {
 		if (!scrollArea) return;
 
 		const handleWheel = (e: WheelEvent) => {
+			if (e.ctrlKey) {
+				e.preventDefault();
+				e.stopPropagation();
+
+				const currentScale = useTimelineStore.getState().timelineScale;
+				const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+				const nextScale = Math.min(
+					10,
+					Math.max(0.01, currentScale * zoomFactor),
+				);
+
+				zoomAnchorRef.current = { clientX: e.clientX };
+				useTimelineStore.getState().setTimelineScale(nextScale);
+				return;
+			}
+
 			// 只在有水平滚动时才处理，垂直滚动不处理
 			if (Math.abs(e.deltaX) > 0) {
 				// 阻止水平滚动事件的默认行为，防止触发窗口滚动
@@ -498,6 +516,55 @@ const TimelineEditor = () => {
 			scrollArea.removeEventListener("touchmove", handleTouchMove);
 		};
 	}, []);
+
+	useEffect(() => {
+		const scrollArea = scrollAreaRef.current;
+		if (!scrollArea) {
+			prevScaleRef.current = timelineScale;
+			return;
+		}
+
+		const prevScale = prevScaleRef.current;
+		if (prevScale === timelineScale) return;
+
+		const rect = scrollArea.getBoundingClientRect();
+		const anchorX = (() => {
+			const anchor = zoomAnchorRef.current;
+			const rawX = anchor
+				? anchor.clientX - rect.left
+				: leftColumnWidth +
+					(scrollArea.clientWidth - leftColumnWidth) / 2;
+			return Math.max(0, Math.min(scrollArea.clientWidth, rawX));
+		})();
+
+		const prevRatio = getPixelsPerFrame(fps, prevScale);
+		const nextRatio = getPixelsPerFrame(fps, timelineScale);
+		if (!Number.isFinite(prevRatio) || !Number.isFinite(nextRatio)) {
+			prevScaleRef.current = timelineScale;
+			zoomAnchorRef.current = null;
+			return;
+		}
+
+		const currentScrollLeft = scrollLeftRef.current;
+		if (currentScrollLeft <= 0.5) {
+			prevScaleRef.current = timelineScale;
+			zoomAnchorRef.current = null;
+			return;
+		}
+		const offsetX = anchorX - leftColumnWidth - timelinePaddingLeft;
+		const timeAtAnchor = Math.max(
+			0,
+			(offsetX + currentScrollLeft) / prevRatio,
+		);
+		const nextScrollLeft = Math.max(0, timeAtAnchor * nextRatio - offsetX);
+
+		if (Number.isFinite(nextScrollLeft)) {
+			setScrollLeft(nextScrollLeft);
+		}
+
+		prevScaleRef.current = timelineScale;
+		zoomAnchorRef.current = null;
+	}, [fps, leftColumnWidth, setScrollLeft, timelineScale, timelinePaddingLeft]);
 
 	// 自动滚动效果（拖拽到边缘时触发）
 	useEffect(() => {
