@@ -1,24 +1,20 @@
-import {
-	ALL_FORMATS,
-	CanvasSink,
-	Input,
-	UrlSource,
-	type WrappedCanvas,
-} from "mediabunny";
+import type { CanvasSink, Input, WrappedCanvas } from "mediabunny";
 import { type SkImage, Skia } from "react-skia-lite";
 import { subscribeWithSelector } from "zustand/middleware";
 import { createStore } from "zustand/vanilla";
 import { useTimelineStore } from "@/editor/contexts/TimelineContext";
-import type {
-	ComponentModel,
-	ComponentModelStore,
-	ValidationResult,
-} from "../model/types";
+import type { AssetHandle } from "@/dsl/assets/AssetStore";
+import { acquireVideoAsset, type VideoAsset } from "@/dsl/assets/videoAsset";
 import {
 	framesToSeconds,
 	framesToTimecode,
 	secondsToFrames,
 } from "@/utils/timecode";
+import type {
+	ComponentModel,
+	ComponentModelStore,
+	ValidationResult,
+} from "../model/types";
 
 // Clip Props 类型
 export interface ClipProps {
@@ -88,8 +84,7 @@ export function createClipModel(
 	let isPlaybackActive = false;
 	let nextFrame: WrappedCanvas | null = null;
 
-	// 帧缓存配置
-	const MAX_CACHE_SIZE = 50;
+	let assetHandle: AssetHandle<VideoAsset> | null = null;
 
 	const getTimelineFps = () => {
 		const fps = useTimelineStore.getState().fps;
@@ -97,34 +92,13 @@ export function createClipModel(
 		return Math.round(fps);
 	};
 
-	// 帧缓存
-	const frameCache = new Map<number, SkImage>();
-	const cacheAccessOrder: number[] = []; // LRU 顺序
-
 	// 将时间戳对齐到帧间隔（以时间线 FPS 为准）
 	const alignTime = (time: number): number => {
 		const frameInterval = 1 / getTimelineFps();
 		return Math.round(time / frameInterval) * frameInterval;
 	};
 
-	// 更新 LRU 顺序
-	const updateCacheAccess = (key: number) => {
-		const index = cacheAccessOrder.indexOf(key);
-		if (index > -1) {
-			cacheAccessOrder.splice(index, 1);
-		}
-		cacheAccessOrder.push(key);
-	};
-
-	// 清理过期缓存
-	const cleanupCache = () => {
-		while (frameCache.size > MAX_CACHE_SIZE && cacheAccessOrder.length > 0) {
-			const oldestKey = cacheAccessOrder.shift();
-			if (oldestKey !== undefined) {
-				frameCache.delete(oldestKey);
-			}
-		}
-	};
+	const fallbackFrameCache = new Map<number, SkImage>();
 
 	// 将 canvas 转换为 SkImage
 	const canvasToSkImage = async (
@@ -144,11 +118,7 @@ export function createClipModel(
 		// 存入缓存
 		if (timestamp !== undefined) {
 			const alignedTime = alignTime(timestamp);
-			if (!frameCache.has(alignedTime)) {
-				frameCache.set(alignedTime, skiaImage);
-				updateCacheAccess(alignedTime);
-				cleanupCache();
-			}
+			assetHandle?.asset.storeFrame(alignedTime, skiaImage);
 		}
 
 		store.setState((state) => ({
@@ -273,9 +243,8 @@ export function createClipModel(
 		const alignedTime = alignTime(seconds);
 
 		// 检查缓存
-		const cachedFrame = frameCache.get(alignedTime);
+		const cachedFrame = assetHandle?.asset.getCachedFrame(alignedTime);
 		if (cachedFrame) {
-			updateCacheAccess(alignedTime);
 			store.setState((state) => ({
 				...state,
 				internal: {
@@ -337,7 +306,7 @@ export function createClipModel(
 				videoDuration: 0,
 				isReady: false,
 				thumbnailCanvas: null,
-				frameCache,
+				frameCache: fallbackFrameCache,
 				seekToTime,
 				startPlayback,
 				getNextFrame,
@@ -394,9 +363,7 @@ export function createClipModel(
 							constraints.maxDuration,
 							fps,
 						);
-						errors.push(
-							`Duration cannot exceed ${maxDurationLabel}`,
-						);
+						errors.push(`Duration cannot exceed ${maxDurationLabel}`);
 						// 提供修正值
 						corrected = {
 							...newProps,
@@ -430,76 +397,57 @@ export function createClipModel(
 
 				asyncId++;
 				const currentAsyncId = asyncId;
+				let localHandle: AssetHandle<VideoAsset> | null = null;
 
 				try {
-					// 创建 Input
-					const source = new UrlSource(uri);
-					const input = new Input({
-						source,
-						formats: ALL_FORMATS,
-					});
-
-					// 获取视频时长
-					const duration = await input.computeDuration();
-				const fps = getTimelineFps();
-				const durationFrames = secondsToFrames(duration, fps);
+					localHandle = await acquireVideoAsset(uri);
 
 					// 检查是否被取消
-					if (currentAsyncId !== asyncId) return;
-
-					// 获取视频轨道
-					let videoTrack = await input.getPrimaryVideoTrack();
-
-					if (videoTrack) {
-						if (videoTrack.codec === null) {
-							videoTrack = null;
-						} else if (!(await videoTrack.canDecode())) {
-							videoTrack = null;
-						}
+					if (currentAsyncId !== asyncId) {
+						localHandle.release();
+						return;
 					}
 
-					if (!videoTrack) {
-						throw new Error("No valid video track found");
-					}
+					assetHandle?.release();
+					assetHandle = localHandle;
 
-					// 检查是否被取消
-					if (currentAsyncId !== asyncId) return;
-
-					// 创建视频 Sink
-					const videoCanBeTransparent = await videoTrack.canBeTransparent();
-					const videoSink = new CanvasSink(videoTrack, {
-						poolSize: 2,
-						fit: "contain",
-						alpha: videoCanBeTransparent,
-					});
+					const { asset } = localHandle;
+					const fps = getTimelineFps();
+					const durationFrames = secondsToFrames(asset.duration, fps);
 
 					// 更新状态
 					set((state) => ({
 						constraints: {
 							...state.constraints,
 							isLoading: false,
-						maxDuration: durationFrames,
+							maxDuration: durationFrames,
 						},
 						internal: {
 							...state.internal,
-							videoSink,
-							input,
-							videoDuration: duration,
+							videoSink: asset.videoSink,
+							input: asset.input,
+							videoDuration: asset.duration,
+							frameCache: asset.frameCache,
 						},
 					}));
 
 					// 初始化完成后，seek 到初始位置
 					const { start, reversed } = get().props;
-				const startSeconds = framesToSeconds(start, fps);
+					const startSeconds = framesToSeconds(start, fps);
 					const videoTime = calculateVideoTime({
-					start: startSeconds,
-					timelineTime: startSeconds, // 初始时显示开始位置
-						videoDuration: duration,
+						start: startSeconds,
+						timelineTime: startSeconds, // 初始时显示开始位置
+						videoDuration: asset.duration,
 						reversed,
 					});
 
 					await seekToTime(videoTime);
 				} catch (error) {
+					localHandle?.release();
+					if (assetHandle === localHandle) {
+						assetHandle = null;
+					}
+
 					if (currentAsyncId !== asyncId) return;
 
 					set((state) => ({
@@ -522,9 +470,8 @@ export function createClipModel(
 				videoFrameIterator?.return?.();
 				videoFrameIterator = null;
 
-				// 清理帧缓存
-				frameCache.clear();
-				cacheAccessOrder.length = 0;
+				assetHandle?.release();
+				assetHandle = null;
 
 				// 清理资源
 				internal.videoSink = null;
