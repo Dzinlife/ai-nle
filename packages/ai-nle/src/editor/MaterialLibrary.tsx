@@ -115,6 +115,15 @@ const DEMO_MATERIALS: MaterialItem[] = [
 		width: 1920,
 		height: 1280,
 	},
+	{
+		id: "material-transition-1",
+		type: "transition",
+		name: "淡入淡出",
+		uri: "transition://fade",
+		thumbnailUrl:
+			"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='80'><rect width='200' height='80' fill='%236363f1'/><path d='M0 0 L200 80 M0 80 L200 0' stroke='%23ffffff' stroke-width='6' opacity='0.7'/><text x='100' y='50' font-size='26' fill='%23ffffff' text-anchor='middle' font-family='Arial'>T</text></svg>",
+		duration: 15,
+	},
 ];
 
 interface MaterialLibraryProps {

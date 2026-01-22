@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ModelManager } from "@/dsl/model";
 import { TimelineElement, TrackRole } from "@/dsl/types";
+import { Toaster } from "@/components/ui/sonner";
 import { clampFrame, secondsToFrames } from "@/utils/timecode";
 import ElementSettingsPanel from "./components/ElementSettingsPanel";
 import PreviewProvider from "./contexts/PreviewProvider";
@@ -25,9 +26,11 @@ import {
 import { buildTimelineMeta } from "./utils/timelineTime";
 import {
 	findAvailableTrack,
+	getElementRole,
 	getStoredTrackAssignments,
 	getTrackCount,
 } from "./utils/trackAssignment";
+import { isTransitionElement } from "./utils/transitions";
 
 // 导入所有组件以触发注册
 import "@/dsl/BackdropZoom";
@@ -50,9 +53,58 @@ const getMaterialRole = (item: MaterialItem): TrackRole => {
 			return "audio";
 		case "text":
 			return "overlay";
+		case "transition":
+			return "clip";
 		default:
 			return "clip";
 	}
+};
+
+const DEFAULT_TRANSITION_DURATION_FRAMES = 15;
+
+const resolveTransitionDrop = (
+	elements: TimelineElement[],
+	trackIndex: number,
+	boundary: number,
+) => {
+	if (trackIndex !== 0) return null;
+	const clips = elements
+		.filter(
+			(el) =>
+				(el.timeline.trackIndex ?? 0) === 0 &&
+				getElementRole(el) === "clip" &&
+				!isTransitionElement(el),
+		)
+		.sort((a, b) => {
+			if (a.timeline.start !== b.timeline.start) {
+				return a.timeline.start - b.timeline.start;
+			}
+			if (a.timeline.end !== b.timeline.end) {
+				return a.timeline.end - b.timeline.end;
+			}
+			return a.id.localeCompare(b.id);
+		});
+
+	for (let i = 0; i < clips.length - 1; i += 1) {
+		const prev = clips[i];
+		const next = clips[i + 1];
+		if (prev.timeline.end !== next.timeline.start) continue;
+		if (prev.timeline.end !== boundary) continue;
+		const hasExisting = elements.some(
+			(el) =>
+				isTransitionElement(el) &&
+				(el.timeline.trackIndex ?? 0) === 0 &&
+				(el.timeline.start === boundary ||
+					(((el.props as { fromId?: string; toId?: string })?.fromId ??
+						"") === prev.id &&
+						((el.props as { fromId?: string; toId?: string })?.toId ??
+							"") === next.id)),
+		);
+		if (hasExisting) return null;
+		return { fromId: prev.id, toId: next.id };
+	}
+
+	return null;
 };
 
 // 内部编辑器内容组件（可以使用 hooks）
@@ -107,8 +159,64 @@ const EditorContent: React.FC = () => {
 			dropTargetType: "track" | "gap" = "track",
 		) => {
 			setElements((prev) => {
-				const durationFrames = secondsToFrames(5, fps);
 				const startFrame = clampFrame(time);
+
+				const postProcessOptions = {
+					mainTrackMagnetEnabled,
+					attachments,
+					autoAttach,
+					fps,
+				};
+
+				if (item.type === "transition") {
+					if (dropTargetType === "gap") return prev;
+					const link = resolveTransitionDrop(prev, trackIndex, startFrame);
+					if (!link) return prev;
+					const durationFrames =
+						Number.isFinite(item.duration) && (item.duration ?? 0) > 0
+							? (item.duration as number)
+							: DEFAULT_TRANSITION_DURATION_FRAMES;
+					const newTransition: TimelineElement = {
+						id: `transition-${Date.now()}`,
+						type: "Transition",
+						name: item.name,
+						props: {
+							fromId: link.fromId,
+							toId: link.toId,
+						},
+						transition: {
+							duration: durationFrames,
+						},
+						transform: {
+							centerX: 0,
+							centerY: 0,
+							width: 1920,
+							height: 1080,
+							rotation: 0,
+						},
+						timeline: buildTimelineMeta(
+							{
+								start: startFrame,
+								end: startFrame,
+								trackIndex: 0,
+								role: "clip",
+							},
+							fps,
+						),
+						render: {
+							zIndex: 1,
+							visible: true,
+							opacity: 1,
+						},
+					};
+
+					return finalizeTimelineElements(
+						[...prev, newTransition],
+						postProcessOptions,
+					);
+				}
+
+				const durationFrames = secondsToFrames(5, fps);
 				const role = getMaterialRole(item);
 				const insertIndex =
 					dropTargetType === "gap" ? Math.max(1, trackIndex) : trackIndex;
@@ -140,13 +248,6 @@ const EditorContent: React.FC = () => {
 						visible: true,
 						opacity: 1,
 					},
-				};
-
-				const postProcessOptions = {
-					mainTrackMagnetEnabled,
-					attachments,
-					autoAttach,
-					fps,
 				};
 
 				if (dropTargetType === "gap") {
@@ -307,6 +408,7 @@ const Editor = () => {
 
 	return (
 		<QueryClientProvider client={queryClient}>
+			<Toaster />
 			<TimelineProvider
 				elements={elements}
 				tracks={tracks}

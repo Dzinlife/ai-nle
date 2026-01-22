@@ -9,8 +9,11 @@ import { getTrackYFromHeights } from "../utils/trackAssignment";
 import { parseTrackHeights } from "./timelineDropTargets";
 
 const MaterialDragGhost: React.FC = () => {
-	const { isDragging, ghostInfo, dragSource } = useDragStore();
+	const { isDragging, ghostInfo, dragSource, dropTarget } = useDragStore();
 	if (!isDragging || !ghostInfo || dragSource !== "material-library") {
+		return null;
+	}
+	if (dropTarget?.zone === "timeline") {
 		return null;
 	}
 
@@ -60,13 +63,18 @@ const MaterialDropIndicator: React.FC = () => {
 	const trackIndex = dropTarget.trackIndex ?? 0;
 	const time = dropTarget.time ?? 0;
 	const defaultDurationFrames = secondsToFrames(5, fps);
+	const isTransitionMaterial =
+		dragData && isMaterialDragData(dragData) && dragData.type === "transition";
+	const fallbackDurationFrames = isTransitionMaterial
+		? 15
+		: defaultDurationFrames;
 	const materialDurationFrames =
 		dragData &&
 		isMaterialDragData(dragData) &&
 		Number.isFinite(dragData.duration) &&
 		(dragData.duration ?? 0) > 0
 			? (dragData.duration as number)
-			: defaultDurationFrames;
+			: fallbackDurationFrames;
 	const elementWidth = materialDurationFrames * ratio;
 
 	let targetZone: HTMLElement | null = null;
@@ -133,7 +141,10 @@ const MaterialDropIndicator: React.FC = () => {
 			if (contentArea) {
 				const contentRect = contentArea.getBoundingClientRect();
 				const scrollLeft = useDragStore.getState().timelineScrollLeft;
-				screenX = contentRect.left + time * ratio - scrollLeft;
+				const startTime = isTransitionMaterial
+					? time - materialDurationFrames / 2
+					: time;
+				screenX = contentRect.left + startTime * ratio - scrollLeft;
 				screenY = contentRect.top;
 				indicatorHeight = getElementHeightForTrack(
 					contentRect.height || indicatorHeight,
@@ -171,7 +182,10 @@ const MaterialDropIndicator: React.FC = () => {
 					trackHeights.length > 0
 						? getTrackYFromHeights(trackIndex, trackHeights, otherTrackCount)
 						: (otherTrackCount - trackIndex) * fallbackTrackHeight;
-				screenX = contentRect.left + time * ratio - scrollLeft;
+				const startTime = isTransitionMaterial
+					? time - materialDurationFrames / 2
+					: time;
+				screenX = contentRect.left + startTime * ratio - scrollLeft;
 				screenY = contentRect.top + trackY;
 				indicatorHeight = getElementHeightForTrack(trackHeightForIndex);
 			}

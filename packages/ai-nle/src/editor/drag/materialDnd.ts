@@ -2,6 +2,7 @@ import { useDrag } from "@use-gesture/react";
 import { useMemo, useRef } from "react";
 import { TimelineElement, TrackRole } from "@/dsl/types";
 import { clampFrame, secondsToFrames } from "@/utils/timecode";
+import { toast } from "sonner";
 import {
 	useFps,
 	useTimelineScale,
@@ -23,7 +24,9 @@ import {
 	hasOverlapOnTrack,
 	isRoleCompatibleWithTrack,
 	MAIN_TRACK_INDEX,
+	getElementRole,
 } from "../utils/trackAssignment";
+import { isTransitionElement } from "../utils/transitions";
 import {
 	findTimelineDropTargetFromScreenPosition,
 	getPreviewDropTargetFromScreenPosition,
@@ -87,16 +90,18 @@ export function useMaterialDndContext(): MaterialDndContext {
 	};
 }
 
-const defaultMaterialRole = (item: MaterialDndItem): TrackRole => {
-	switch (item.type) {
-		case "audio":
-			return "audio";
-		case "text":
-			return "overlay";
-		default:
-			return "clip";
-	}
-};
+	const defaultMaterialRole = (item: MaterialDndItem): TrackRole => {
+		switch (item.type) {
+			case "audio":
+				return "audio";
+			case "text":
+				return "overlay";
+			case "transition":
+				return "clip";
+			default:
+				return "clip";
+		}
+	};
 
 const defaultMaterialDurationFrames = (
 	item: MaterialDndItem,
@@ -180,6 +185,7 @@ export function useMaterialDnd<T extends MaterialDndItem>({
 		item,
 		context.defaultDurationFrames,
 	);
+	const isTransitionMaterial = item.type === "transition";
 
 	const resolveTrackRole = (trackIndex: number): TrackRole => {
 		if (trackIndex === MAIN_TRACK_INDEX) return "clip";
@@ -208,9 +214,69 @@ export function useMaterialDnd<T extends MaterialDndItem>({
 	const normalizeGapIndex = (trackIndex: number): number =>
 		Math.max(MAIN_TRACK_INDEX + 1, trackIndex);
 
+	const resolveTransitionBoundary = (time: number) => {
+		const thresholdFrames = Math.max(1, Math.round(8 / context.ratio));
+		const clips = context.elements
+			.filter(
+				(el) =>
+					(el.timeline.trackIndex ?? MAIN_TRACK_INDEX) === MAIN_TRACK_INDEX &&
+					getElementRole(el) === "clip" &&
+					!isTransitionElement(el),
+			)
+			.sort((a, b) => {
+				if (a.timeline.start !== b.timeline.start) {
+					return a.timeline.start - b.timeline.start;
+				}
+				if (a.timeline.end !== b.timeline.end) {
+					return a.timeline.end - b.timeline.end;
+				}
+				return a.id.localeCompare(b.id);
+			});
+
+		let best: { boundary: number; fromId: string; toId: string; distance: number } | null =
+			null;
+		for (let i = 0; i < clips.length - 1; i += 1) {
+			const prev = clips[i];
+			const next = clips[i + 1];
+			if (prev.timeline.end !== next.timeline.start) continue;
+			const boundary = prev.timeline.end;
+			const distance = Math.abs(boundary - time);
+			if (distance > thresholdFrames) continue;
+			if (!best || distance < best.distance) {
+				best = {
+					boundary,
+					fromId: prev.id,
+					toId: next.id,
+					distance,
+				};
+			}
+		}
+
+		if (!best) return null;
+
+		const hasExisting = context.elements.some(
+			(el) =>
+				isTransitionElement(el) &&
+				(el.timeline.trackIndex ?? MAIN_TRACK_INDEX) === MAIN_TRACK_INDEX &&
+				(el.timeline.start === best.boundary ||
+					(((el.props as { fromId?: string; toId?: string })?.fromId ??
+						"") === best.fromId &&
+						((el.props as { fromId?: string; toId?: string })?.toId ??
+							"") === best.toId)),
+		);
+		if (hasExisting) return null;
+
+		return { boundary: best.boundary, fromId: best.fromId, toId: best.toId };
+	};
+
 	const detectDropTarget = (mouseX: number, mouseY: number): DropTargetInfo | null => {
 		const previewTarget = getPreviewDropTargetFromScreenPosition(mouseX, mouseY);
-		if (previewTarget) return previewTarget;
+		if (previewTarget) {
+			if (isTransitionMaterial) {
+				return { ...previewTarget, canDrop: false };
+			}
+			return previewTarget;
+		}
 
 		const otherTrackCountFallback = Math.max(context.trackCount - 1, 0);
 		const baseDropTarget = findTimelineDropTargetFromScreenPosition(
@@ -232,6 +298,40 @@ export function useMaterialDnd<T extends MaterialDndItem>({
 		if (rawTime === null) return null;
 		const time = clampFrame(rawTime);
 		const dropEnd = time + materialDurationFrames;
+
+		if (isTransitionMaterial) {
+			if (
+				baseDropTarget.type === "gap" ||
+				baseDropTarget.trackIndex !== MAIN_TRACK_INDEX
+			) {
+				return {
+					zone: "timeline",
+					type: baseDropTarget.type,
+					trackIndex: baseDropTarget.trackIndex,
+					time,
+					canDrop: false,
+				};
+			}
+
+			const target = resolveTransitionBoundary(time);
+			if (!target) {
+				return {
+					zone: "timeline",
+					type: "track",
+					trackIndex: MAIN_TRACK_INDEX,
+					time,
+					canDrop: false,
+				};
+			}
+
+			return {
+				zone: "timeline",
+				type: "track",
+				trackIndex: MAIN_TRACK_INDEX,
+				time: target.boundary,
+				canDrop: true,
+			};
+		}
 
 		let resolvedDropTarget =
 			baseDropTarget.type === "gap"
@@ -265,19 +365,10 @@ export function useMaterialDnd<T extends MaterialDndItem>({
 			if (first) {
 				event?.preventDefault();
 				event?.stopPropagation();
-
-				const target =
-					dragRef.current ??
-					(event?.currentTarget instanceof HTMLElement
-						? event.currentTarget
-						: null);
-				if (target) {
-					const rect = target.getBoundingClientRect();
-					initialOffsetRef.current = {
-						x: xy[0] - rect.left,
-						y: xy[1] - rect.top,
-					};
-				}
+				initialOffsetRef.current = {
+					x: ghostSize.width / 2,
+					y: ghostSize.height / 2,
+				};
 
 				const dragData = getDragData(item);
 				const ghost = getGhostInfo(
@@ -296,6 +387,14 @@ export function useMaterialDnd<T extends MaterialDndItem>({
 			if (last) {
 				stopAutoScroll();
 				const currentDropTarget = useDragStore.getState().dropTarget;
+				if (
+					item.type === "transition" &&
+					(!currentDropTarget ||
+						currentDropTarget.zone !== "timeline" ||
+						!currentDropTarget.canDrop)
+				) {
+					toast.error("Drop the transition between adjacent clips.");
+				}
 				if (currentDropTarget?.canDrop) {
 					if (
 						currentDropTarget.zone === "timeline" &&
