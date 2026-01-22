@@ -68,6 +68,9 @@ interface TimelineStore {
 	previewTime: number | null; // hover 时的临时预览时间
 	elements: TimelineElement[];
 	tracks: TimelineTrack[];
+	historyPast: TimelineHistorySnapshot[];
+	historyFuture: TimelineHistorySnapshot[];
+	historyLimit: number;
 	canvasSize: { width: number; height: number };
 	isPlaying: boolean;
 	isDragging: boolean; // 是否正在拖拽元素
@@ -96,10 +99,14 @@ interface TimelineStore {
 		elements:
 			| TimelineElement[]
 			| ((prev: TimelineElement[]) => TimelineElement[]),
+		options?: { history?: boolean },
 	) => void;
 	setTracks: (
 		tracks: TimelineTrack[] | ((prev: TimelineTrack[]) => TimelineTrack[]),
 	) => void;
+	undo: () => void;
+	redo: () => void;
+	resetHistory: () => void;
 	setTrackVisible: (trackId: string, visible: boolean) => void;
 	toggleTrackVisible: (trackId: string) => void;
 	setCanvasSize: (size: { width: number; height: number }) => void;
@@ -132,6 +139,55 @@ interface TimelineStore {
 	setTimelineScale: (scale: number) => void;
 }
 
+interface TimelineHistorySnapshot {
+	elements: TimelineElement[];
+	tracks: TimelineTrack[];
+	mainTrackMagnetEnabled: boolean;
+}
+
+const HISTORY_LIMIT = 100;
+
+const trimHistory = (
+	history: TimelineHistorySnapshot[],
+	limit: number,
+): TimelineHistorySnapshot[] => {
+	if (history.length <= limit) return history;
+	return history.slice(history.length - limit);
+};
+
+const buildHistorySnapshot = (state: {
+	elements: TimelineElement[];
+	tracks: TimelineTrack[];
+	mainTrackMagnetEnabled: boolean;
+}): TimelineHistorySnapshot => {
+	// 使用不可变快照复用元素/轨道引用，避免深拷贝占用内存
+	return {
+		elements: state.elements,
+		tracks: state.tracks,
+		mainTrackMagnetEnabled: state.mainTrackMagnetEnabled,
+	};
+};
+
+const reconcileSelection = (
+	elements: TimelineElement[],
+	selectedIds: string[],
+	primarySelectedId: string | null,
+): { selectedIds: string[]; primarySelectedId: string | null } => {
+	if (selectedIds.length === 0) {
+		return { selectedIds: [], primarySelectedId: null };
+	}
+	const existingIds = new Set(elements.map((el) => el.id));
+	const nextSelected = selectedIds.filter((id) => existingIds.has(id));
+	if (nextSelected.length === 0) {
+		return { selectedIds: [], primarySelectedId: null };
+	}
+	const nextPrimary =
+		primarySelectedId && nextSelected.includes(primarySelectedId)
+			? primarySelectedId
+			: nextSelected[nextSelected.length - 1];
+	return { selectedIds: nextSelected, primarySelectedId: nextPrimary };
+};
+
 export const useTimelineStore = create<TimelineStore>()(
 	subscribeWithSelector((set, get) => ({
 		fps: DEFAULT_FPS,
@@ -148,6 +204,9 @@ export const useTimelineStore = create<TimelineStore>()(
 				muted: false,
 			},
 		],
+		historyPast: [],
+		historyFuture: [],
+		historyLimit: HISTORY_LIMIT,
 		canvasSize: { width: 1920, height: 1080 },
 		isPlaying: false,
 		isDragging: false,
@@ -195,42 +254,148 @@ export const useTimelineStore = create<TimelineStore>()(
 			elements:
 				| TimelineElement[]
 				| ((prev: TimelineElement[]) => TimelineElement[]),
+			options?: { history?: boolean },
 		) => {
-			const currentElements = get().elements;
-			const newElements =
-				typeof elements === "function" ? elements(currentElements) : elements;
-			if (currentElements !== newElements) {
-				set({ elements: newElements });
-			}
+			set((state) => {
+				const nextElements =
+					typeof elements === "function" ? elements(state.elements) : elements;
+				if (state.elements === nextElements) return state;
+				if (options?.history === false) {
+					return { elements: nextElements };
+				}
+				const nextPast = trimHistory(
+					[...state.historyPast, buildHistorySnapshot(state)],
+					state.historyLimit,
+				);
+				return {
+					elements: nextElements,
+					historyPast: nextPast,
+					historyFuture: [],
+				};
+			});
 		},
 
 		setTracks: (
 			tracks: TimelineTrack[] | ((prev: TimelineTrack[]) => TimelineTrack[]),
 		) => {
-			const currentTracks = get().tracks;
-			const nextTracks =
-				typeof tracks === "function" ? tracks(currentTracks) : tracks;
-			if (currentTracks !== nextTracks) {
-				set({ tracks: nextTracks });
-			}
+			set((state) => {
+				const nextTracks =
+					typeof tracks === "function" ? tracks(state.tracks) : tracks;
+				if (state.tracks === nextTracks) return state;
+				const nextPast = trimHistory(
+					[...state.historyPast, buildHistorySnapshot(state)],
+					state.historyLimit,
+				);
+				return {
+					tracks: nextTracks,
+					historyPast: nextPast,
+					historyFuture: [],
+				};
+			});
+		},
+
+		undo: () => {
+			set((state) => {
+				if (state.historyPast.length === 0) return state;
+				const previous = state.historyPast[state.historyPast.length - 1];
+				const nextPast = state.historyPast.slice(0, -1);
+				const nextFuture = [
+					buildHistorySnapshot(state),
+					...state.historyFuture,
+				];
+				const selection = reconcileSelection(
+					previous.elements,
+					state.selectedIds,
+					state.primarySelectedId,
+				);
+				return {
+					elements: previous.elements,
+					tracks: previous.tracks,
+					mainTrackMagnetEnabled: previous.mainTrackMagnetEnabled,
+					historyPast: nextPast,
+					historyFuture: nextFuture,
+					selectedIds: selection.selectedIds,
+					primarySelectedId: selection.primarySelectedId,
+				};
+			});
+		},
+
+		redo: () => {
+			set((state) => {
+				if (state.historyFuture.length === 0) return state;
+				const next = state.historyFuture[0];
+				const nextFuture = state.historyFuture.slice(1);
+				const nextPast = trimHistory(
+					[...state.historyPast, buildHistorySnapshot(state)],
+					state.historyLimit,
+				);
+				const selection = reconcileSelection(
+					next.elements,
+					state.selectedIds,
+					state.primarySelectedId,
+				);
+				return {
+					elements: next.elements,
+					tracks: next.tracks,
+					mainTrackMagnetEnabled: next.mainTrackMagnetEnabled,
+					historyPast: nextPast,
+					historyFuture: nextFuture,
+					selectedIds: selection.selectedIds,
+					primarySelectedId: selection.primarySelectedId,
+				};
+			});
+		},
+
+		resetHistory: () => {
+			set({
+				historyPast: [],
+				historyFuture: [],
+				selectedIds: [],
+				primarySelectedId: null,
+			});
 		},
 
 		setTrackVisible: (trackId: string, visible: boolean) => {
-			set((state) => ({
-				tracks: state.tracks.map((track) =>
-					track.id === trackId ? { ...track, visible } : track,
-				),
-			}));
+			set((state) => {
+				let didChange = false;
+				const nextTracks = state.tracks.map((track) => {
+					if (track.id !== trackId) return track;
+					if (track.visible === visible) return track;
+					didChange = true;
+					return { ...track, visible };
+				});
+				if (!didChange) return state;
+				const nextPast = trimHistory(
+					[...state.historyPast, buildHistorySnapshot(state)],
+					state.historyLimit,
+				);
+				return {
+					tracks: nextTracks,
+					historyPast: nextPast,
+					historyFuture: [],
+				};
+			});
 		},
 
 		toggleTrackVisible: (trackId: string) => {
-			set((state) => ({
-				tracks: state.tracks.map((track) =>
-					track.id === trackId
-						? { ...track, visible: !track.visible }
-						: track,
-				),
-			}));
+			set((state) => {
+				let didChange = false;
+				const nextTracks = state.tracks.map((track) => {
+					if (track.id !== trackId) return track;
+					didChange = true;
+					return { ...track, visible: !track.visible };
+				});
+				if (!didChange) return state;
+				const nextPast = trimHistory(
+					[...state.historyPast, buildHistorySnapshot(state)],
+					state.historyLimit,
+				);
+				return {
+					tracks: nextTracks,
+					historyPast: nextPast,
+					historyFuture: [],
+				};
+			});
 		},
 
 		setCanvasSize: (size: { width: number; height: number }) => {
@@ -305,7 +470,18 @@ export const useTimelineStore = create<TimelineStore>()(
 
 		// 主轨道磁吸模式方法
 		setMainTrackMagnetEnabled: (enabled: boolean) => {
-			set({ mainTrackMagnetEnabled: enabled });
+			set((state) => {
+				if (state.mainTrackMagnetEnabled === enabled) return state;
+				const nextPast = trimHistory(
+					[...state.historyPast, buildHistorySnapshot(state)],
+					state.historyLimit,
+				);
+				return {
+					mainTrackMagnetEnabled: enabled,
+					historyPast: nextPast,
+					historyFuture: [],
+				};
+			});
 		},
 
 		// 拖拽目标指示方法
@@ -361,6 +537,14 @@ export const useTimelineScale = () => {
 	const timelineScale = useTimelineStore((state) => state.timelineScale);
 	const setTimelineScale = useTimelineStore((state) => state.setTimelineScale);
 	return { timelineScale, setTimelineScale };
+};
+
+export const useTimelineHistory = () => {
+	const canUndo = useTimelineStore((state) => state.historyPast.length > 0);
+	const canRedo = useTimelineStore((state) => state.historyFuture.length > 0);
+	const undo = useTimelineStore((state) => state.undo);
+	const redo = useTimelineStore((state) => state.redo);
+	return { canUndo, canRedo, undo, redo };
 };
 
 export const usePreviewTime = () => {
@@ -1304,12 +1488,14 @@ export const TimelineProvider = ({
 				canvasSize: initialCanvasSize ?? { width: 1920, height: 1080 },
 				fps: normalizeFps(initialFps ?? DEFAULT_FPS),
 			});
+			useTimelineStore.getState().resetHistory();
 			return;
 		}
 		if (initialTracks) {
 			useTimelineStore.setState({
 				tracks: initialTracks,
 			});
+			useTimelineStore.getState().resetHistory();
 		}
 	}, []);
 
@@ -1326,6 +1512,7 @@ export const TimelineProvider = ({
 				elements,
 				tracks,
 			});
+			useTimelineStore.getState().resetHistory();
 		}
 	}, [initialElements, initialTracks]);
 
@@ -1334,6 +1521,7 @@ export const TimelineProvider = ({
 			useTimelineStore.setState({
 				tracks: initialTracks,
 			});
+			useTimelineStore.getState().resetHistory();
 		}
 	}, [initialElements, initialTracks]);
 

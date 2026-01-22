@@ -14,6 +14,7 @@ import {
 	useMainTrackMagnet,
 	usePlaybackControl,
 	useSnap,
+	useTimelineHistory,
 	useTimelineScale,
 } from "../contexts/TimelineContext";
 
@@ -26,26 +27,49 @@ const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
 	const { mainTrackMagnetEnabled, setMainTrackMagnetEnabled } =
 		useMainTrackMagnet();
 	const { timelineScale, setTimelineScale } = useTimelineScale();
+	const { canUndo, canRedo, undo, redo } = useTimelineHistory();
 
 	// 全局空格键播放/暂停
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
+			// 避免在输入框中触发
+			if (
+				e.target instanceof HTMLInputElement ||
+				e.target instanceof HTMLTextAreaElement ||
+				(e.target as HTMLElement | null)?.isContentEditable
+			) {
+				return;
+			}
+
 			if (e.code === "Space" && !e.repeat) {
-				// 避免在输入框中触发
-				if (
-					e.target instanceof HTMLInputElement ||
-					e.target instanceof HTMLTextAreaElement
-				) {
-					return;
-				}
 				e.preventDefault();
 				togglePlay();
+				return;
+			}
+
+			const isModifier = e.metaKey || e.ctrlKey;
+			if (!isModifier) return;
+
+			const key = e.key.toLowerCase();
+			if (key === "z") {
+				e.preventDefault();
+				if (e.shiftKey) {
+					redo();
+				} else {
+					undo();
+				}
+				return;
+			}
+
+			if (key === "y") {
+				e.preventDefault();
+				redo();
 			}
 		};
 
 		window.addEventListener("keydown", handleKeyDown);
 		return () => window.removeEventListener("keydown", handleKeyDown);
-	}, [togglePlay]);
+	}, [togglePlay, undo, redo]);
 
 	const handleExport = useCallback(async () => {
 		if (isExporting) return;
@@ -72,6 +96,36 @@ const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
 
 	return (
 		<div className={cn("flex items-center gap-3 px-4", className)}>
+			<div className="flex items-center gap-2">
+				<button
+					type="button"
+					onClick={undo}
+					disabled={!canUndo}
+					className={cn(
+						"px-2 py-1 text-xs rounded transition-colors",
+						canUndo
+							? "bg-neutral-700 text-white hover:bg-neutral-600"
+							: "bg-neutral-800 text-neutral-500 cursor-not-allowed",
+					)}
+					title="撤销 (Ctrl/Cmd+Z)"
+				>
+					撤销
+				</button>
+				<button
+					type="button"
+					onClick={redo}
+					disabled={!canRedo}
+					className={cn(
+						"px-2 py-1 text-xs rounded transition-colors",
+						canRedo
+							? "bg-neutral-700 text-white hover:bg-neutral-600"
+							: "bg-neutral-800 text-neutral-500 cursor-not-allowed",
+					)}
+					title="重做 (Ctrl/Cmd+Shift+Z / Ctrl+Y)"
+				>
+					重做
+				</button>
+			</div>
 			<button
 				onClick={togglePlay}
 				className="w-8 h-8 flex items-center justify-center rounded bg-neutral-700 hover:bg-neutral-600 text-white"

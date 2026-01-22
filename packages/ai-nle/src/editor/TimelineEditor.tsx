@@ -110,13 +110,15 @@ const TimelineEditor = () => {
 
 	useEffect(() => {
 		if (mainTrackMagnetEnabled && !mainTrackMagnetRef.current) {
-			setElements((prev) =>
-				finalizeTimelineElements(prev, {
-					mainTrackMagnetEnabled: true,
-					attachments,
-					autoAttach,
-					fps,
-				}),
+			setElements(
+				(prev) =>
+					finalizeTimelineElements(prev, {
+						mainTrackMagnetEnabled: true,
+						attachments,
+						autoAttach,
+						fps,
+					}),
+				{ history: false },
 			);
 		}
 		mainTrackMagnetRef.current = mainTrackMagnetEnabled;
