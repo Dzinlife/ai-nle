@@ -22,7 +22,7 @@ export interface TransformMeta {
 export type TrackRole =
 	| "clip" // 片段轨道：主要内容（视频、音频主体）
 	| "overlay" // 叠加层：贴纸、字幕、水印等
-	| "effect" // 效果层：滤镜、转场、特效等
+	| "effect" // 效果层：滤镜、特效等
 	| "audio"; // 音频轨：背景音乐、音效等
 
 /**
@@ -82,6 +82,13 @@ export interface AudioClipMeta {
 export type ClipMeta = VideoClipMeta | AudioClipMeta;
 
 /**
+ * 转场元信息（仅用于模型层元数据）
+ */
+export interface TransitionMeta {
+	duration?: number;
+}
+
+/**
  * 时间线元素（纯数据结构）
  * 不再是 React.ReactElement，而是纯 JSON 可序列化的数据对象
  */
@@ -98,4 +105,5 @@ export interface TimelineElement<Props = Record<string, any>> {
 
 	// ===== 模型层元数据（不影响当前渲染行为） =====
 	clip?: ClipMeta;
+	transition?: TransitionMeta;
 }

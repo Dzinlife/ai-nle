@@ -128,6 +128,37 @@
 			}
 		},
 		{
+			"id": "transition-1",
+			"type": "Transition",
+			"name": "转场",
+			"transform": {
+				"centerX": 0,
+				"centerY": 0,
+				"width": 1920,
+				"height": 1080,
+				"rotation": 0
+			},
+			"timeline": {
+				"start": 480,
+				"end": 480,
+				"startTimecode": "00:00:16:00",
+				"endTimecode": "00:00:16:00",
+				"trackIndex": 0,
+				"trackId": "main",
+				"role": "clip"
+			},
+			"render": {
+				"zIndex": 1
+			},
+			"props": {
+				"fromId": "cloudBackground1",
+				"toId": "image2"
+			},
+			"transition": {
+				"duration": 15
+			}
+		},
+		{
 			"id": "backdropZoom1",
 			"type": "BackdropZoom",
 			"name": "放大镜效果",
@@ -273,6 +304,37 @@
 				"waveColor": "#1e40af",
 				"foamColor": "#f8fafc",
 				"deepWaterColor": "#0f172a"
+			}
+		},
+		{
+			"id": "transition-2",
+			"type": "Transition",
+			"name": "转场",
+			"transform": {
+				"centerX": 0,
+				"centerY": 0,
+				"width": 1920,
+				"height": 1080,
+				"rotation": 0
+			},
+			"timeline": {
+				"start": 720,
+				"end": 720,
+				"startTimecode": "00:00:24:00",
+				"endTimecode": "00:00:24:00",
+				"trackIndex": 0,
+				"trackId": "main",
+				"role": "clip"
+			},
+			"render": {
+				"zIndex": 1
+			},
+			"props": {
+				"fromId": "image2",
+				"toId": "seaWave1"
+			},
+			"transition": {
+				"duration": 15
 			}
 		}
 	]

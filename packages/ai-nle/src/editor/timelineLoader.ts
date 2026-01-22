@@ -4,6 +4,7 @@ import type {
 	TimelineMeta,
 	TrackRole,
 	TransformMeta,
+	TransitionMeta,
 } from "../dsl/types";
 import { framesToTimecode, timecodeToFrames } from "@/utils/timecode";
 import type { TimelineTrack } from "./timeline/types";
@@ -150,7 +151,14 @@ function validateElement(el: any, index: number, fps: number): TimelineElement {
 	const transform = validateTransform(el.transform, `${path}.transform`);
 
 	// 验证 timeline
-	const timeline = validateTimelineProps(el.timeline, `${path}.timeline`, fps);
+	// 转场允许 0 长度的时间范围
+	const allowZeroDuration = el.type === "Transition";
+	const timeline = validateTimelineProps(
+		el.timeline,
+		`${path}.timeline`,
+		fps,
+		allowZeroDuration,
+	);
 
 	// 验证 render (可选)
 	const render = validateRender(el.render || {}, `${path}.render`);
@@ -159,6 +167,7 @@ function validateElement(el: any, index: number, fps: number): TimelineElement {
 	const props = el.props || {};
 
 	const clip = el.clip;
+	const transition = validateTransition(el.transition, `${path}.transition`);
 
 	return {
 		id: el.id,
@@ -169,6 +178,7 @@ function validateElement(el: any, index: number, fps: number): TimelineElement {
 		render,
 		props,
 		clip,
+		transition,
 	};
 }
 
@@ -310,6 +320,7 @@ function validateTimelineProps(
 	timeline: any,
 	path: string,
 	fps: number,
+	allowZeroDuration: boolean = false,
 ): TimelineMeta {
 	if (!timeline || typeof timeline !== "object") {
 		throw new Error(`${path}: must be an object`);
@@ -319,8 +330,15 @@ function validateTimelineProps(
 		throw new Error(`${path}.start: must be a non-negative integer`);
 	}
 
-	if (!Number.isInteger(timeline.end) || timeline.end <= timeline.start) {
-		throw new Error(`${path}.end: must be greater than start`);
+	if (
+		!Number.isInteger(timeline.end) ||
+		(allowZeroDuration
+			? timeline.end < timeline.start
+			: timeline.end <= timeline.start)
+	) {
+		throw new Error(
+			`${path}.end: must be greater than${allowZeroDuration ? " or equal to" : ""} start`,
+		);
 	}
 
 	if (typeof timeline.startTimecode !== "string") {
@@ -406,6 +424,34 @@ function ensureTimecodes(
 			endTimecode,
 		},
 	};
+}
+
+/**
+ * 验证 transition 属性
+ */
+function validateTransition(
+	transition: any,
+	path: string,
+): TransitionMeta | undefined {
+	if (transition === undefined) {
+		return undefined;
+	}
+	if (!transition || typeof transition !== "object") {
+		throw new Error(`${path}: must be an object`);
+	}
+	if (transition.duration !== undefined) {
+		if (
+			typeof transition.duration !== "number" ||
+			transition.duration < 0
+		) {
+			throw new Error(`${path}.duration: must be a non-negative number`);
+		}
+	}
+	return {
+		...(transition.duration !== undefined
+			? { duration: transition.duration }
+			: {}),
+	} as TransitionMeta;
 }
 
 /**

@@ -22,6 +22,10 @@ import {
 	resolveDropTargetForRole,
 } from "../utils/trackAssignment";
 import {
+	collectLinkedTransitions,
+	isTransitionElement,
+} from "../utils/transitions";
+import {
 	calculateDragResult,
 	calculateFinalTrack,
 	SIGNIFICANT_VERTICAL_MOVE_RATIO,
@@ -68,6 +72,7 @@ interface UseTimelineElementDndOptions {
 	setLocalStartTime: (time: number | null) => void;
 	setLocalEndTime: (time: number | null) => void;
 	setLocalTrackY: (y: number | null) => void;
+	setLocalTransitionDuration: (duration: number | null) => void;
 	stopAutoScroll: () => void;
 	updateAutoScrollFromPosition: (
 		screenX: number,
@@ -80,6 +85,7 @@ interface UseTimelineElementDndOptions {
 		containerBottom: number,
 	) => void;
 	elementRef: React.RefObject<HTMLDivElement | null>;
+	transitionDuration: number;
 }
 
 interface DragRefs {
@@ -208,10 +214,12 @@ export const useTimelineElementDnd = ({
 	setLocalStartTime,
 	setLocalEndTime,
 	setLocalTrackY,
+	setLocalTransitionDuration,
 	stopAutoScroll,
 	updateAutoScrollFromPosition,
 	updateAutoScrollYFromPosition,
 	elementRef,
+	transitionDuration,
 }: UseTimelineElementDndOptions) => {
 	const dragRefs = useRef<DragRefs>({
 		initialStart: 0,
@@ -224,6 +232,7 @@ export const useTimelineElementDnd = ({
 	const elementHeight = getElementHeightForTrack(trackHeight);
 	const tracks = useTimelineStore((state) => state.tracks);
 	const dragSelectedIdsRef = useRef<string[]>([]);
+	const transitionDurationRef = useRef(transitionDuration);
 	const dragInitialElementsRef = useRef<
 		Map<string, { start: number; end: number; trackIndex: number }>
 	>(new Map());
@@ -315,15 +324,39 @@ export const useTimelineElementDnd = ({
 	};
 
 	const getCopyId = (sourceId: string) => copyIdMapRef.current.get(sourceId);
-	const createCopyElement = (source: TimelineElement, copyId: string) => ({
-		...source,
-		id: copyId,
-		props: cloneValue(source.props),
-		transform: cloneValue(source.transform),
-		render: cloneValue(source.render),
-		timeline: { ...source.timeline },
-		...(source.clip ? { clip: cloneValue(source.clip) } : {}),
-	});
+	const createCopyElement = (source: TimelineElement, copyId: string) => {
+		const baseProps = cloneValue(source.props) as Record<string, unknown>;
+		let nextProps = baseProps;
+
+		if (isTransitionElement(source)) {
+			const fromId =
+				typeof baseProps?.fromId === "string" ? baseProps.fromId : undefined;
+			const toId =
+				typeof baseProps?.toId === "string" ? baseProps.toId : undefined;
+			const mappedFromId = fromId ? getCopyId(fromId) ?? fromId : undefined;
+			const mappedToId = toId ? getCopyId(toId) ?? toId : undefined;
+			if (mappedFromId !== fromId || mappedToId !== toId) {
+				nextProps = {
+					...baseProps,
+					...(mappedFromId ? { fromId: mappedFromId } : {}),
+					...(mappedToId ? { toId: mappedToId } : {}),
+				};
+			}
+		}
+
+		return {
+			...source,
+			id: copyId,
+			props: nextProps,
+			transform: cloneValue(source.transform),
+			render: cloneValue(source.render),
+			timeline: { ...source.timeline },
+			...(source.clip ? { clip: cloneValue(source.clip) } : {}),
+			...(source.transition
+				? { transition: cloneValue(source.transition) }
+				: {}),
+		};
+	};
 
 	dragRefs.current.currentStart = element.timeline.start;
 	dragRefs.current.currentEnd = element.timeline.end;
@@ -331,6 +364,7 @@ export const useTimelineElementDnd = ({
 	const storedTrackIndex = element.timeline.trackIndex ?? 0;
 	const isMainTrackMagnetActive =
 		mainTrackMagnetEnabled && storedTrackIndex === 0;
+	const isTransition = isTransitionElement(element);
 	const clampStartByMaxDuration = (
 		start: number,
 		snapPoint: SnapPoint | null,
@@ -422,6 +456,48 @@ export const useTimelineElementDnd = ({
 	const bindLeftDrag = useDrag(
 		({ movement: [mx], first, last, event, tap }) => {
 			if (tap) return;
+			if (isTransition) {
+				if (first) {
+					event?.stopPropagation();
+					if (!selectedIds.includes(element.id)) {
+						select(element.id);
+					}
+					setIsDragging(true);
+					transitionDurationRef.current = transitionDuration;
+				}
+
+				const deltaFrames = Math.round(mx / ratio);
+				const nextDuration = Math.max(
+					0,
+					transitionDurationRef.current - deltaFrames * 2,
+				);
+
+				if (last) {
+					const hasDurationChange =
+						nextDuration !== transitionDurationRef.current;
+					setIsDragging(false);
+					setActiveSnapPoint(null);
+					setLocalTransitionDuration(null);
+					if (Math.abs(mx) > 0 && hasDurationChange) {
+						setElements((prev) =>
+							prev.map((el) =>
+								el.id === element.id
+									? {
+											...el,
+											transition: {
+												...(el.transition ?? {}),
+												duration: nextDuration,
+											},
+										}
+									: el,
+							),
+						);
+					}
+				} else {
+					setLocalTransitionDuration(nextDuration);
+				}
+				return;
+			}
 			if (first) {
 				event?.stopPropagation();
 				if (!selectedIds.includes(element.id)) {
@@ -567,6 +643,48 @@ export const useTimelineElementDnd = ({
 	const bindRightDrag = useDrag(
 		({ movement: [mx], first, last, event, tap }) => {
 			if (tap) return;
+			if (isTransition) {
+				if (first) {
+					event?.stopPropagation();
+					if (!selectedIds.includes(element.id)) {
+						select(element.id);
+					}
+					setIsDragging(true);
+					transitionDurationRef.current = transitionDuration;
+				}
+
+				const deltaFrames = Math.round(mx / ratio);
+				const nextDuration = Math.max(
+					0,
+					transitionDurationRef.current + deltaFrames * 2,
+				);
+
+				if (last) {
+					const hasDurationChange =
+						nextDuration !== transitionDurationRef.current;
+					setIsDragging(false);
+					setActiveSnapPoint(null);
+					setLocalTransitionDuration(null);
+					if (Math.abs(mx) > 0 && hasDurationChange) {
+						setElements((prev) =>
+							prev.map((el) =>
+								el.id === element.id
+									? {
+											...el,
+											transition: {
+												...(el.transition ?? {}),
+												duration: nextDuration,
+											},
+										}
+									: el,
+							),
+						);
+					}
+				} else {
+					setLocalTransitionDuration(nextDuration);
+				}
+				return;
+			}
 			if (first) {
 				event?.stopPropagation();
 				setIsDragging(true);
@@ -692,13 +810,17 @@ export const useTimelineElementDnd = ({
 			if (first) {
 				event?.stopPropagation();
 				setIsDragging(true);
-				const nextSelectedIds = selectedIds.includes(element.id)
+				const baseSelectedIds = selectedIds.includes(element.id)
 					? selectedIds
 					: [element.id];
 				if (!selectedIds.includes(element.id)) {
 					setSelection([element.id], element.id);
 				}
-				dragSelectedIdsRef.current = nextSelectedIds;
+				const dragSelectedIds = collectLinkedTransitions(
+					elements,
+					baseSelectedIds,
+				);
+				dragSelectedIdsRef.current = dragSelectedIds;
 				const isCopyDragStart = Boolean(
 					(event as MouseEvent | undefined)?.altKey,
 				);
@@ -706,7 +828,7 @@ export const useTimelineElementDnd = ({
 				if (isCopyDragStart) {
 					const seed = createCopySeed();
 					const nextMap = new Map<string, string>();
-					nextSelectedIds.forEach((sourceId, index) => {
+					dragSelectedIds.forEach((sourceId, index) => {
 						nextMap.set(sourceId, `element-${seed}-${index}`);
 					});
 					copyIdMapRef.current = nextMap;
@@ -720,7 +842,7 @@ export const useTimelineElementDnd = ({
 				>();
 				let minStart = Infinity;
 				for (const el of elements) {
-					if (!nextSelectedIds.includes(el.id)) continue;
+					if (!dragSelectedIds.includes(el.id)) continue;
 					const trackIndexValue = el.timeline.trackIndex ?? 0;
 					initialMap.set(el.id, {
 						start: el.timeline.start,
@@ -749,7 +871,7 @@ export const useTimelineElementDnd = ({
 					};
 				}
 
-				const isMultiDrag = nextSelectedIds.length > 1;
+				const isMultiDrag = dragSelectedIds.length > 1;
 				if (!isMultiDrag) {
 					const ghostId =
 						copyModeRef.current && getCopyId(element.id)
@@ -765,9 +887,11 @@ export const useTimelineElementDnd = ({
 						clonedHtmlRef.current = clone.outerHTML;
 					}
 
-					const ghostWidth =
-						(dragRefs.current.currentEnd - dragRefs.current.currentStart) *
-						ratio;
+					const ghostWidth = isTransition
+						? Math.max(6, transitionDuration * ratio)
+						: (dragRefs.current.currentEnd -
+								dragRefs.current.currentStart) *
+								ratio;
 					setDragGhosts([
 						{
 							elementId: ghostId,
@@ -781,7 +905,7 @@ export const useTimelineElementDnd = ({
 					]);
 				} else {
 					const ghosts: DragGhostState[] = [];
-					for (const selectedId of nextSelectedIds) {
+					for (const selectedId of dragSelectedIds) {
 						const ghostSource = document.querySelector<HTMLElement>(
 							`[data-element-id="${selectedId}"]`,
 						);
@@ -823,6 +947,9 @@ export const useTimelineElementDnd = ({
 					initialElementsSnapshotRef.current.length > 0
 						? initialElementsSnapshotRef.current
 						: elements;
+				const baseElementMap = new Map(
+					baseElements.map((el) => [el.id, el]),
+				);
 				const draggedBaseTrack =
 					draggedInitial?.trackIndex ?? dragRefs.current.initialTrack;
 				const baseDropTarget = hasSignificantVerticalMove
@@ -846,10 +973,9 @@ export const useTimelineElementDnd = ({
 					mainDropTime !== null &&
 					dragSelectedIds.every((selectedId) => {
 						const selectedElement = elements.find((el) => el.id === selectedId);
-						return (
-							selectedElement !== undefined &&
-							getElementRole(selectedElement) === "clip"
-						);
+						if (!selectedElement) return false;
+						if (isTransitionElement(selectedElement)) return true;
+						return getElementRole(selectedElement) === "clip";
 					});
 				const shouldUseMagnetMulti =
 					mainTrackMagnetEnabled && isMainTrackCandidate;
@@ -938,6 +1064,10 @@ export const useTimelineElementDnd = ({
 							trackIndex: number;
 						} => Boolean(range),
 					);
+				const selectedRangesForOverlap = selectedRanges.filter((range) => {
+					const selectedElement = baseElementMap.get(range.id);
+					return selectedElement && !isTransitionElement(selectedElement);
+				});
 				const anchorRanges = selectedRanges.filter(
 					(range) => range.trackIndex === draggedBaseTrack,
 				);
@@ -983,8 +1113,8 @@ export const useTimelineElementDnd = ({
 				// 主轨道禁用吸附时，重叠则拒绝落主轨
 				const mainTrackOverlap =
 					isMainTrackCandidate &&
-					(hasInternalOverlap(selectedRanges) ||
-						hasRangesOverlapOnTrack(selectedRanges, 0));
+					(hasInternalOverlap(selectedRangesForOverlap) ||
+						hasRangesOverlapOnTrack(selectedRangesForOverlap, 0));
 				const canDropToMainTrack =
 					isMainTrackCandidate &&
 					(mainTrackMagnetEnabled || !mainTrackOverlap);
@@ -1071,7 +1201,6 @@ export const useTimelineElementDnd = ({
 						: trackValue;
 				const draggedAfterInsert = shiftForInsert(draggedBaseTrack);
 				const trackDelta = finalTrackResult.trackIndex - draggedAfterInsert;
-				const baseElementMap = new Map(baseElements.map((el) => [el.id, el]));
 				const resolveExistingTrackId = (
 					targetTrackIndex: number,
 				): string | null => {
@@ -1872,7 +2001,9 @@ export const useTimelineElementDnd = ({
 				}
 				setActiveSnapPoint(shouldUseMagnet ? null : snapPoint);
 
-				const ghostWidth = (newEnd - newStart) * ratio;
+				const ghostWidth = isTransition
+					? Math.max(6, transitionDuration * ratio)
+					: (newEnd - newStart) * ratio;
 				const ghostId = activeCopyId ?? element.id;
 				setDragGhosts([
 					{

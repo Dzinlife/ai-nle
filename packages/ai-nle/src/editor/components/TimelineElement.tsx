@@ -30,6 +30,10 @@ import {
 } from "../contexts/TimelineContext";
 import { getElementHeightForTrack } from "../timeline/index";
 import { useTimelineElementDnd } from "../timeline/useTimelineElementDnd";
+import {
+	getTransitionDuration,
+	isTransitionElement,
+} from "../utils/transitions";
 
 // ============================================================================
 // 类型定义
@@ -61,19 +65,17 @@ const DragHandle: React.FC<DragHandleProps> = ({ position, onDrag }) => {
 		<div
 			{...onDrag()}
 			className={cn(
-				"absolute",
-				isLeft ? "left-0 rounded-l-md" : "right-0 rounded-r-md",
-				"top-0 bottom-0 w-2 cursor-ew-resize hover:bg-blue-500/50 active:bg-blue-500 z-10",
+				isLeft ? "left-0 rounded-l border-l" : "right-0 rounded-r border-r",
+				"pointer-events-auto touch-none top-0 bottom-0 max-w-2 w-full cursor-ew-resize z-10 hover:border-white border-transparent border-y",
 			)}
-			style={{ touchAction: "none" }}
 		>
-			<div
+			{/* <div
 				className={cn(
 					"absolute",
 					isLeft ? "left-0" : "right-0",
 					"top-1/2 -translate-y-1/2 w-1 h-8 bg-blue-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity",
 				)}
-			/>
+			/> */}
 		</div>
 	);
 };
@@ -228,6 +230,10 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	updateTimeRange,
 }) => {
 	const { id, timeline } = element;
+	const isTransition = isTransitionElement(element);
+	const transitionBaseDuration = isTransition
+		? getTransitionDuration(element)
+		: 0;
 
 	// Context hooks
 	const { setIsDragging, setActiveDropTarget, setDragGhosts, dragGhosts } =
@@ -258,6 +264,17 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 		setLocalEndTime,
 		setLocalTrackY,
 	} = useLocalDragState(timeline.start, timeline.end, trackY);
+	const [localTransitionDuration, setLocalTransitionDuration] = useState<
+		number | null
+	>(null);
+
+	useEffect(() => {
+		if (!isTransition) {
+			setLocalTransitionDuration(null);
+			return;
+		}
+		setLocalTransitionDuration(null);
+	}, [isTransition, transitionBaseDuration]);
 
 	// Ref for DOM element (用于 clone)
 	const elementRef = useRef<HTMLDivElement>(null);
@@ -265,6 +282,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	// 计算显示值
 	const startTime = localStartTime ?? timeline.start;
 	const endTime = localEndTime ?? timeline.end;
+	const transitionDuration = localTransitionDuration ?? transitionBaseDuration;
 	const startTimecode = framesToTimecode(startTime, fps);
 	const endTimecode = framesToTimecode(endTime, fps);
 	// 显示 Y：主轨道元素在容器内固定为 0，其他轨道使用 trackY
@@ -273,8 +291,14 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	const displayY = trackIndex === 0 ? 0 : (localTrackY ?? trackY);
 
 	// 计算位置和尺寸
-	const left = startTime * ratio;
-	const width = (endTime - startTime) * ratio;
+	const transitionDisplayWidth = Math.max(6, transitionDuration * ratio);
+	const left = isTransition
+		? timeline.start * ratio - transitionDisplayWidth / 2
+		: startTime * ratio;
+	const width = isTransition
+		? transitionDuration * ratio
+		: (endTime - startTime) * ratio;
+	const displayWidth = isTransition ? transitionDisplayWidth : width - 1;
 
 	// 样式计算
 	const isSelected = selectedIds.includes(id);
@@ -312,10 +336,12 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 		setLocalStartTime,
 		setLocalEndTime,
 		setLocalTrackY,
+		setLocalTransitionDuration,
 		stopAutoScroll,
 		updateAutoScrollFromPosition,
 		updateAutoScrollYFromPosition,
 		elementRef,
+		transitionDuration,
 	});
 
 	// 点击选中
@@ -340,11 +366,16 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 
 	// 容器样式
 	const containerClassName = useMemo(() => {
-		return cn("absolute flex rounded group overflow-hidden bg-neutral-700", {
-			"ring-1 ring-blue-500 bg-blue-900/50": isSelected,
-			"bg-amber-700 ring-1 ring-amber-500": isAtMaxDuration,
+		return cn("absolute flex rounded group overflow-hidden", {
+			"bg-neutral-700": !isTransition,
+			"bg-white/30 z-10": isTransition,
+			"ring-1 ring-white z-20": isSelected,
+			// "bg-amber-700 ring-1 ring-amber-500": isAtMaxDuration,
 		});
-	}, [isSelected, isAtMaxDuration]);
+	}, [isSelected, isAtMaxDuration, isTransition]);
+	const bodyDragBind = isTransition
+		? () => ({}) as ReturnType<typeof bindBodyDrag>
+		: bindBodyDrag;
 
 	return (
 		<div
@@ -354,7 +385,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 			className={containerClassName}
 			style={{
 				left,
-				width: width - 1,
+				width: displayWidth,
 				top: displayY,
 				height: elementHeight,
 				// 拖拽时降低透明度，但保持在 DOM 中以维持拖拽手势
@@ -362,24 +393,31 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 			}}
 			onClick={handleClick}
 		>
-			<DragHandle position="left" onDrag={bindLeftDrag} />
+			{isTransition ? null : (
+				<div
+					{...bodyDragBind()}
+					className={cn(
+						"relative p-1 size-full flex flex-col text-xs",
+						// isTransition ? "cursor-default" : "cursor-move",
+					)}
+					style={{ touchAction: "none" }}
+				>
+					<ElementContent
+						element={element}
+						startTime={startTime}
+						endTime={endTime}
+						startTimecode={startTimecode}
+						endTimecode={endTimecode}
+						fps={fps}
+					/>
+				</div>
+			)}
 
-			<div
-				{...bindBodyDrag()}
-				className="relative p-1 size-full flex flex-col cursor-move text-xs"
-				style={{ touchAction: "none" }}
-			>
-				<ElementContent
-					element={element}
-					startTime={startTime}
-					endTime={endTime}
-					startTimecode={startTimecode}
-					endTimecode={endTimecode}
-					fps={fps}
-				/>
+			<div className="absolute pointer-events-none inset-0 flex justify-between">
+				<DragHandle position="left" onDrag={bindLeftDrag} />
+
+				<DragHandle position="right" onDrag={bindRightDrag} />
 			</div>
-
-			<DragHandle position="right" onDrag={bindRightDrag} />
 		</div>
 	);
 };

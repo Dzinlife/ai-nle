@@ -44,6 +44,7 @@ class ComponentRegistryClass {
 	 * 注册组件
 	 */
 	register<Props = any>(definition: DSLComponentDefinition<Props>): void {
+		console.log("register", definition.type, definition);
 		if (this.components.has(definition.type)) {
 			console.warn(
 				`Component type "${definition.type}" already registered, replacing...`,

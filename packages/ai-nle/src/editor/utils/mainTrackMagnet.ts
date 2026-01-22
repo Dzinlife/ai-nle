@@ -1,6 +1,7 @@
 import { TimelineElement } from "@/dsl/types";
 import { normalizeStoredTrackIndices } from "./trackAssignment";
 import { updateElementTime } from "./timelineTime";
+import { reconcileTransitions } from "./transitions";
 
 const MAIN_TRACK_INDEX = 0;
 const DEFAULT_FPS = 30;
@@ -151,6 +152,7 @@ export function finalizeTimelineElements(
 			fps: options.fps,
 		});
 	}
+	normalized = reconcileTransitions(normalized, options.fps);
 	if (options.fps === undefined) {
 		return normalized;
 	}

@@ -33,6 +33,7 @@ import {
 import { useDragStore } from "./drag";
 import { finalizeTimelineElements } from "./utils/mainTrackMagnet";
 import { getPixelsPerFrame } from "./utils/timelineScale";
+import { reconcileTransitions } from "./utils/transitions";
 import { updateElementTime } from "./utils/timelineTime";
 import {
 	buildTrackLayout,
@@ -183,14 +184,15 @@ const TimelineEditor = () => {
 	// 更新元素的时间范围（start 和 end）
 	const updateTimeRange = useCallback(
 		(elementId: string, start: number, end: number) => {
-			setElements((prev) =>
-				prev.map((el) => {
+			setElements((prev) => {
+				const updated = prev.map((el) => {
 					if (el.id === elementId) {
 						return updateElementTime(el, start, end, fps);
 					}
 					return el;
-				}),
-			);
+				});
+				return reconcileTransitions(updated, fps);
+			});
 		},
 		[setElements, fps],
 	);
