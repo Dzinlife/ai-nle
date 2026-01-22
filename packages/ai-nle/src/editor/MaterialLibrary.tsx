@@ -3,9 +3,27 @@
  * 用于展示可拖拽的素材（图片、视频等）
  */
 
-import React, { useState } from "react";
-import { framesToTimecode } from "@/utils/timecode";
-import { useFps } from "./contexts/TimelineContext";
+import React, { useCallback } from "react";
+import { TimelineElement, TrackRole } from "@/dsl/types";
+import { clampFrame, framesToTimecode, secondsToFrames } from "@/utils/timecode";
+import {
+	findAvailableTrack,
+	getElementRole,
+	getStoredTrackAssignments,
+	getTrackCount,
+} from "./utils/trackAssignment";
+import { buildTimelineMeta } from "./utils/timelineTime";
+import {
+	finalizeTimelineElements,
+	insertElementIntoMainTrack,
+} from "./utils/mainTrackMagnet";
+import { isTransitionElement } from "./utils/transitions";
+import {
+	useAttachments,
+	useFps,
+	useMainTrackMagnet,
+	useTimelineStore,
+} from "./contexts/TimelineContext";
 import MaterialDragOverlay from "./drag/MaterialDragOverlay";
 import {
 	type MaterialDndContext,
@@ -89,6 +107,66 @@ function formatDuration(frames: number, fps: number): string {
 	return framesToTimecode(frames, fps);
 }
 
+const DEFAULT_TRANSITION_DURATION_FRAMES = 15;
+
+const getMaterialRole = (item: MaterialItem): TrackRole => {
+	switch (item.type) {
+		case "audio":
+			return "audio";
+		case "text":
+			return "overlay";
+		case "transition":
+			return "clip";
+		default:
+			return "clip";
+	}
+};
+
+const resolveTransitionDrop = (
+	elements: TimelineElement[],
+	trackIndex: number,
+	boundary: number,
+) => {
+	if (trackIndex !== 0) return null;
+	const clips = elements
+		.filter(
+			(el) =>
+				(el.timeline.trackIndex ?? 0) === 0 &&
+				getElementRole(el) === "clip" &&
+				!isTransitionElement(el),
+		)
+		.sort((a, b) => {
+			if (a.timeline.start !== b.timeline.start) {
+				return a.timeline.start - b.timeline.start;
+			}
+			if (a.timeline.end !== b.timeline.end) {
+				return a.timeline.end - b.timeline.end;
+			}
+			return a.id.localeCompare(b.id);
+		});
+
+	for (let i = 0; i < clips.length - 1; i += 1) {
+		const prev = clips[i];
+		const next = clips[i + 1];
+		if (prev.timeline.end !== next.timeline.start) continue;
+		if (prev.timeline.end !== boundary) continue;
+		const hasExisting = elements.some(
+			(el) =>
+				isTransitionElement(el) &&
+				(el.timeline.trackIndex ?? 0) === 0 &&
+				(el.timeline.start === boundary ||
+					(((el.props as { fromId?: string; toId?: string })?.fromId ??
+						"") === prev.id &&
+						((el.props as { fromId?: string; toId?: string })?.toId ??
+							"") === next.id)),
+		);
+		if (hasExisting) return null;
+		return { fromId: prev.id, toId: next.id };
+	}
+
+	return null;
+};
+
 // ============================================================================
 // 素材库面板组件
 // ============================================================================
@@ -126,59 +204,229 @@ const DEMO_MATERIALS: MaterialItem[] = [
 	},
 ];
 
-interface MaterialLibraryProps {
-	className?: string;
-	onTimelineDrop?: (
-		item: MaterialItem,
-		trackIndex: number,
-		time: number,
-		dropTargetType?: "track" | "gap",
-	) => void;
-	onPreviewDrop?: (
-		item: MaterialItem,
-		canvasX: number,
-		canvasY: number,
-	) => void;
-}
-
-const MaterialLibrary: React.FC<MaterialLibraryProps> = ({
-	className,
-	onTimelineDrop,
-	onPreviewDrop,
-}) => {
-	const [isOpen, setIsOpen] = useState(true);
+const MaterialLibrary: React.FC = () => {
 	const dndContext = useMaterialDndContext();
+	const setElements = useTimelineStore((state) => state.setElements);
+	const currentTime = useTimelineStore((state) => state.currentTime);
+	const { fps } = useFps();
+	const { attachments, autoAttach } = useAttachments();
+	const { mainTrackMagnetEnabled } = useMainTrackMagnet();
+
+	// 处理素材库拖拽放置到时间线
+	const handleTimelineDrop = useCallback(
+		(
+			item: MaterialItem,
+			trackIndex: number,
+			time: number,
+			dropTargetType: "track" | "gap" = "track",
+		) => {
+			setElements((prev) => {
+				const startFrame = clampFrame(time);
+
+				const postProcessOptions = {
+					mainTrackMagnetEnabled,
+					attachments,
+					autoAttach,
+					fps,
+				};
+
+				if (item.type === "transition") {
+					if (dropTargetType === "gap") return prev;
+					const link = resolveTransitionDrop(prev, trackIndex, startFrame);
+					if (!link) return prev;
+					const durationFrames =
+						Number.isFinite(item.duration) && (item.duration ?? 0) > 0
+							? (item.duration as number)
+							: DEFAULT_TRANSITION_DURATION_FRAMES;
+					const newTransition: TimelineElement = {
+						id: `transition-${Date.now()}`,
+						type: "Transition",
+						name: item.name,
+						props: {
+							fromId: link.fromId,
+							toId: link.toId,
+						},
+						transition: {
+							duration: durationFrames,
+						},
+						transform: {
+							centerX: 0,
+							centerY: 0,
+							width: 1920,
+							height: 1080,
+							rotation: 0,
+						},
+						timeline: buildTimelineMeta(
+							{
+								start: startFrame,
+								end: startFrame,
+								trackIndex: 0,
+								role: "clip",
+							},
+							fps,
+						),
+						render: {
+							zIndex: 1,
+							visible: true,
+							opacity: 1,
+						},
+					};
+
+					return finalizeTimelineElements(
+						[...prev, newTransition],
+						postProcessOptions,
+					);
+				}
+
+				const durationFrames = secondsToFrames(5, fps);
+				const role = getMaterialRole(item);
+				const insertIndex =
+					dropTargetType === "gap" ? Math.max(1, trackIndex) : trackIndex;
+				const newElement: TimelineElement = {
+					id: `element-${Date.now()}`,
+					type: "Image" as const,
+					name: item.name,
+					props: {
+						uri: item.uri,
+					},
+					transform: {
+						centerX: 0,
+						centerY: 0,
+						width: item.width ?? 1920,
+						height: item.height ?? 1080,
+						rotation: 0,
+					},
+					timeline: buildTimelineMeta(
+						{
+							start: startFrame,
+							end: startFrame + durationFrames,
+							trackIndex: insertIndex,
+							role,
+						},
+						fps,
+					),
+					render: {
+						zIndex: 0,
+						visible: true,
+						opacity: 1,
+					},
+				};
+
+				if (dropTargetType === "gap") {
+					// gap 投放需要插入新轨道，先整体下移后续轨道索引
+					const shifted = prev.map((el) => {
+						const currentTrack = el.timeline.trackIndex ?? 0;
+						if (currentTrack >= insertIndex) {
+							return {
+								...el,
+								timeline: {
+									...el.timeline,
+									trackIndex: currentTrack + 1,
+								},
+							};
+						}
+						return el;
+					});
+					return finalizeTimelineElements(
+						[...shifted, newElement],
+						postProcessOptions,
+					);
+				}
+
+				// 主轨开启磁吸时，插入逻辑交给主轨处理以保持连续性
+				if (mainTrackMagnetEnabled && trackIndex === 0) {
+					return insertElementIntoMainTrack(
+						prev,
+						newElement.id,
+						startFrame,
+						postProcessOptions,
+						newElement,
+					);
+				}
+
+				return finalizeTimelineElements(
+					[...prev, newElement],
+					postProcessOptions,
+				);
+			});
+		},
+		[setElements, mainTrackMagnetEnabled, attachments, autoAttach, fps],
+	);
+
+	// 处理素材库拖拽放置到预览画布
+	const handlePreviewDrop = useCallback(
+		(item: MaterialItem, canvasX: number, canvasY: number) => {
+			const elementWidth = item.width ?? 400;
+			const elementHeight = item.height ?? 300;
+			const role = getMaterialRole(item);
+
+			setElements((prev) => {
+				const durationFrames = secondsToFrames(5, fps);
+				const startFrame = clampFrame(currentTime);
+				const endFrame = startFrame + durationFrames;
+				const newId = `element-${Date.now()}`;
+				const trackAssignments = getStoredTrackAssignments(prev);
+				const trackCount = getTrackCount(trackAssignments);
+				// 预览投放默认落在非主轨，避免主轨磁吸造成意外移动
+				const targetTrackIndex = 1; // 预览投放默认非主轨
+				const finalTrack = findAvailableTrack(
+					startFrame,
+					endFrame,
+					targetTrackIndex,
+					role,
+					prev,
+					trackAssignments,
+					newId,
+					trackCount,
+				);
+				const newElement: TimelineElement = {
+					id: newId,
+					type: "Image" as const,
+					name: item.name,
+					props: {
+						uri: item.uri,
+					},
+					transform: {
+						centerX: canvasX,
+						centerY: canvasY,
+						width: elementWidth,
+						height: elementHeight,
+						rotation: 0,
+					},
+					timeline: buildTimelineMeta(
+						{
+							start: startFrame,
+							end: endFrame,
+							trackIndex: finalTrack,
+							role,
+						},
+						fps,
+					),
+					render: {
+						zIndex: 0,
+						visible: true,
+						opacity: 1,
+					},
+				};
+
+				return [...prev, newElement];
+			});
+		},
+		[setElements, currentTime, fps],
+	);
 
 	return (
 		<>
-			{/* 素材库面板 */}
-			<div
-				className={`absolute top-16 left-4 z-100 bg-neutral-900/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl ${className ?? ""}`}
-				style={{ width: 200 }}
-			>
-				{/* 标题栏 */}
-				<div
-					className="flex items-center justify-between px-3 py-2 border-b border-white/10 cursor-pointer"
-					onClick={() => setIsOpen(!isOpen)}
-				>
-					<span className="text-sm font-medium text-white">素材库</span>
-					<span className="text-neutral-400 text-xs">{isOpen ? "▼" : "▶"}</span>
-				</div>
-
-				{/* 内容区 */}
-				{isOpen && (
-					<div className="p-2 space-y-2 max-h-80 overflow-y-auto">
-						{DEMO_MATERIALS.map((item) => (
-							<MaterialCard
-								key={item.id}
-								item={item}
-								onTimelineDrop={onTimelineDrop}
-								onPreviewDrop={onPreviewDrop}
-								dndContext={dndContext}
-							/>
-						))}
-					</div>
-				)}
+			<div className="space-y-2">
+				{DEMO_MATERIALS.map((item) => (
+					<MaterialCard
+						key={item.id}
+						item={item}
+						onTimelineDrop={handleTimelineDrop}
+						onPreviewDrop={handlePreviewDrop}
+						dndContext={dndContext}
+					/>
+				))}
 			</div>
 
 			<MaterialDragOverlay />
