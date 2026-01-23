@@ -693,7 +693,11 @@ export const useTimelineElementDnd = ({
 			));
 
 			let clampedByNeighbor = false;
-			if (storedTrackIndex > 0) {
+			const shouldClampByNeighbor =
+				storedTrackIndex > 0 ||
+				(storedTrackIndex === 0 && !mainTrackMagnetEnabled);
+			if (shouldClampByNeighbor) {
+				// 主轨关闭磁吸时，禁止与相邻元素重叠
 				const { prevEnd } = getStoredTrackNeighbors(
 					dragRefs.current.initialStart,
 					dragRefs.current.initialEnd,
@@ -853,7 +857,11 @@ export const useTimelineElementDnd = ({
 			({ end: newEnd, snapPoint } = clampEndByMaxDuration(newEnd, snapPoint));
 
 			let clampedByNeighbor = false;
-			if (storedTrackIndex > 0) {
+			const shouldClampByNeighbor =
+				storedTrackIndex > 0 ||
+				(storedTrackIndex === 0 && !mainTrackMagnetEnabled);
+			if (shouldClampByNeighbor) {
+				// 主轨关闭磁吸时，禁止与相邻元素重叠
 				const { nextStart } = getStoredTrackNeighbors(
 					dragRefs.current.initialStart,
 					dragRefs.current.initialEnd,
