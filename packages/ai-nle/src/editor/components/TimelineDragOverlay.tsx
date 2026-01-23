@@ -4,6 +4,7 @@ import { DragGhostState } from "../contexts/TimelineContext";
 import {
 	DEFAULT_TRACK_HEIGHT,
 	getElementHeightForTrack,
+	TRACK_CONTENT_GAP,
 } from "../timeline/trackConfig";
 import { ExtendedDropTarget } from "../timeline/types";
 import { getTrackYFromHeights } from "../utils/trackAssignment";
@@ -50,6 +51,7 @@ const TimelineDragOverlay: React.FC<TimelineDragOverlayProps> = ({
 				? mainTrackHeight
 				: resolveOtherTrackHeight(activeDropTarget.finalTrackIndex),
 		);
+		const indicatorOffset = TRACK_CONTENT_GAP / 2;
 
 		let targetZone: HTMLElement | null = null;
 		let screenX = 0;
@@ -67,7 +69,7 @@ const TimelineDragOverlay: React.FC<TimelineDragOverlayProps> = ({
 					const contentRect = contentArea.getBoundingClientRect();
 					screenX =
 						contentRect.left + activeDropTarget.start * ratio - scrollLeft;
-					screenY = contentRect.top;
+					screenY = contentRect.top + indicatorOffset;
 				}
 			}
 		} else {
@@ -88,7 +90,7 @@ const TimelineDragOverlay: React.FC<TimelineDragOverlayProps> = ({
 							otherTrackCount,
 						);
 						screenX = contentRect.left - timelinePaddingLeft;
-						screenY = contentRect.top + gapY - 3.5;
+						screenY = contentRect.top + gapY;
 
 						const indicator = (
 							<div
@@ -110,7 +112,7 @@ const TimelineDragOverlay: React.FC<TimelineDragOverlayProps> = ({
 					);
 					screenX =
 						contentRect.left + activeDropTarget.start * ratio - scrollLeft;
-					screenY = contentRect.top + trackY;
+					screenY = contentRect.top + trackY + indicatorOffset;
 				}
 			}
 		}

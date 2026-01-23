@@ -1,22 +1,65 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-	Field,
-	FieldContent,
-	FieldDescription,
-	FieldLabel,
-} from "@/components/ui/field";
 import { Slider } from "@/components/ui/slider";
+import type { TimelineElement } from "@/dsl/types";
 import { exportCanvasAsImage } from "@/dsl/export";
 import { cn } from "@/lib/utils";
+import { clampFrame } from "@/utils/timecode";
 import { usePreview } from "../contexts/PreviewProvider";
 import {
 	useAttachments,
+	useElements,
+	useFps,
 	useMainTrackMagnet,
+	useMultiSelect,
 	usePlaybackControl,
 	useSnap,
 	useTimelineHistory,
 	useTimelineScale,
+	useTimelineStore,
 } from "../contexts/TimelineContext";
+import { updateElementTime } from "../utils/timelineTime";
+import { reconcileTransitions } from "../utils/transitions";
+
+const isSplittableClip = (element: TimelineElement) =>
+	element.type === "VideoClip" || element.type === "AudioClip";
+
+const normalizeOffsetFrames = (value: unknown): number => {
+	if (!Number.isFinite(value as number)) return 0;
+	return Math.max(0, Math.round(value as number));
+};
+
+const createElementId = () => {
+	if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+		return crypto.randomUUID();
+	}
+	return `clip-${Date.now().toString(36)}-${Math.random()
+		.toString(36)
+		.slice(2, 6)}`;
+};
+
+const buildSplitElements = (
+	element: TimelineElement,
+	splitFrame: number,
+	fps: number,
+	newId: string,
+): { left: TimelineElement; right: TimelineElement } => {
+	const originalStart = element.timeline.start;
+	const originalEnd = element.timeline.end;
+	const offsetFrames = normalizeOffsetFrames(element.timeline.offset);
+	const rightOffset = offsetFrames + (splitFrame - originalStart);
+
+	const left = updateElementTime(element, originalStart, splitFrame, fps);
+	const rightBase: TimelineElement = {
+		...element,
+		id: newId,
+		timeline: {
+			...element.timeline,
+			offset: rightOffset,
+		},
+	};
+	const right = updateElementTime(rightBase, splitFrame, originalEnd, fps);
+	return { left, right };
+};
 
 const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
 	const { isPlaying, togglePlay } = usePlaybackControl();
@@ -28,6 +71,10 @@ const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
 		useMainTrackMagnet();
 	const { timelineScale, setTimelineScale } = useTimelineScale();
 	const { canUndo, canRedo, undo, redo } = useTimelineHistory();
+	const { elements, setElements } = useElements();
+	const { primaryId } = useMultiSelect();
+	const { fps } = useFps();
+	const currentTime = useTimelineStore((state) => state.currentTime);
 
 	// 全局空格键播放/暂停
 	useEffect(() => {
@@ -94,6 +141,40 @@ const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
 		[setTimelineScale],
 	);
 
+	const splitCandidate = useMemo(() => {
+		if (!primaryId) return null;
+		const target = elements.find((el) => el.id === primaryId) ?? null;
+		if (!target || !isSplittableClip(target)) return null;
+		if (currentTime <= target.timeline.start) return null;
+		if (currentTime >= target.timeline.end) return null;
+		return target;
+	}, [currentTime, elements, primaryId]);
+
+	const handleSplit = useCallback(() => {
+		if (!splitCandidate) return;
+		// 在当前时间点把选中 clip 切成左右两段
+		setElements((prev) => {
+			const targetIndex = prev.findIndex((el) => el.id === splitCandidate.id);
+			if (targetIndex < 0) return prev;
+			const target = prev[targetIndex];
+			if (!isSplittableClip(target)) return prev;
+			const splitFrame = clampFrame(currentTime);
+			if (splitFrame <= target.timeline.start) return prev;
+			if (splitFrame >= target.timeline.end) return prev;
+			const newId = createElementId();
+			const { left, right } = buildSplitElements(
+				target,
+				splitFrame,
+				fps,
+				newId,
+			);
+			const next = [...prev];
+			next[targetIndex] = left;
+			next.splice(targetIndex + 1, 0, right);
+			return reconcileTransitions(next, fps);
+		});
+	}, [currentTime, fps, setElements, splitCandidate]);
+
 	return (
 		<div className={cn("flex items-center gap-3 px-4", className)}>
 			<div className="flex items-center gap-2">
@@ -131,6 +212,19 @@ const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
 				className="w-8 h-8 flex items-center justify-center rounded bg-neutral-700 hover:bg-neutral-600 text-white"
 			>
 				{isPlaying ? "⏸" : "▶"}
+			</button>
+			<button
+				onClick={handleSplit}
+				disabled={!splitCandidate}
+				className={cn(
+					"px-2 py-1 text-xs rounded transition-colors",
+					splitCandidate
+						? "bg-amber-600 text-white hover:bg-amber-500"
+						: "bg-neutral-800 text-neutral-500 cursor-not-allowed",
+				)}
+				title="在当前时间点分割选中片段"
+			>
+				分割
 			</button>
 			{/* 开关按钮组 */}
 			<div className="flex items-center gap-2 ml-4">

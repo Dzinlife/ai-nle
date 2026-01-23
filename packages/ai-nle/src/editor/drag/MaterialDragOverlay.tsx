@@ -2,10 +2,13 @@ import React from "react";
 import { createPortal } from "react-dom";
 import { secondsToFrames } from "@/utils/timecode";
 import { useFps, useTimelineScale } from "../contexts/TimelineContext";
-import { getElementHeightForTrack } from "../timeline/trackConfig";
-import { useDragStore, isMaterialDragData } from "./dragStore";
+import {
+	getElementHeightForTrack,
+	TRACK_CONTENT_GAP,
+} from "../timeline/trackConfig";
 import { getPixelsPerFrame } from "../utils/timelineScale";
 import { getTrackYFromHeights } from "../utils/trackAssignment";
+import { isMaterialDragData, useDragStore } from "./dragStore";
 import { parseTrackHeights } from "./timelineDropTargets";
 
 const MaterialDragGhost: React.FC = () => {
@@ -51,6 +54,7 @@ const MaterialDropIndicator: React.FC = () => {
 	const { fps } = useFps();
 	const { timelineScale } = useTimelineScale();
 	const ratio = getPixelsPerFrame(fps, timelineScale);
+	const indicatorOffset = TRACK_CONTENT_GAP / 2;
 
 	if (!isDragging || dragSource !== "material-library" || !dropTarget) {
 		return null;
@@ -115,7 +119,7 @@ const MaterialDropIndicator: React.FC = () => {
 				)
 			: 0;
 		screenX = contentRect.left - paddingLeft;
-		screenY = contentRect.top + gapY - 3.5;
+		screenY = contentRect.top + gapY;
 
 		return createPortal(
 			<div
@@ -145,7 +149,7 @@ const MaterialDropIndicator: React.FC = () => {
 					? time - materialDurationFrames / 2
 					: time;
 				screenX = contentRect.left + startTime * ratio - scrollLeft;
-				screenY = contentRect.top;
+				screenY = contentRect.top + indicatorOffset;
 				indicatorHeight = getElementHeightForTrack(
 					contentRect.height || indicatorHeight,
 				);
@@ -186,7 +190,7 @@ const MaterialDropIndicator: React.FC = () => {
 					? time - materialDurationFrames / 2
 					: time;
 				screenX = contentRect.left + startTime * ratio - scrollLeft;
-				screenY = contentRect.top + trackY;
+				screenY = contentRect.top + trackY + indicatorOffset;
 				indicatorHeight = getElementHeightForTrack(trackHeightForIndex);
 			}
 		}

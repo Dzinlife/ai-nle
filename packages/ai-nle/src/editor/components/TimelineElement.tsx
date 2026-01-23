@@ -70,8 +70,8 @@ const DragHandle: React.FC<DragHandleProps> = ({ position, onDrag }) => {
 		<div
 			{...onDrag()}
 			className={cn(
-				isLeft ? "left-0 rounded-l border-l" : "right-0 rounded-r border-r",
-				"pointer-events-auto touch-none top-0 bottom-0 max-w-2 w-full cursor-ew-resize z-10 hover:border-white border-transparent border-y",
+				isLeft ? "left-0 rounded-l border-l-2" : "right-0 rounded-r border-r-2",
+				"pointer-events-auto touch-none top-0 bottom-0 max-w-2 w-full cursor-ew-resize z-10 hover:border-white border-transparent border-y-2",
 			)}
 		>
 			{/* <div
@@ -374,7 +374,6 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 		return cn("absolute flex rounded group overflow-hidden", {
 			"bg-neutral-700": !isTransition,
 			"bg-white/30 z-10": isTransition,
-			"ring-1 ring-white z-20": isSelected,
 			// "bg-amber-700 ring-1 ring-amber-500": isAtMaxDuration,
 		});
 	}, [isSelected, isAtMaxDuration, isTransition]);
@@ -391,8 +390,8 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 			style={{
 				left,
 				width: displayWidth,
-				top: displayY,
-				height: elementHeight,
+				top: displayY + (isTransition ? elementHeight / 4 : 0),
+				height: isTransition ? elementHeight / 2 : elementHeight,
 				// 拖拽时降低透明度，但保持在 DOM 中以维持拖拽手势
 				opacity: trackOpacity * dragOpacity,
 			}}
@@ -418,7 +417,12 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				</div>
 			)}
 
-			<div className="absolute pointer-events-none inset-0 flex justify-between">
+			<div
+				className={cn(
+					"absolute pointer-events-none inset-0 flex justify-between group-hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.3)] rounded group",
+					isSelected && "shadow-[inset_0_0_0_1px_white]!",
+				)}
+			>
 				<DragHandle position="left" onDrag={bindLeftDrag} />
 
 				<DragHandle position="right" onDrag={bindRightDrag} />

@@ -9,6 +9,7 @@ import React, {
 import { ProgressiveBlur } from "@/components/ui/progressive-blur";
 import type { TimelineElement as TimelineElementType } from "@/dsl/types";
 import TimeIndicatorCanvas from "@/editor/components/TimeIndicatorCanvas";
+import { cn } from "@/lib/utils";
 import { clampFrame, framesToTimecode } from "@/utils/timecode";
 import TimelineDragOverlay from "./components/TimelineDragOverlay";
 import TimelineElement from "./components/TimelineElement";
@@ -28,18 +29,19 @@ import {
 	useSnap,
 	useTimelineScale,
 	useTimelineStore,
-	useTracks,
 	useTrackAssignments,
+	useTracks,
 } from "./contexts/TimelineContext";
 import { useDragStore } from "./drag";
+import { TRACK_CONTENT_GAP } from "./timeline/trackConfig";
 import { finalizeTimelineElements } from "./utils/mainTrackMagnet";
 import { getPixelsPerFrame } from "./utils/timelineScale";
-import { reconcileTransitions } from "./utils/transitions";
 import { updateElementTime } from "./utils/timelineTime";
 import {
 	buildTrackLayout,
 	getTrackHeightByRole,
 } from "./utils/trackAssignment";
+import { reconcileTransitions } from "./utils/transitions";
 
 const formatTimecode = (frames: number, fps: number) => {
 	return framesToTimecode(frames, fps);
@@ -259,9 +261,12 @@ const TimelineEditor = () => {
 		[ratio, scrollLeft, leftColumnWidth, isPlaying, isDragging, setPreviewTime],
 	);
 
-	// 点击时设置固定时间，并清除选中状态
+	// 点击时设置固定时间（可选清除选中状态）
 	const handleClick = useCallback(
-		(e: React.MouseEvent<HTMLDivElement>) => {
+		(
+			e: React.MouseEvent<HTMLDivElement>,
+			options?: { keepSelection?: boolean },
+		) => {
 			if (
 				selectionRect.visible &&
 				selectionRect.x1 !== selectionRect.x2 &&
@@ -275,7 +280,9 @@ const TimelineEditor = () => {
 			);
 			setCurrentTime(time);
 			setPreviewTime(null); // 清除预览时间
-			deselectAll(); // 清除选中状态
+			if (!options?.keepSelection) {
+				deselectAll(); // 清除选中状态
+			}
 		},
 		[
 			ratio,
@@ -287,6 +294,14 @@ const TimelineEditor = () => {
 			deselectAll,
 			selectionRect,
 		],
+	);
+
+	// 时间尺点击只更新时间，不影响选中状态
+	const handleRulerClick = useCallback(
+		(e: React.MouseEvent<HTMLDivElement>) => {
+			handleClick(e, { keepSelection: true });
+		},
+		[handleClick],
 	);
 
 	// 鼠标离开时清除预览时间，回到固定时间
@@ -566,8 +581,7 @@ const TimelineEditor = () => {
 			const anchor = zoomAnchorRef.current;
 			const rawX = anchor
 				? anchor.clientX - rect.left
-				: leftColumnWidth +
-					(scrollArea.clientWidth - leftColumnWidth) / 2;
+				: leftColumnWidth + (scrollArea.clientWidth - leftColumnWidth) / 2;
 			return Math.max(0, Math.min(scrollArea.clientWidth, rawX));
 		})();
 
@@ -586,10 +600,7 @@ const TimelineEditor = () => {
 			return;
 		}
 		const offsetX = anchorX - leftColumnWidth - timelinePaddingLeft;
-		const timeAtAnchor = Math.max(
-			0,
-			(offsetX + currentScrollLeft) / prevRatio,
-		);
+		const timeAtAnchor = Math.max(0, (offsetX + currentScrollLeft) / prevRatio);
 		const nextScrollLeft = Math.max(0, timeAtAnchor * nextRatio - offsetX);
 
 		if (Number.isFinite(nextScrollLeft)) {
@@ -740,7 +751,7 @@ const TimelineEditor = () => {
 				key="time-stamps"
 				className="sticky top-0 left-0 z-60"
 				onMouseMove={handleMouseMove}
-				onClick={handleClick}
+				onClick={handleRulerClick}
 				onMouseLeave={handleMouseLeave}
 			>
 				<div className="flex bg-neutral-800/10 border border-white/10 rounded-full mx-4 backdrop-blur-2xl overflow-hidden">
@@ -815,7 +826,7 @@ const TimelineEditor = () => {
 				{otherTrackElements.map((element) => {
 					const trackIndex = trackAssignments.get(element.id) ?? 0;
 					const layoutItem = trackLayoutByIndex.get(trackIndex);
-					const y = layoutItem?.y ?? 0;
+					const y = (layoutItem?.y ?? 0) + TRACK_CONTENT_GAP / 2;
 					const elementTrackHeight =
 						layoutItem?.height ?? getTrackHeightByRole("overlay");
 					const trackVisible = tracks[trackIndex]?.visible ?? true;
@@ -858,7 +869,7 @@ const TimelineEditor = () => {
 			<div
 				className="relative"
 				style={{
-					transform: `translateX(-${scrollLeft}px)`,
+					transform: `translateX(-${scrollLeft}px) translateY(${TRACK_CONTENT_GAP / 2}px)`,
 					height: mainTrackHeight,
 				}}
 			>
@@ -899,9 +910,12 @@ const TimelineEditor = () => {
 			return (
 				<div
 					key={tracks[item.index]?.id ?? item.index}
-					className={`flex items-center justify-end gap-2 pr-3 text-xs font-medium text-neutral-400 ${
-						trackVisible ? "" : "bg-black/60"
-					}`}
+					className={cn(
+						"flex items-center justify-end gap-2 pr-6 text-xs font-medium text-neutral-400",
+						{
+							"bg-black/60": !trackVisible,
+						},
+					)}
 					style={{ height: item.height }}
 				>
 					<button
@@ -937,11 +951,15 @@ const TimelineEditor = () => {
 				<div
 					key={`track-bg-${tracks[item.index]?.id ?? item.index}`}
 					className="absolute left-0 right-0 bg-black/60 pointer-events-none"
-					style={{ top: item.y, height: item.height }}
+					style={{
+						top: item.y,
+						left: -timelinePaddingLeft,
+						height: item.height,
+					}}
 				/>
 			);
 		});
-	}, [otherTrackCount, otherTrackLayout, tracks]);
+	}, [otherTrackCount, otherTrackLayout, tracks, timelinePaddingLeft]);
 
 	// 主轨道标签
 	const mainTrackLabel = useMemo(() => {
@@ -963,10 +981,12 @@ const TimelineEditor = () => {
 							toggleTrackVisible(trackId);
 						}
 					}}
-					>
-						{mainTrackVisible ? "显示" : "隐藏"}
-					</button>
-				<span className={mainTrackVisible ? "" : "text-neutral-600"}>主轨道</span>
+				>
+					{mainTrackVisible ? "显示" : "隐藏"}
+				</button>
+				<span className={mainTrackVisible ? "" : "text-neutral-600"}>
+					主轨道
+				</span>
 			</div>
 		);
 	}, [mainTrackHeight, mainTrackVisible, tracks, toggleTrackVisible]);
@@ -1054,12 +1074,12 @@ const TimelineEditor = () => {
 						<div
 							className="z-10 absolute left-0 top-0 h-full pointer-events-none bg-neutral-800/80 backdrop-blur-3xl backdrop-saturate-150 border-r border-white/10"
 							style={{ width: leftColumnWidth }}
-						></div>
+						/>
 						{/* 其他轨道区域 */}
 						<div className="flex flex-1 mt-18">
 							{/* 左侧列，其他轨道标签 */}
 							<div
-								className="text-white z-10 pr-4 flex flex-col"
+								className="text-white z-10 pr-px flex flex-col"
 								style={{ width: leftColumnWidth }}
 							>
 								<div className="flex-1 flex flex-col justify-end">
@@ -1078,49 +1098,47 @@ const TimelineEditor = () => {
 									marginLeft: -leftColumnWidth,
 								}}
 							>
-									<div style={{ paddingLeft: timelinePaddingLeft }}>
-										<div
-											className="relative"
-											data-track-content-area="other"
-											data-content-height={otherTracksHeight}
-										>
-											{otherTrackBackgrounds}
-											{otherTimelineItems}
-										</div>
+								<div style={{ paddingLeft: timelinePaddingLeft }}>
+									<div
+										className="relative"
+										data-track-content-area="other"
+										data-content-height={otherTracksHeight}
+									>
+										{otherTrackBackgrounds}
+										{otherTimelineItems}
 									</div>
+								</div>
 							</div>
 						</div>
 						{/* 主轨道区域（sticky 底部） */}
-						<div className="z-10 flex items-start border-t border-b border-white/10 sticky bottom-0 *:pt-1.5">
-								{/* 左侧主轨道标签 */}
-								<div
-									className={`text-white z-10 pr-4 flex flex-col ${
-										mainTrackVisible ? "bg-neutral-900/90" : "bg-black/80"
-									} backdrop-blur-2xl border-r border-white/10`}
-									style={{ width: leftColumnWidth }}
-								>
-									{mainTrackLabel}
-								</div>
+						<div className="z-10 flex items-start border-t border-b border-white/10 sticky bottom-0">
+							{/* 左侧主轨道标签 */}
+							<div
+								className={`text-white z-10 pr-4 flex flex-col ${
+									mainTrackVisible ? "bg-neutral-900/90" : "bg-black/80"
+								} backdrop-blur-2xl border-r border-white/10`}
+								style={{ width: leftColumnWidth }}
+							>
+								{mainTrackLabel}
+							</div>
 							{/* 右侧主轨道时间线内容 */}
-								<div
-									data-track-drop-zone="main"
-									data-track-index="0"
-									className={`relative flex-1 overflow-x-hidden ${
-										mainTrackVisible ? "bg-neutral-900/90" : "bg-black/80"
-									} backdrop-blur-2xl`}
-									onMouseMove={handleMouseMove}
-									onMouseLeave={handleMouseLeave}
-									onClick={handleClick}
-									style={{
-										paddingLeft: leftColumnWidth,
+							<div
+								data-track-drop-zone="main"
+								data-track-index="0"
+								className="relative flex-1 overflow-x-hidden backdrop-blur-2xl"
+								onMouseMove={handleMouseMove}
+								onMouseLeave={handleMouseLeave}
+								onClick={handleClick}
+								style={{
+									paddingLeft: leftColumnWidth,
 									marginLeft: -leftColumnWidth,
 								}}
-								>
-									<div style={{ paddingLeft: timelinePaddingLeft }}>
-										<div className="relative" data-track-content-area="main">
-											{mainTimelineItems}
-										</div>
+							>
+								<div style={{ paddingLeft: timelinePaddingLeft }}>
+									<div className="relative" data-track-content-area="main">
+										{mainTimelineItems}
 									</div>
+								</div>
 							</div>
 						</div>
 						{/* 音频轨道区域 */}
