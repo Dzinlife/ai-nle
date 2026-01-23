@@ -7,7 +7,8 @@ import { CloudBackgroundTimeline } from "./timeline";
 // 组件定义
 export const CloudBackgroundDefinition: DSLComponentDefinition<CloudBackgroundProps> =
 	{
-		type: "CloudBackground",
+		type: "Background",
+		component: "background/cloud",
 		createModel: createCloudBackgroundModel,
 		Renderer: CloudBackgroundRenderer,
 		Timeline: CloudBackgroundTimeline,

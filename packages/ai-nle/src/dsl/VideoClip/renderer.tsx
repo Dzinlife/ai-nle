@@ -7,16 +7,21 @@ import {
 } from "@/editor/contexts/TimelineContext";
 import { createModelSelector } from "../model/registry";
 import { useRenderLayout } from "../useRenderLayout";
-import { type ClipInternal, type ClipProps, calculateVideoTime } from "./model";
+import {
+	type VideoClipInternal,
+	type VideoClipProps,
+	calculateVideoTime,
+} from "./model";
 import { framesToSeconds } from "@/utils/timecode";
 
-interface ClipRendererProps extends ClipProps {
+interface VideoClipRendererProps extends VideoClipProps {
 	id: string;
 }
 
-const useClipSelector = createModelSelector<ClipProps, ClipInternal>();
+const useVideoClipSelector =
+	createModelSelector<VideoClipProps, VideoClipInternal>();
 
-const ClipRenderer: React.FC<ClipRendererProps> = ({ id }) => {
+const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({ id }) => {
 	// 播放时使用真正的 currentTime，非播放时使用 previewTime ?? currentTime
 	const currentTimeFrames = useTimelineStore((state) => {
 		if (state.isPlaying) {
@@ -39,33 +44,36 @@ const ClipRenderer: React.FC<ClipRendererProps> = ({ id }) => {
 	const y = cy - height / 2;
 
 	// 订阅需要的状态
-	const isLoading = useClipSelector(
+	const isLoading = useVideoClipSelector(
 		id,
 		(state) => state.constraints.isLoading ?? false,
 	);
-	const hasError = useClipSelector(
+	const hasError = useVideoClipSelector(
 		id,
 		(state) => state.constraints.hasError ?? false,
 	);
-	const currentFrame = useClipSelector(
+	const currentFrame = useVideoClipSelector(
 		id,
 		(state) => state.internal.currentFrame,
 	);
-	const props = useClipSelector(id, (state) => state.props);
-	const videoDuration = useClipSelector(
+	const props = useVideoClipSelector(id, (state) => state.props);
+	const videoDuration = useVideoClipSelector(
 		id,
 		(state) => state.internal.videoDuration,
 	);
-	const seekToTime = useClipSelector(id, (state) => state.internal.seekToTime);
-	const startPlayback = useClipSelector(
+	const seekToTime = useVideoClipSelector(
+		id,
+		(state) => state.internal.seekToTime,
+	);
+	const startPlayback = useVideoClipSelector(
 		id,
 		(state) => state.internal.startPlayback,
 	);
-	const getNextFrame = useClipSelector(
+	const getNextFrame = useVideoClipSelector(
 		id,
 		(state) => state.internal.getNextFrame,
 	);
-	const stopPlayback = useClipSelector(
+	const stopPlayback = useVideoClipSelector(
 		id,
 		(state) => state.internal.stopPlayback,
 	);
@@ -89,6 +97,11 @@ const ClipRenderer: React.FC<ClipRendererProps> = ({ id }) => {
 
 		const startSeconds = framesToSeconds(timeline.start, fps);
 		const currentSeconds = framesToSeconds(currentTimeFrames, fps);
+		const clipDurationSeconds = framesToSeconds(
+			timeline.end - timeline.start,
+			fps,
+		);
+		const offsetSeconds = framesToSeconds(timeline?.offset ?? 0, fps);
 
 		// 计算实际要 seek 的视频时间
 		const videoTime = calculateVideoTime({
@@ -96,6 +109,8 @@ const ClipRenderer: React.FC<ClipRendererProps> = ({ id }) => {
 			timelineTime: currentSeconds,
 			videoDuration,
 			reversed: props.reversed,
+			offset: offsetSeconds,
+			clipDuration: clipDurationSeconds,
 		});
 
 		// 播放状态变化：从暂停到播放
@@ -207,4 +222,4 @@ const ClipRenderer: React.FC<ClipRendererProps> = ({ id }) => {
 	);
 };
 
-export default ClipRenderer;
+export default VideoClipRenderer;

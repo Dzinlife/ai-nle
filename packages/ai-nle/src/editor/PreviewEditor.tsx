@@ -1,4 +1,4 @@
-import { QueryClientContext } from "@tanstack/react-query";
+// import { QueryClientContext } from "@tanstack/react-query";
 import type Konva from "konva";
 import React, {
 	useCallback,
@@ -19,7 +19,7 @@ import {
 	type CanvasRef,
 	Fill,
 	Group as SkiaGroup,
-	useContextBridge,
+	// useContextBridge,
 } from "react-skia-lite";
 import {
 	renderLayoutToTopLeft,
@@ -157,7 +157,7 @@ const Preview = () => {
 		[getTrackIndexForElement],
 	);
 
-	const ContextBridge = useContextBridge(QueryClientContext);
+	// const ContextBridge = useContextBridge(QueryClientContext);
 
 	const skiaCanvasRef = useRef<CanvasRef>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -367,18 +367,19 @@ const Preview = () => {
 		(visibleElements: TimelineElement[]) => {
 			// ContextBridge 让 Skia 子树可以访问 React Query 等上下文
 			return (
-				<ContextBridge>
+				// <ContextBridge>
+				<>
 					<Fill color="black" />
 					{visibleElements.map((el) => {
 						// 获取组件定义
-						const componentDef = componentRegistry.get(el.type);
+						const componentDef = componentRegistry.get(el.component);
 						if (!componentDef) {
 							console.warn(
-								`[PreviewEditor] Component type "${el.type}" not registered`,
+								`[PreviewEditor] Component "${el.component}" not registered`,
 							);
 							console.warn(
-								`[PreviewEditor] Available types:`,
-								componentRegistry.getTypes(),
+								`[PreviewEditor] Available components:`,
+								componentRegistry.getComponentIds(),
 							);
 							return null;
 						}
@@ -391,10 +392,12 @@ const Preview = () => {
 							</SkiaGroup>
 						);
 					})}
-				</ContextBridge>
+				</>
+				// </ContextBridge>
 			);
 		},
-		[ContextBridge],
+		// [ContextBridge],
+		[],
 	);
 
 	useEffect(() => {
@@ -445,7 +448,11 @@ const Preview = () => {
 				if (!root) return;
 
 				const time = getDisplayTime();
-				const visibleElements = computeVisibleElements(newElements, time, tracks);
+				const visibleElements = computeVisibleElements(
+					newElements,
+					time,
+					tracks,
+				);
 				const orderedElements = sortByTrackIndex(visibleElements);
 				const children = buildSkiaChildren(orderedElements);
 				root.render(children);

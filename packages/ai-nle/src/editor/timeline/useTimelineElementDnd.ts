@@ -52,7 +52,12 @@ interface UseTimelineElementDndOptions {
 	selectedIds: string[];
 	select: (id: string, additive?: boolean) => void;
 	setSelection: (ids: string[], primaryId?: string | null) => void;
-	updateTimeRange: (elementId: string, start: number, end: number) => void;
+	updateTimeRange: (
+		elementId: string,
+		start: number,
+		end: number,
+		options?: { offsetDelta?: number },
+	) => void;
 	moveWithAttachments: (
 		elementId: string,
 		start: number,
@@ -92,6 +97,7 @@ interface DragRefs {
 	initialStart: number;
 	initialEnd: number;
 	initialTrack: number;
+	initialOffset: number;
 	currentStart: number;
 	currentEnd: number;
 }
@@ -148,6 +154,37 @@ const cloneValue = <T>(value: T): T => {
 	} catch {
 		return value;
 	}
+};
+
+const normalizeOffsetFrames = (value: unknown): number => {
+	if (!Number.isFinite(value as number)) return 0;
+	return Math.max(0, Math.round(value as number));
+};
+
+const isOffsetElement = (element: TimelineElement): boolean =>
+	element.type === "VideoClip" || element.type === "AudioClip";
+
+const getElementOffsetFrames = (element: TimelineElement): number | null => {
+	if (!isOffsetElement(element)) return null;
+	return normalizeOffsetFrames(element.timeline.offset);
+};
+
+const applyElementOffsetDelta = (
+	element: TimelineElement,
+	offsetDelta: number,
+): TimelineElement => {
+	if (offsetDelta === 0) return element;
+	const offsetFrames = getElementOffsetFrames(element);
+	if (offsetFrames === null) return element;
+	const nextOffset = Math.max(0, offsetFrames + offsetDelta);
+	if (nextOffset === offsetFrames) return element;
+	return {
+		...element,
+		timeline: {
+			...element.timeline,
+			offset: nextOffset,
+		},
+	};
 };
 
 type PipelineStage<T> = (state: T) => T;
@@ -225,6 +262,7 @@ export const useTimelineElementDnd = ({
 		initialStart: 0,
 		initialEnd: 0,
 		initialTrack: 0,
+		initialOffset: 0,
 		currentStart: element.timeline.start,
 		currentEnd: element.timeline.end,
 	});
@@ -365,6 +403,7 @@ export const useTimelineElementDnd = ({
 	const isMainTrackMagnetActive =
 		mainTrackMagnetEnabled && storedTrackIndex === 0;
 	const isTransition = isTransitionElement(element);
+	const supportsOffset = isOffsetElement(element);
 	const clampStartByMaxDuration = (
 		start: number,
 		snapPoint: SnapPoint | null,
@@ -387,6 +426,23 @@ export const useTimelineElementDnd = ({
 			return { end: maxEnd, snapPoint: null };
 		}
 		return { end, snapPoint };
+	};
+	const clampStartByOffset = (
+		start: number,
+		snapPoint: SnapPoint | null,
+	) => {
+		const initialOffset = dragRefs.current.initialOffset;
+		if (initialOffset <= 0) {
+			return { start, snapPoint };
+		}
+		const minStart = Math.max(
+			0,
+			dragRefs.current.initialStart - initialOffset,
+		);
+		if (start < minStart) {
+			return { start: minStart, snapPoint: null };
+		}
+		return { start, snapPoint };
 	};
 
 	const getStoredTrackNeighbors = (
@@ -506,6 +562,7 @@ export const useTimelineElementDnd = ({
 				setIsDragging(true);
 				dragRefs.current.initialStart = dragRefs.current.currentStart;
 				dragRefs.current.initialEnd = dragRefs.current.currentEnd;
+				dragRefs.current.initialOffset = getElementOffsetFrames(element) ?? 0;
 			}
 
 			const deltaFrames = Math.round(mx / ratio);
@@ -518,7 +575,7 @@ export const useTimelineElementDnd = ({
 					),
 				);
 
-				if (maxDuration !== undefined) {
+				if (!supportsOffset && maxDuration !== undefined) {
 					previewStart = Math.max(
 						previewStart,
 						dragRefs.current.initialEnd - maxDuration,
@@ -542,7 +599,13 @@ export const useTimelineElementDnd = ({
 						snapPoint = snapped.snapPoint;
 					}
 				}
-				({ start: previewStart, snapPoint } = clampStartByMaxDuration(
+				if (!supportsOffset) {
+					({ start: previewStart, snapPoint } = clampStartByMaxDuration(
+						previewStart,
+						snapPoint,
+					));
+				}
+				({ start: previewStart, snapPoint } = clampStartByOffset(
 					previewStart,
 					snapPoint,
 				));
@@ -550,7 +613,7 @@ export const useTimelineElementDnd = ({
 				const effectiveDelta = previewStart - dragRefs.current.initialStart;
 				let newEnd = dragRefs.current.initialEnd - effectiveDelta;
 				newEnd = Math.max(dragRefs.current.initialStart + 1, newEnd);
-				if (maxDuration !== undefined) {
+				if (!supportsOffset && maxDuration !== undefined) {
 					newEnd = Math.min(
 						newEnd,
 						dragRefs.current.initialStart + maxDuration,
@@ -562,13 +625,26 @@ export const useTimelineElementDnd = ({
 					setActiveSnapPoint(null);
 					if (Math.abs(mx) > 0) {
 						const delta = newEnd - dragRefs.current.initialEnd;
-						setElements((prev) =>
-							shiftMainTrackElementsAfter(prev, element.id, newEnd, delta, {
-								attachments,
-								autoAttach,
-								fps,
-							}),
-						);
+						const offsetDelta = previewStart - dragRefs.current.initialStart;
+						setElements((prev) => {
+							const shifted = shiftMainTrackElementsAfter(
+								prev,
+								element.id,
+								newEnd,
+								delta,
+								{
+									attachments,
+									autoAttach,
+									fps,
+								},
+							);
+							if (offsetDelta === 0) return shifted;
+							return shifted.map((el) =>
+								el.id === element.id
+									? applyElementOffsetDelta(el, offsetDelta)
+									: el,
+							);
+						});
 					}
 				} else {
 					setLocalStartTime(previewStart);
@@ -585,7 +661,7 @@ export const useTimelineElementDnd = ({
 				),
 			);
 
-			if (maxDuration !== undefined) {
+			if (!supportsOffset && maxDuration !== undefined) {
 				newStart = Math.max(
 					newStart,
 					dragRefs.current.initialEnd - maxDuration,
@@ -605,7 +681,13 @@ export const useTimelineElementDnd = ({
 					snapPoint = snapped.snapPoint;
 				}
 			}
-			({ start: newStart, snapPoint } = clampStartByMaxDuration(
+			if (!supportsOffset) {
+				({ start: newStart, snapPoint } = clampStartByMaxDuration(
+					newStart,
+					snapPoint,
+				));
+			}
+			({ start: newStart, snapPoint } = clampStartByOffset(
 				newStart,
 				snapPoint,
 			));
@@ -630,7 +712,10 @@ export const useTimelineElementDnd = ({
 				setIsDragging(false);
 				setActiveSnapPoint(null);
 				if (Math.abs(mx) > 0) {
-					updateTimeRange(element.id, newStart, dragRefs.current.initialEnd);
+					const offsetDelta = newStart - dragRefs.current.initialStart;
+					updateTimeRange(element.id, newStart, dragRefs.current.initialEnd, {
+						offsetDelta,
+					});
 				}
 			} else {
 				setLocalStartTime(newStart);

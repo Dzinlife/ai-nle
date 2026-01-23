@@ -1,13 +1,15 @@
 import type React from "react";
-import type { TrackRole } from "../types";
+import type { ElementType, TrackRole } from "../types";
 import type { ComponentModelStore } from "./types";
 
 /**
  * 组件定义接口
  */
 export interface DSLComponentDefinition<Props = any, Internal = any> {
-	// 组件类型名称
-	type: string;
+	// 组件类型名称（大类）
+	type: ElementType;
+	// 组件实现标识（区分具体实现）
+	component: string;
 
 	// Model 工厂函数
 	createModel: (
@@ -37,36 +39,38 @@ export interface DSLComponentDefinition<Props = any, Internal = any> {
  */
 class ComponentRegistryClass {
 	private components = new Map<string, DSLComponentDefinition>();
-	// Renderer -> type 的反向映射
-	private componentToType = new Map<React.ComponentType<any>, string>();
+	// Renderer -> component 的反向映射
+	private componentToId = new Map<React.ComponentType<any>, string>();
 
 	/**
 	 * 注册组件
 	 */
 	register<Props = any>(definition: DSLComponentDefinition<Props>): void {
-		console.log("register", definition.type, definition);
-		if (this.components.has(definition.type)) {
+		console.log("register", definition.component, definition);
+		if (this.components.has(definition.component)) {
 			console.warn(
-				`Component type "${definition.type}" already registered, replacing...`,
+				`Component "${definition.component}" already registered, replacing...`,
 			);
 		}
-		this.components.set(definition.type, definition);
-		// 建立 Renderer -> type 的反向映射
-		this.componentToType.set(definition.Renderer, definition.type);
+		this.components.set(definition.component, definition);
+		// 建立 Renderer -> component 的反向映射
+		this.componentToId.set(definition.Renderer, definition.component);
 	}
 
 	/**
 	 * 获取组件定义
 	 */
-	get(type: string): DSLComponentDefinition | undefined {
-		return this.components.get(type);
+	get(component: string): DSLComponentDefinition | undefined {
+		return this.components.get(component);
 	}
 
 	/**
 	 * 通过 Renderer 组件获取 type
 	 */
-	getTypeByComponent(component: React.ComponentType<any>): string | undefined {
-		return this.componentToType.get(component);
+	getComponentIdByRenderer(
+		component: React.ComponentType<any>,
+	): string | undefined {
+		return this.componentToId.get(component);
 	}
 
 	/**
@@ -75,22 +79,29 @@ class ComponentRegistryClass {
 	getByComponent(
 		component: React.ComponentType<any>,
 	): DSLComponentDefinition | undefined {
-		const type = this.componentToType.get(component);
-		return type ? this.components.get(type) : undefined;
+		const componentId = this.componentToId.get(component);
+		return componentId ? this.components.get(componentId) : undefined;
 	}
 
 	/**
 	 * 检查是否已注册
 	 */
-	has(type: string): boolean {
-		return this.components.has(type);
+	has(component: string): boolean {
+		return this.components.has(component);
 	}
 
 	/**
 	 * 获取所有已注册的组件类型
 	 */
-	getTypes(): string[] {
+	getComponentIds(): string[] {
 		return Array.from(this.components.keys());
+	}
+
+	getTypes(): ElementType[] {
+		const types = new Set<ElementType>(
+			Array.from(this.components.values()).map((def) => def.type),
+		);
+		return Array.from(types);
 	}
 
 	/**
@@ -105,6 +116,10 @@ class ComponentRegistryClass {
 	 */
 	getByCategory(category: string): DSLComponentDefinition[] {
 		return this.getAll().filter((def) => def.meta.category === category);
+	}
+
+	getByType(type: ElementType): DSLComponentDefinition[] {
+		return this.getAll().filter((def) => def.type === type);
 	}
 
 	/**

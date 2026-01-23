@@ -1,6 +1,9 @@
 import { TimelineElement, TrackRole } from "@/dsl/types";
 import { TimelineTrack } from "../timeline/types";
-import { getElementRoleFromType, getTrackConfig } from "../timeline/trackConfig";
+import {
+	getElementRoleFromComponent,
+	getTrackConfig,
+} from "../timeline/trackConfig";
 
 /**
  * 主轨道索引（固定为 0，显示在最底部）
@@ -18,7 +21,7 @@ export function getElementRole(element: TimelineElement): TrackRole {
 	if (element.timeline.role) {
 		return element.timeline.role;
 	}
-	return getElementRoleFromType(element.type, "clip");
+	return getElementRoleFromComponent(element.component, "clip");
 }
 
 /**

@@ -7,6 +7,7 @@ import React, {
 	useState,
 } from "react";
 import { ProgressiveBlur } from "@/components/ui/progressive-blur";
+import type { TimelineElement as TimelineElementType } from "@/dsl/types";
 import TimeIndicatorCanvas from "@/editor/components/TimeIndicatorCanvas";
 import { clampFrame, framesToTimecode } from "@/utils/timecode";
 import TimelineDragOverlay from "./components/TimelineDragOverlay";
@@ -42,6 +43,33 @@ import {
 
 const formatTimecode = (frames: number, fps: number) => {
 	return framesToTimecode(frames, fps);
+};
+
+const normalizeOffsetFrames = (value: unknown): number => {
+	if (!Number.isFinite(value as number)) return 0;
+	return Math.max(0, Math.round(value as number));
+};
+
+const shouldUpdateOffset = (element: TimelineElementType): boolean => {
+	return element.type === "VideoClip" || element.type === "AudioClip";
+};
+
+const applyOffsetDelta = (
+	element: TimelineElementType,
+	offsetDelta?: number,
+): TimelineElementType => {
+	if (!offsetDelta) return element;
+	if (!shouldUpdateOffset(element)) return element;
+	const currentOffset = normalizeOffsetFrames(element.timeline.offset);
+	const nextOffset = Math.max(0, currentOffset + offsetDelta);
+	if (nextOffset === currentOffset) return element;
+	return {
+		...element,
+		timeline: {
+			...element.timeline,
+			offset: nextOffset,
+		},
+	};
 };
 
 const TimelineEditor = () => {
@@ -187,11 +215,17 @@ const TimelineEditor = () => {
 
 	// 更新元素的时间范围（start 和 end）
 	const updateTimeRange = useCallback(
-		(elementId: string, start: number, end: number) => {
+		(
+			elementId: string,
+			start: number,
+			end: number,
+			options?: { offsetDelta?: number },
+		) => {
 			setElements((prev) => {
 				const updated = prev.map((el) => {
 					if (el.id === elementId) {
-						return updateElementTime(el, start, end, fps);
+						const timed = updateElementTime(el, start, end, fps);
+						return applyOffsetDelta(timed, options?.offsetDelta);
 					}
 					return el;
 				});

@@ -47,7 +47,12 @@ interface TimelineElementProps {
 	trackHeight: number;
 	trackCount: number;
 	trackVisible?: boolean;
-	updateTimeRange: (elementId: string, start: number, end: number) => void;
+	updateTimeRange: (
+		elementId: string,
+		start: number,
+		end: number,
+		options?: { offsetDelta?: number },
+	) => void;
 }
 
 // ============================================================================
@@ -101,8 +106,8 @@ const ElementContent: React.FC<ElementContentProps> = ({
 	endTimecode,
 	fps,
 }) => {
-	const { id, type, props } = element;
-	const definition = componentRegistry.get(type);
+	const { id, type, props, component } = element;
+	const definition = componentRegistry.get(component);
 	const hasModel = useModelExists(id);
 
 	// 如果 model 还未创建，显示加载状态或基础信息

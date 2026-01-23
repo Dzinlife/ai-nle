@@ -6,6 +6,7 @@ import type {
 	TransformMeta,
 	TransitionMeta,
 } from "../dsl/types";
+import { ELEMENT_TYPE_VALUES } from "../dsl/types";
 import { framesToTimecode, timecodeToFrames } from "@/utils/timecode";
 import type { TimelineTrack } from "./timeline/types";
 
@@ -142,6 +143,13 @@ function validateElement(el: any, index: number, fps: number): TimelineElement {
 	if (!el.type || typeof el.type !== "string") {
 		throw new Error(`${path}: missing or invalid 'type' field`);
 	}
+	if (!ELEMENT_TYPE_VALUES.includes(el.type)) {
+		throw new Error(`${path}.type: unsupported type "${el.type}"`);
+	}
+
+	if (!el.component || typeof el.component !== "string") {
+		throw new Error(`${path}: missing or invalid 'component' field`);
+	}
 
 	if (!el.name || typeof el.name !== "string") {
 		throw new Error(`${path}: missing or invalid 'name' field`);
@@ -172,6 +180,7 @@ function validateElement(el: any, index: number, fps: number): TimelineElement {
 	return {
 		id: el.id,
 		type: el.type,
+		component: el.component,
 		name: el.name,
 		transform,
 		timeline,
@@ -364,6 +373,12 @@ function validateTimelineProps(
 		}
 	}
 
+	if (timeline.offset !== undefined) {
+		if (!Number.isInteger(timeline.offset) || timeline.offset < 0) {
+			throw new Error(`${path}.offset: must be a non-negative integer`);
+		}
+	}
+
 	let trackId: string | undefined;
 	if (timeline.trackId !== undefined) {
 		if (typeof timeline.trackId !== "string") {
@@ -396,6 +411,7 @@ function validateTimelineProps(
 		end: timeline.end,
 		startTimecode: timeline.startTimecode,
 		endTimecode: timeline.endTimecode,
+		...(timeline.offset !== undefined ? { offset: timeline.offset } : {}),
 		...(timeline.trackIndex !== undefined
 			? { trackIndex: timeline.trackIndex }
 			: {}),

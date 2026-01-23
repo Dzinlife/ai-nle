@@ -104,7 +104,7 @@ export function createCloudBackgroundModel(
 	>()(
 		subscribeWithSelector((set, get) => ({
 			id,
-			type: "CloudBackground",
+			type: "Background",
 			props: {
 				speed: 1.0,
 				cloudDensity: 1.0,

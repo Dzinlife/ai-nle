@@ -10,6 +10,7 @@ export { LottieTimeline } from "./timeline";
 // 组件定义
 export const LottieDefinition: DSLComponentDefinition<LottieProps> = {
 	type: "Lottie",
+	component: "lottie",
 	createModel: createLottieModel,
 	Renderer: Lottie,
 	Timeline: LottieTimeline,

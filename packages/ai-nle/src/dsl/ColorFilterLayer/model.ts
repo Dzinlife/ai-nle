@@ -18,7 +18,7 @@ export function createColorFilterLayerModel(
 	return createStore<ComponentModel<ColorFilterLayerProps>>()(
 		subscribeWithSelector((set, get) => ({
 			id,
-			type: "ColorFilterLayer",
+			type: "Filter",
 			props: {
 				hue: 0,
 				saturation: 0,

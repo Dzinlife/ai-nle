@@ -12,6 +12,7 @@ export { TransitionTimeline } from "./timeline";
 
 export const TransitionDefinition: DSLComponentDefinition<TransitionProps> = {
 	type: "Transition",
+	component: "transition/basic",
 	createModel: createTransitionModel,
 	Renderer: TransitionRenderer,
 	Timeline: TransitionTimeline,

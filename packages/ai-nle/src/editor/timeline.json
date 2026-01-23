@@ -45,7 +45,8 @@
 	"elements": [
 		{
 			"id": "clip1",
-			"type": "Clip",
+			"type": "VideoClip",
+			"component": "video-clip",
 			"name": "视频片段",
 			"transform": {
 				"centerX": 0,
@@ -72,7 +73,8 @@
 		},
 		{
 			"id": "cloudBackground1",
-			"type": "CloudBackground",
+			"type": "Background",
+			"component": "background/cloud",
 			"name": "云彩背景",
 			"transform": {
 				"centerX": 0,
@@ -103,6 +105,7 @@
 		{
 			"id": "image2",
 			"type": "Image",
+			"component": "image",
 			"name": "照片",
 			"transform": {
 				"centerX": 0,
@@ -130,6 +133,7 @@
 		{
 			"id": "transition-1",
 			"type": "Transition",
+			"component": "transition/basic",
 			"name": "转场",
 			"transform": {
 				"centerX": 0,
@@ -160,7 +164,8 @@
 		},
 		{
 			"id": "backdropZoom1",
-			"type": "BackdropZoom",
+			"type": "Filter",
+			"component": "filter/backdrop-zoom",
 			"name": "放大镜效果",
 			"transform": {
 				"centerX": -610,
@@ -190,6 +195,7 @@
 		{
 			"id": "lottie1",
 			"type": "Lottie",
+			"component": "lottie",
 			"name": "贴纸动画",
 			"transform": {
 				"centerX": -160,
@@ -218,7 +224,8 @@
 		},
 		{
 			"id": "colorFilterLayer1",
-			"type": "ColorFilterLayer",
+			"type": "Filter",
+			"component": "filter/color-filter",
 			"name": "调色滤镜",
 			"transform": {
 				"centerX": 0,
@@ -250,6 +257,7 @@
 		{
 			"id": "image1",
 			"type": "Image",
+			"component": "image",
 			"name": "Logo 水印",
 			"transform": {
 				"centerX": 760,
@@ -276,7 +284,8 @@
 		},
 		{
 			"id": "seaWave1",
-			"type": "SeaWave",
+			"type": "Background",
+			"component": "background/sea-wave",
 			"name": "海浪特效",
 			"transform": {
 				"centerX": 0,
@@ -309,6 +318,7 @@
 		{
 			"id": "transition-2",
 			"type": "Transition",
+			"component": "transition/basic",
 			"name": "转场",
 			"transform": {
 				"centerX": 0,

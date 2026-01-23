@@ -16,16 +16,16 @@ import type {
 	ValidationResult,
 } from "../model/types";
 
-// Clip Props 类型
-export interface ClipProps {
+// VideoClip Props 类型
+export interface VideoClipProps {
 	uri?: string;
 	reversed?: boolean;
 	start: number; // 帧
 	end: number; // 帧
 }
 
-// Clip 内部状态
-export interface ClipInternal {
+// VideoClip 内部状态
+export interface VideoClipInternal {
 	videoSink: CanvasSink | null;
 	input: Input | null;
 	currentFrame: SkImage | null;
@@ -51,28 +51,56 @@ export const calculateVideoTime = ({
 	timelineTime,
 	videoDuration,
 	reversed,
+	offset = 0,
+	clipDuration,
 }: {
 	start: number;
 	timelineTime: number;
 	videoDuration: number;
 	reversed?: boolean;
+	offset?: number;
+	clipDuration?: number;
 }): number => {
 	const relativeTime = timelineTime - start;
+	const safeOffset = Math.max(0, offset);
+	const safeVideoDuration = Math.max(0, videoDuration);
+	const safeClipDuration =
+		clipDuration ?? Math.max(0, safeVideoDuration - safeOffset);
 
 	if (reversed) {
-		return Math.max(0, videoDuration - relativeTime);
+		const reversedTime = safeOffset + safeClipDuration - relativeTime;
+		return Math.min(
+			safeVideoDuration,
+			Math.max(0, reversedTime),
+		);
 	} else {
-		return relativeTime;
+		const forwardTime = safeOffset + relativeTime;
+		return Math.min(safeVideoDuration, Math.max(0, forwardTime));
 	}
 };
 
 const DEFAULT_FPS = 30;
+const normalizeOffsetFrames = (offset?: number): number => {
+	if (!Number.isFinite(offset ?? NaN)) return 0;
+	return Math.max(0, Math.round(offset as number));
+};
+const computeAvailableDurationFrames = (
+	totalFrames: number | null,
+	offsetFrames: number,
+): number | undefined => {
+	if (totalFrames === null || !Number.isFinite(totalFrames)) {
+		return undefined;
+	}
+	const safeTotal = Math.max(0, Math.round(totalFrames));
+	if (safeTotal === 0) return 0;
+	return Math.max(1, safeTotal - offsetFrames);
+};
 
-// 创建 Clip Model
-export function createClipModel(
+// 创建 VideoClip Model
+export function createVideoClipModel(
 	id: string,
-	initialProps: ClipProps,
-): ComponentModelStore<ClipProps, ClipInternal> {
+	initialProps: VideoClipProps,
+): ComponentModelStore<VideoClipProps, VideoClipInternal> {
 	// 用于取消异步操作
 	let asyncId = 0;
 	let isSeekingFlag = false;
@@ -85,11 +113,29 @@ export function createClipModel(
 	let nextFrame: WrappedCanvas | null = null;
 
 	let assetHandle: AssetHandle<VideoAsset> | null = null;
+	let unsubscribeTimelineOffset: (() => void) | null = null;
 
 	const getTimelineFps = () => {
 		const fps = useTimelineStore.getState().fps;
 		if (!Number.isFinite(fps) || fps <= 0) return DEFAULT_FPS;
 		return Math.round(fps);
+	};
+
+	const getTimelineOffsetFrames = (): number => {
+		const timelineOffset = useTimelineStore
+			.getState()
+			.elements.find((el) => el.id === id)?.timeline?.offset;
+		return normalizeOffsetFrames(timelineOffset);
+	};
+
+	const getTimelineClipDurationSeconds = (): number | undefined => {
+		const timeline = useTimelineStore
+			.getState()
+			.elements.find((el) => el.id === id)?.timeline;
+		if (!timeline) return undefined;
+		const durationFrames = timeline.end - timeline.start;
+		if (!Number.isFinite(durationFrames)) return undefined;
+		return framesToSeconds(durationFrames, getTimelineFps());
 	};
 
 	// 将时间戳对齐到帧间隔（以时间线 FPS 为准）
@@ -129,6 +175,31 @@ export function createClipModel(
 				isReady: true,
 			},
 		}));
+	};
+
+	const updateMaxDurationByOffset = () => {
+		const { internal, constraints } = store.getState();
+		if (!Number.isFinite(internal.videoDuration) || internal.videoDuration <= 0) {
+			return;
+		}
+		const fps = getTimelineFps();
+		const totalFrames = secondsToFrames(internal.videoDuration, fps);
+		const offsetFrames = getTimelineOffsetFrames();
+		const availableDuration = computeAvailableDurationFrames(
+			totalFrames,
+			offsetFrames,
+		);
+		if (
+			availableDuration !== undefined &&
+			availableDuration !== constraints.maxDuration
+		) {
+			store.setState((state) => ({
+				constraints: {
+					...state.constraints,
+					maxDuration: availableDuration,
+				},
+			}));
+		}
 	};
 
 	// 开始流式播放
@@ -289,10 +360,10 @@ export function createClipModel(
 		}
 	};
 
-	const store = createStore<ComponentModel<ClipProps, ClipInternal>>()(
+	const store = createStore<ComponentModel<VideoClipProps, VideoClipInternal>>()(
 		subscribeWithSelector((set, get) => ({
 			id,
-			type: "Clip",
+			type: "VideoClip",
 			props: initialProps,
 			constraints: {
 				isLoading: true,
@@ -311,19 +382,35 @@ export function createClipModel(
 				startPlayback,
 				getNextFrame,
 				stopPlayback,
-			} satisfies ClipInternal,
+			} satisfies VideoClipInternal,
 
 			setProps: (partial) => {
 				const result = get().validate(partial);
-				if (result.valid) {
-					set((state) => ({
-						props: { ...state.props, ...partial },
-					}));
-				} else if (result.corrected) {
-					// 使用修正后的值
-					set((state) => ({
-						props: { ...state.props, ...result.corrected },
-					}));
+				const nextPatch = result.corrected ?? (result.valid ? partial : null);
+				if (nextPatch) {
+					set((state) => {
+						const nextProps = { ...state.props, ...nextPatch };
+						const offsetFrames = getTimelineOffsetFrames();
+						const fps = getTimelineFps();
+						const totalFrames =
+							Number.isFinite(state.internal.videoDuration) &&
+							state.internal.videoDuration > 0
+								? secondsToFrames(state.internal.videoDuration, fps)
+								: null;
+						const availableDuration = computeAvailableDurationFrames(
+							totalFrames,
+							offsetFrames,
+						);
+						const nextConstraints =
+							availableDuration === undefined ||
+							availableDuration === state.constraints.maxDuration
+								? state.constraints
+								: { ...state.constraints, maxDuration: availableDuration };
+						return {
+							props: nextProps,
+							constraints: nextConstraints,
+						};
+					});
 				}
 				return result;
 			},
@@ -414,13 +501,18 @@ export function createClipModel(
 					const { asset } = localHandle;
 					const fps = getTimelineFps();
 					const durationFrames = secondsToFrames(asset.duration, fps);
+					const offsetFrames = getTimelineOffsetFrames();
+					const availableDuration = computeAvailableDurationFrames(
+						durationFrames,
+						offsetFrames,
+					);
 
 					// 更新状态
 					set((state) => ({
 						constraints: {
 							...state.constraints,
 							isLoading: false,
-							maxDuration: durationFrames,
+							maxDuration: availableDuration ?? durationFrames,
 						},
 						internal: {
 							...state.internal,
@@ -432,16 +524,29 @@ export function createClipModel(
 					}));
 
 					// 初始化完成后，seek 到初始位置
-					const { start, reversed } = get().props;
-					const startSeconds = framesToSeconds(start, fps);
+					const { reversed } = get().props;
+					const offsetSeconds = framesToSeconds(getTimelineOffsetFrames(), fps);
+					const clipDurationSeconds = getTimelineClipDurationSeconds();
 					const videoTime = calculateVideoTime({
-						start: startSeconds,
-						timelineTime: startSeconds, // 初始时显示开始位置
+						start: 0,
+						timelineTime: 0,
+						offset: offsetSeconds,
+						clipDuration: clipDurationSeconds,
 						videoDuration: asset.duration,
 						reversed,
 					});
 
 					await seekToTime(videoTime);
+
+					if (!unsubscribeTimelineOffset) {
+						unsubscribeTimelineOffset = useTimelineStore.subscribe(
+							(state) =>
+								state.elements.find((el) => el.id === id)?.timeline?.offset ?? 0,
+							() => {
+								updateMaxDurationByOffset();
+							},
+						);
+					}
 				} catch (error) {
 					localHandle?.release();
 					if (assetHandle === localHandle) {
@@ -464,11 +569,13 @@ export function createClipModel(
 
 			dispose: () => {
 				asyncId++; // 取消所有进行中的异步操作
-				const internal = get().internal as ClipInternal;
+				const internal = get().internal as VideoClipInternal;
 
 				// 清理迭代器
 				videoFrameIterator?.return?.();
 				videoFrameIterator = null;
+				unsubscribeTimelineOffset?.();
+				unsubscribeTimelineOffset = null;
 
 				assetHandle?.release();
 				assetHandle = null;

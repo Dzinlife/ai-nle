@@ -5,7 +5,8 @@ import SeaWaveRenderer from "./renderer";
 import { SeaWaveTimeline } from "./timeline";
 
 export const SeaWaveDefinition: DSLComponentDefinition<SeaWaveProps> = {
-	type: "SeaWave",
+	type: "Background",
+	component: "background/sea-wave",
 	createModel: createSeaWaveModel,
 	Renderer: SeaWaveRenderer,
 	Timeline: SeaWaveTimeline,

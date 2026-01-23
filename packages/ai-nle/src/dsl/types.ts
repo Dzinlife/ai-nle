@@ -34,6 +34,7 @@ export interface TimelineMeta {
 	end: number; // 结束帧（整数）
 	startTimecode: string; // 可读时间戳 (HH:MM:SS:FF)
 	endTimecode: string; // 可读时间戳 (HH:MM:SS:FF)
+	offset?: number; // 源素材起始偏移（帧）
 	trackIndex?: number; // 轨道索引（0 为主轨道，在底部）
 	trackId?: string; // 轨道标识（用于稳定轨道身份）
 	role?: TrackRole; // 轨道角色（语义标识，用于 agent 理解）
@@ -81,6 +82,20 @@ export interface AudioClipMeta {
 
 export type ClipMeta = VideoClipMeta | AudioClipMeta;
 
+export const ELEMENT_TYPE_VALUES = [
+	"VideoClip",
+	"AudioClip",
+	"Transition",
+	"Filter",
+	"Lottie",
+	"Caption",
+	"Text",
+	"Image",
+	"Background",
+] as const;
+
+export type ElementType = (typeof ELEMENT_TYPE_VALUES)[number];
+
 /**
  * 转场元信息（仅用于模型层元数据）
  */
@@ -94,7 +109,8 @@ export interface TransitionMeta {
  */
 export interface TimelineElement<Props = Record<string, any>> {
 	id: string; // 唯一标识符
-	type: string; // 组件类型 ("Image" | "Clip" | "Lottie" | ...)
+	type: ElementType; // 组件类型 ("Image" | "VideoClip" | "Lottie" | ...)
+	component: string; // 组件实现标识（区分具体实现）
 	name: string; // 显示名称
 
 	transform: TransformMeta; // 空间属性

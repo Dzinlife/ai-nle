@@ -1,17 +1,22 @@
 import { useCallback, useEffect, useRef } from "react";
-import { useFps } from "@/editor/contexts/TimelineContext";
+import { useFps, useTimelineStore } from "@/editor/contexts/TimelineContext";
 import { createModelSelector } from "../model/registry";
 import type { TimelineProps } from "../model/types";
-import { type ClipInternal, type ClipProps, calculateVideoTime } from "./model";
+import {
+	type VideoClipInternal,
+	type VideoClipProps,
+	calculateVideoTime,
+} from "./model";
 import { framesToSeconds, framesToTimecode } from "@/utils/timecode";
 
-interface ClipTimelineProps extends TimelineProps {
+interface VideoClipTimelineProps extends TimelineProps {
 	id: string;
 }
 
-const useClipSelector = createModelSelector<ClipProps, ClipInternal>();
+const useVideoClipSelector =
+	createModelSelector<VideoClipProps, VideoClipInternal>();
 
-export const ClipTimeline: React.FC<ClipTimelineProps> = ({
+export const VideoClipTimeline: React.FC<VideoClipTimelineProps> = ({
 	id,
 	start,
 	end,
@@ -21,20 +26,23 @@ export const ClipTimeline: React.FC<ClipTimelineProps> = ({
 	const isGeneratingRef = useRef(false);
 
 	// 订阅 model 状态
-	const uri = useClipSelector(id, (state) => state.props.uri);
-	const reversed = useClipSelector(id, (state) => state.props.reversed);
-	const maxDuration = useClipSelector(
+	const uri = useVideoClipSelector(id, (state) => state.props.uri);
+	const reversed = useVideoClipSelector(id, (state) => state.props.reversed);
+	const maxDuration = useVideoClipSelector(
 		id,
 		(state) => state.constraints.maxDuration,
 	);
-	const isLoading = useClipSelector(
+	const isLoading = useVideoClipSelector(
 		id,
 		(state) => state.constraints.isLoading ?? false,
 	);
 
 	// 从 Model 获取 videoSink 和 duration
-	const videoSink = useClipSelector(id, (state) => state.internal.videoSink);
-	const videoDuration = useClipSelector(
+	const videoSink = useVideoClipSelector(
+		id,
+		(state) => state.internal.videoSink,
+	);
+	const videoDuration = useVideoClipSelector(
 		id,
 		(state) => state.internal.videoDuration,
 	);
@@ -43,6 +51,11 @@ export const ClipTimeline: React.FC<ClipTimelineProps> = ({
 	clipDurationRef.current = end - start;
 	const clipDurationFrames = clipDurationRef.current;
 	const clipDurationSeconds = framesToSeconds(clipDurationFrames, fps);
+	const timelineOffsetFrames = useTimelineStore(
+		(state) =>
+			state.elements.find((el) => el.id === id)?.timeline?.offset ?? 0,
+	);
+	const offsetSeconds = framesToSeconds(timelineOffsetFrames, fps);
 
 	// 生成预览图（使用 Model 中的 videoSink）
 	const generateThumbnails = useCallback(async () => {
@@ -133,6 +146,8 @@ export const ClipTimeline: React.FC<ClipTimelineProps> = ({
 					timelineTime: relativeTime,
 					videoDuration: videoDuration,
 					reversed,
+					offset: offsetSeconds,
+					clipDuration: clipDurationSeconds,
 				});
 
 				let frameCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
@@ -212,7 +227,14 @@ export const ClipTimeline: React.FC<ClipTimelineProps> = ({
 		} finally {
 			isGeneratingRef.current = false;
 		}
-	}, [videoSink, videoDuration, uri, reversed, clipDurationSeconds]);
+	}, [
+		videoSink,
+		videoDuration,
+		uri,
+		reversed,
+		clipDurationSeconds,
+		offsetSeconds,
+	]);
 
 	// 当 videoSink 准备好后生成缩略图
 	useEffect(() => {

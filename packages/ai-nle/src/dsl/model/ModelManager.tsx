@@ -26,11 +26,11 @@ export const ModelManager: React.FC<{ children: React.ReactNode }> = ({
 
 		for (const element of elements) {
 			const id = element.id;
-			const definition = componentRegistry.get(element.type);
+			const definition = componentRegistry.get(element.component);
 
 			if (!definition) {
 				console.warn(
-					`[ModelManager] Component not registered for element ${id}, type: ${element.type}`,
+					`[ModelManager] Component not registered for element ${id}, component: ${element.component}`,
 				);
 				continue;
 			}
@@ -57,17 +57,17 @@ export const ModelManager: React.FC<{ children: React.ReactNode }> = ({
 			const id = element.id;
 
 			if (!prevIds.has(id) && !modelRegistry.has(id)) {
-				const definition = componentRegistry.get(element.type);
+				const definition = componentRegistry.get(element.component);
 
 				if (!definition) {
 					console.warn(
-						`[ModelManager] Component not registered for element ${id}, type: ${element.type}`,
+						`[ModelManager] Component not registered for element ${id}, component: ${element.component}`,
 					);
 					continue;
 				}
 
 				console.log(
-					`[ModelManager] Creating model for element ${id}, type: ${definition.type}`,
+					`[ModelManager] Creating model for element ${id}, component: ${definition.component}`,
 				);
 
 				// 创建 model
@@ -105,18 +105,7 @@ export const ModelManager: React.FC<{ children: React.ReactNode }> = ({
 				);
 
 				if (propsChanged) {
-					// 使用 validate 确保值合法
-					const result = state.validate(newProps);
-
-					if (result.valid) {
-						store.setState((state) => ({
-							...state,
-							props: {
-								...(state.props as any),
-								...newProps,
-							},
-						}));
-					}
+					state.setProps(newProps);
 				}
 			}
 		}

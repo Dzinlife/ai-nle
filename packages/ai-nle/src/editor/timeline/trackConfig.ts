@@ -85,11 +85,11 @@ export const DEFAULT_TRACK_CONFIGS: Record<TrackRole, TrackConfig> = {
 /**
  * 从 DSL 组件元数据获取轨道角色
  */
-export function getElementRoleFromType(
-	elementType: string,
+export function getElementRoleFromComponent(
+	component: string,
 	fallback: TrackRole = "overlay",
 ): TrackRole {
-	const definition = componentRegistry.get(elementType);
+	const definition = componentRegistry.get(component);
 	return definition?.meta.trackRole ?? fallback;
 }
 
@@ -108,10 +108,10 @@ export function getTrackConfig(role: TrackRole): TrackConfig {
  * 检查元素是否可以放置在指定角色的轨道上
  */
 export function canElementBeOnTrack(
-	elementType: string,
+	component: string,
 	trackRole: TrackRole,
 ): boolean {
-	const elementRole = getElementRoleFromType(elementType);
+	const elementRole = getElementRoleFromComponent(component);
 	const trackConfig = getTrackConfig(trackRole);
 	return trackConfig.compatibleWith.includes(elementRole);
 }
@@ -120,11 +120,11 @@ export function canElementBeOnTrack(
  * 检查两个元素是否可以共存于同一轨道
  */
 export function canElementsCoexist(
-	elementType1: string,
-	elementType2: string,
+	component1: string,
+	component2: string,
 ): boolean {
-	const role1 = getElementRoleFromType(elementType1);
-	const role2 = getElementRoleFromType(elementType2);
+	const role1 = getElementRoleFromComponent(component1);
+	const role2 = getElementRoleFromComponent(component2);
 	const config1 = getTrackConfig(role1);
 	return config1.compatibleWith.includes(role2);
 }

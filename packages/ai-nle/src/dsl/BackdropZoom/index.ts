@@ -10,7 +10,8 @@ export { BackdropZoomTimeline } from "./timeline";
 // 组件定义
 export const BackdropZoomDefinition: DSLComponentDefinition<BackdropZoomProps> =
 	{
-		type: "BackdropZoom",
+		type: "Filter",
+		component: "filter/backdrop-zoom",
 		createModel: createBackdropZoomModel,
 		Renderer: BackdropZoom,
 		Timeline: BackdropZoomTimeline,

@@ -16,7 +16,8 @@ export { ColorFilterLayerTimeline } from "./timeline";
 // 组件定义
 export const ColorFilterLayerDefinition: DSLComponentDefinition<ColorFilterLayerProps> =
 	{
-		type: "ColorFilterLayer",
+		type: "Filter",
+		component: "filter/color-filter",
 		createModel: createColorFilterLayerModel,
 		Renderer: ColorFilterLayer,
 		Timeline: ColorFilterLayerTimeline,

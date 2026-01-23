@@ -14,7 +14,7 @@ import { loadTimelineFromObject } from "./timelineLoader";
 
 // 导入所有组件以触发注册
 import "@/dsl/BackdropZoom";
-import "@/dsl/Clip";
+import "@/dsl/VideoClip";
 import "@/dsl/CloudBackground";
 import "@/dsl/ColorFilterLayer";
 import "@/dsl/Image";
@@ -25,7 +25,10 @@ import "@/dsl/Transition";
 // 调试：检查组件注册情况
 import { componentRegistry } from "@/dsl/model/componentRegistry";
 
-console.log("[Editor] Registered components:", componentRegistry.getTypes());
+console.log(
+	"[Editor] Registered components:",
+	componentRegistry.getComponentIds(),
+);
 
 // 内部编辑器内容组件（可以使用 hooks）
 const EditorContent: React.FC = () => {

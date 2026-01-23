@@ -10,6 +10,7 @@ export { ImageTimeline } from "./timeline";
 // 组件定义
 export const ImageDefinition: DSLComponentDefinition<ImageProps> = {
 	type: "Image",
+	component: "image",
 	createModel: createImageModel,
 	Renderer: ImageRenderer,
 	Timeline: ImageTimeline,

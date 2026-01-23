@@ -241,6 +241,7 @@ const MaterialLibrary: React.FC = () => {
 					const newTransition: TimelineElement = {
 						id: `transition-${Date.now()}`,
 						type: "Transition",
+						component: "transition/basic",
 						name: item.name,
 						props: {
 							fromId: link.fromId,
@@ -285,6 +286,7 @@ const MaterialLibrary: React.FC = () => {
 				const newElement: TimelineElement = {
 					id: `element-${Date.now()}`,
 					type: "Image" as const,
+					component: "image",
 					name: item.name,
 					props: {
 						uri: item.uri,
@@ -382,6 +384,7 @@ const MaterialLibrary: React.FC = () => {
 				const newElement: TimelineElement = {
 					id: newId,
 					type: "Image" as const,
+					component: "image",
 					name: item.name,
 					props: {
 						uri: item.uri,
