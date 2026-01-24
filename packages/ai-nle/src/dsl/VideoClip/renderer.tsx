@@ -39,7 +39,7 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
 	});
 	const { fps } = useFps();
 	const { isPlaying } = usePlaybackControl();
-	const forceSeek = renderTimeline !== undefined && !isPlaying;
+	const forceSeek = renderTimeline !== undefined;
 
 	// 直接从 TimelineStore 读取元素的 timeline 数据
 	const timeline = useTimelineStore(

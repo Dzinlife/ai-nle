@@ -9,18 +9,19 @@ import { TransitionTimeline } from "./timeline";
 
 export { type TransitionProps, createTransitionModel } from "./model";
 export { TransitionTimeline } from "./timeline";
+export { renderNodeToPicture, useSkPictureFromNode } from "./picture";
 
 export const TransitionDefinition: DSLComponentDefinition<TransitionProps> = {
 	type: "Transition",
-	component: "transition/basic",
+	component: "transition/crossfade",
 	createModel: createTransitionModel,
 	Renderer: TransitionRenderer,
 	Timeline: TransitionTimeline,
 	meta: {
-		name: "Transition",
+		name: "Crossfade",
 		category: "transition",
 		trackRole: "clip",
-		description: "Transition between adjacent clips",
+		description: "Crossfade between adjacent clips",
 		defaultProps: {},
 	},
 };

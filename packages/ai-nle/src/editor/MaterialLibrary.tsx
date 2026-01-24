@@ -195,11 +195,20 @@ const DEMO_MATERIALS: MaterialItem[] = [
 	{
 		id: "material-transition-1",
 		type: "transition",
-		name: "淡入淡出",
-		uri: "transition://fade",
+		name: "Crossfade",
+		uri: "transition://crossfade",
 		thumbnailUrl:
 			"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='80'><rect width='200' height='80' fill='%236363f1'/><path d='M0 0 L200 80 M0 80 L200 0' stroke='%23ffffff' stroke-width='6' opacity='0.7'/><text x='100' y='50' font-size='26' fill='%23ffffff' text-anchor='middle' font-family='Arial'>T</text></svg>",
 		duration: 15,
+	},
+	{
+		id: "material-transition-2",
+		type: "transition",
+		name: "像素风 Shader",
+		uri: "transition://pixel-shader",
+		thumbnailUrl:
+			"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='80'><defs><pattern id='pix' width='8' height='8' patternUnits='userSpaceOnUse'><rect width='8' height='8' fill='%230f172a'/><rect width='4' height='4' fill='%23f97316'/><rect x='4' y='4' width='4' height='4' fill='%233b82f6'/></pattern></defs><rect width='200' height='80' fill='url(%23pix)'/><rect width='200' height='80' fill='none' stroke='%23ffffff' stroke-width='2' opacity='0.6'/><text x='100' y='50' font-size='20' fill='%23ffffff' text-anchor='middle' font-family='Arial'>PIXEL</text></svg>",
+		duration: 18,
 	},
 ];
 
@@ -241,7 +250,10 @@ const MaterialLibrary: React.FC = () => {
 					const newTransition: TimelineElement = {
 						id: `transition-${Date.now()}`,
 						type: "Transition",
-						component: "transition/basic",
+						component:
+							item.uri === "transition://pixel-shader"
+								? "transition/pixel-shader"
+								: "transition/crossfade",
 						name: item.name,
 						props: {
 							fromId: link.fromId,

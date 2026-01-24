@@ -1,9 +1,18 @@
 import type React from "react";
 import type { ReactNode } from "react";
-import { Group } from "react-skia-lite";
-import { useTimelineStore } from "@/editor/contexts/TimelineContext";
+import { useEffect, useMemo } from "react";
+import {
+	FilterMode,
+	Group,
+	processUniforms,
+	Rect,
+	Skia,
+	TileMode,
+} from "react-skia-lite";
 import type { TimelineElement } from "@/dsl/types";
+import { useTimelineStore } from "@/editor/contexts/TimelineContext";
 import type { TransitionProps } from "./model";
+import { useSkPictureFromNode } from "./picture";
 
 interface TransitionRendererProps extends TransitionProps {
 	id: string;
@@ -11,6 +20,18 @@ interface TransitionRendererProps extends TransitionProps {
 	toNode?: ReactNode;
 	progress?: number;
 }
+
+const FADE_SHADER_CODE = `
+uniform shader preRoll;
+uniform shader afterRoll;
+uniform float progress;
+
+half4 main(float2 xy) {
+  half4 fromColor = preRoll.eval(xy);
+  half4 toColor = afterRoll.eval(xy);
+  return mix(fromColor, toColor, progress);
+}
+`;
 
 const clampProgress = (value: number): number => {
 	if (!Number.isFinite(value)) return 0;
@@ -37,10 +58,9 @@ const resolveTransitionDuration = (
 const TransitionRenderer: React.FC<TransitionRendererProps> = ({
 	fromNode,
 	toNode,
-	progress = 0,
+	progress,
 	id,
 }) => {
-	if (!fromNode && !toNode) return null;
 	const currentTimeFrames = useTimelineStore((state) => {
 		if (state.isPlaying) {
 			return state.currentTime;
@@ -50,28 +70,147 @@ const TransitionRenderer: React.FC<TransitionRendererProps> = ({
 	const transitionElement = useTimelineStore((state) =>
 		state.elements.find((el) => el.id === id),
 	);
+	const canvasSize = useTimelineStore((state) => state.canvasSize);
 	const boundary = transitionElement?.timeline.start ?? 0;
 	const transitionDuration = resolveTransitionDuration(transitionElement);
 	const head = Math.floor(transitionDuration / 2);
 	const start = boundary - head;
-	const safeProgress =
+
+	const computedProgress =
 		transitionDuration > 0
 			? clampProgress((currentTimeFrames - start) / transitionDuration)
-			: clampProgress(progress);
+			: 0;
+	const safeProgress =
+		typeof progress === "number" && Number.isFinite(progress)
+			? clampProgress(progress)
+			: computedProgress;
 	const fromOpacity = 1 - safeProgress;
 	const toOpacity = safeProgress;
 
-	return (
-		<Group>
-			{fromNode && <Group opacity={fromOpacity}>{fromNode}</Group>}
-			{/* 使用 plus 避免叠加时再次衰减底图 */}
-			{toNode && (
-				<Group opacity={toOpacity} blendMode="plus">
-					{toNode}
-				</Group>
-			)}
-		</Group>
+	const shaderSource = useMemo(() => {
+		try {
+			return Skia.RuntimeEffect.Make(FADE_SHADER_CODE);
+		} catch (error) {
+			console.error("Failed to create fade shader:", error);
+			return null;
+		}
+	}, []);
+
+	const width = canvasSize.width;
+	const height = canvasSize.height;
+
+	const preRollPicture = useSkPictureFromNode(
+		fromNode ?? null,
+		canvasSize,
+		currentTimeFrames,
 	);
+	const afterRollPicture = useSkPictureFromNode(
+		toNode ?? null,
+		canvasSize,
+		currentTimeFrames,
+	);
+
+	const blendShader = useMemo(() => {
+		if (
+			!shaderSource ||
+			!preRollPicture ||
+			!afterRollPicture ||
+			width <= 0 ||
+			height <= 0
+		)
+			return null;
+		const bounds = { x: 0, y: 0, width, height };
+		const fromShader = preRollPicture.makeShader(
+			TileMode.Clamp,
+			TileMode.Clamp,
+			FilterMode.Linear,
+			undefined,
+			bounds,
+		);
+		const toShader = afterRollPicture.makeShader(
+			TileMode.Clamp,
+			TileMode.Clamp,
+			FilterMode.Linear,
+			undefined,
+			bounds,
+		);
+		const uniforms = processUniforms(shaderSource, { progress: safeProgress });
+		const shader = shaderSource.makeShaderWithChildren(uniforms, [
+			fromShader,
+			toShader,
+		]);
+		return { shader, children: [fromShader, toShader] };
+	}, [
+		afterRollPicture,
+		preRollPicture,
+		safeProgress,
+		shaderSource,
+		width,
+		height,
+	]);
+
+	const paintBundle = useMemo(() => {
+		if (!blendShader) return null;
+		const paint = Skia.Paint();
+		paint.setShader(blendShader.shader);
+		return {
+			paint,
+			shader: blendShader.shader,
+			children: blendShader.children,
+		};
+	}, [blendShader]);
+
+	useEffect(() => {
+		return () => {
+			if (!paintBundle) return;
+			paintBundle.shader.dispose();
+			paintBundle.children.forEach((child) => child.dispose());
+			paintBundle.paint.dispose();
+		};
+	}, [paintBundle]);
+
+	const hasNode = Boolean(fromNode || toNode);
+	const sizeValid = width > 0 && height > 0;
+	const hasPicture = Boolean(preRollPicture || afterRollPicture);
+	if (!hasNode || !sizeValid) return null;
+	if (!hasPicture) {
+		return (
+			<Group>
+				{fromNode && <Group opacity={fromOpacity}>{fromNode}</Group>}
+				{toNode && (
+					<Group opacity={toOpacity} blendMode="plus">
+						{toNode}
+					</Group>
+				)}
+			</Group>
+		);
+	}
+
+	const renderHardCut = () => {
+		return <Group>{currentTimeFrames < boundary ? fromNode : toNode}</Group>;
+	};
+
+	const picturesReady = Boolean(preRollPicture && afterRollPicture);
+
+	if (!picturesReady) {
+		return renderHardCut();
+	}
+
+	if (paintBundle) {
+		return (
+			<Group>
+				<Rect
+					x={0}
+					y={0}
+					width={width}
+					height={height}
+					paint={paintBundle.paint}
+				/>
+			</Group>
+		);
+	}
+
+	return renderHardCut();
 };
 
 export default TransitionRenderer;

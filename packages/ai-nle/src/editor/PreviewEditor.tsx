@@ -55,7 +55,16 @@ type TransitionClipInfo = {
 	boundary: number;
 	duration: number;
 	role: "from" | "to";
+	transitionId: string;
+	transitionComponent: string;
+	fromId: string;
+	toId: string;
 	renderTimeline?: {
+		start: number;
+		end: number;
+		offset: number;
+	};
+	peerRenderTimeline?: {
 		start: number;
 		end: number;
 		offset: number;
@@ -75,11 +84,6 @@ const buildTransitionRenderTimeline = (
 		end: transitionEnd,
 		offset,
 	};
-};
-
-const clamp01 = (value: number): number => {
-	if (!Number.isFinite(value)) return 0;
-	return Math.min(1, Math.max(0, value));
 };
 
 const pickActiveTransition = (
@@ -106,12 +110,14 @@ interface TransitionClipLayerProps {
 	element: TimelineElement;
 	Renderer: React.ComponentType<any>;
 	transitionInfos?: TransitionClipInfo[];
+	elementsById: Map<string, TimelineElement>;
 }
 
 const TransitionClipLayer: React.FC<TransitionClipLayerProps> = ({
 	element,
 	Renderer,
 	transitionInfos,
+	elementsById,
 }) => {
 	const currentTimeFrames = useTimelineStore((state) => {
 		if (state.isPlaying) {
@@ -121,29 +127,80 @@ const TransitionClipLayer: React.FC<TransitionClipLayerProps> = ({
 	});
 	const activeTransition = pickActiveTransition(transitionInfos, currentTimeFrames);
 	const baseOpacity = element.render?.opacity ?? 1;
-	let opacity = baseOpacity;
 	let renderTimeline: TransitionClipInfo["renderTimeline"];
-	let blendMode: "plus" | undefined;
+	const renderElement = useCallback(
+		(
+			target: TimelineElement,
+			timeline?: TransitionClipInfo["renderTimeline"],
+		) => {
+			const componentDef = componentRegistry.get(target.component);
+			if (!componentDef) {
+				console.warn(
+					`[PreviewEditor] Component "${target.component}" not registered`,
+				);
+				console.warn(
+					`[PreviewEditor] Available components:`,
+					componentRegistry.getComponentIds(),
+				);
+				return null;
+			}
+			const TargetRenderer = componentDef.Renderer;
+			return (
+				<TargetRenderer
+					id={target.id}
+					{...target.props}
+					{...(target.type === "VideoClip" && timeline
+						? { renderTimeline: timeline }
+						: {})}
+				/>
+			);
+		},
+		[],
+	);
 
 	if (activeTransition) {
-		const progress =
-			activeTransition.duration > 0
-				? clamp01(
-						(currentTimeFrames - activeTransition.transitionStart) /
-							activeTransition.duration,
-					)
-				: 1;
-		if (activeTransition.role === "from") {
-			opacity = baseOpacity * (1 - progress);
-		} else {
-			opacity = baseOpacity * progress;
-			blendMode = "plus";
-		}
 		renderTimeline = activeTransition.renderTimeline;
+		const transitionElement = elementsById.get(activeTransition.transitionId);
+		const transitionDef = transitionElement
+			? componentRegistry.get(activeTransition.transitionComponent)
+			: null;
+		if (transitionDef) {
+			if (activeTransition.role === "from") {
+				return null;
+			}
+			const fromElement = elementsById.get(activeTransition.fromId);
+			const toElement = elementsById.get(activeTransition.toId);
+			if (!fromElement || !toElement) return null;
+			const fromOpacity = fromElement.render?.opacity ?? 1;
+			const toOpacity = toElement.render?.opacity ?? 1;
+			const fromContent = renderElement(
+				fromElement,
+				activeTransition.peerRenderTimeline,
+			);
+			const toContent = renderElement(
+				toElement,
+				activeTransition.renderTimeline,
+			);
+			const fromNode = fromContent ? (
+				<SkiaGroup opacity={fromOpacity}>{fromContent}</SkiaGroup>
+			) : null;
+			const toNode = toContent ? (
+				<SkiaGroup opacity={toOpacity}>{toContent}</SkiaGroup>
+			) : null;
+			const TransitionRenderer = transitionDef.Renderer;
+			return (
+				<TransitionRenderer
+					id={activeTransition.transitionId}
+					{...transitionElement?.props}
+					fromNode={fromNode}
+					toNode={toNode}
+				/>
+			);
+		}
 	}
 
 	return (
-		<SkiaGroup opacity={opacity} blendMode={blendMode}>
+		<SkiaGroup opacity={baseOpacity}>
 			<Renderer
 				id={element.id}
 				{...element.props}
@@ -520,37 +577,36 @@ const Preview = () => {
 					continue;
 				}
 
-				const fromInfo: TransitionClipInfo = {
+				const fromRenderTimeline =
+					fromElement.type === "VideoClip"
+						? buildTransitionRenderTimeline(fromElement, start, end)
+						: undefined;
+				const toRenderTimeline =
+					toElement.type === "VideoClip"
+						? buildTransitionRenderTimeline(toElement, start, end)
+						: undefined;
+				const baseTransitionInfo = {
 					transitionStart: start,
 					transitionEnd: end,
 					boundary: element.timeline.start,
 					duration,
+					transitionId: element.id,
+					transitionComponent: element.component,
+					fromId,
+					toId,
+				};
+
+				const fromInfo: TransitionClipInfo = {
+					...baseTransitionInfo,
 					role: "from",
-					...(fromElement.type === "VideoClip"
-						? {
-								renderTimeline: buildTransitionRenderTimeline(
-									fromElement,
-									start,
-									end,
-								),
-							}
-						: {}),
+					renderTimeline: fromRenderTimeline,
+					peerRenderTimeline: toRenderTimeline,
 				};
 				const toInfo: TransitionClipInfo = {
-					transitionStart: start,
-					transitionEnd: end,
-					boundary: element.timeline.start,
-					duration,
+					...baseTransitionInfo,
 					role: "to",
-					...(toElement.type === "VideoClip"
-						? {
-								renderTimeline: buildTransitionRenderTimeline(
-									toElement,
-									start,
-									end,
-								),
-							}
-						: {}),
+					renderTimeline: toRenderTimeline,
+					peerRenderTimeline: fromRenderTimeline,
 				};
 
 				const fromList = transitionInfosById.get(fromId) ?? [];
@@ -608,6 +664,7 @@ const Preview = () => {
 								element={el}
 								Renderer={Renderer}
 								transitionInfos={transitionInfosById.get(el.id)}
+								elementsById={elementsById}
 							/>
 						);
 					})}

@@ -21,6 +21,7 @@ import "@/dsl/Image";
 import "@/dsl/Lottie";
 import "@/dsl/SeaWave";
 import "@/dsl/Transition";
+import "@/dsl/PixelShaderTransition";
 
 // 调试：检查组件注册情况
 import { componentRegistry } from "@/dsl/model/componentRegistry";

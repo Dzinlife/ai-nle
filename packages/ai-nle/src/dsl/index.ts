@@ -5,6 +5,7 @@ export { default as ColorFilterLayer } from "./ColorFilterLayer";
 export { default as Image } from "./Image";
 export { default as Lottie } from "./Lottie";
 export { default as Transition } from "./Transition";
+export { default as PixelShaderTransition } from "./PixelShaderTransition";
 // Utilities
 export * from "./layout";
 export * from "./model";

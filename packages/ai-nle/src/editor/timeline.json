@@ -115,7 +115,7 @@
 		{
 			"id": "transition-1",
 			"type": "Transition",
-			"component": "transition/basic",
+			"component": "transition/crossfade",
 			"name": "转场",
 			"transform": {
 				"centerX": 0,
@@ -300,7 +300,7 @@
 		{
 			"id": "transition-2",
 			"type": "Transition",
-			"component": "transition/basic",
+			"component": "transition/crossfade",
 			"name": "转场",
 			"transform": {
 				"centerX": 0,
