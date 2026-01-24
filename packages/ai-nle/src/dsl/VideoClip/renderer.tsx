@@ -66,6 +66,10 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
 		id,
 		(state) => state.internal.currentFrame,
 	);
+	const playbackEpoch = useVideoClipSelector(
+		id,
+		(state) => state.internal.playbackEpoch ?? 0,
+	);
 	const props = useVideoClipSelector(id, (state) => state.props);
 	const videoDuration = useVideoClipSelector(
 		id,
@@ -92,6 +96,13 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
 	const wasPlayingRef = useRef(false);
 	const lastVideoTimeRef = useRef<number | null>(null);
 	const lastPlaybackTimeRef = useRef<number | null>(null); // 追踪播放时的时间
+
+	useEffect(() => {
+		// sink 切换后重置播放状态，确保重新启动流式播放
+		wasPlayingRef.current = false;
+		lastPlaybackTimeRef.current = null;
+		lastVideoTimeRef.current = null;
+	}, [playbackEpoch]);
 
 	// 处理播放状态变化
 	useEffect(() => {

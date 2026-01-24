@@ -2,10 +2,10 @@ import type { CanvasSink, Input, WrappedCanvas } from "mediabunny";
 import { type SkImage, Skia } from "react-skia-lite";
 import { subscribeWithSelector } from "zustand/middleware";
 import { createStore } from "zustand/vanilla";
-import { useTimelineStore } from "@/editor/contexts/TimelineContext";
 import type { AssetHandle } from "@/dsl/assets/AssetStore";
 import { acquireVideoAsset, type VideoAsset } from "@/dsl/assets/videoAsset";
 import type { TimelineElement } from "@/dsl/types";
+import { useTimelineStore } from "@/editor/contexts/TimelineContext";
 import {
 	framesToSeconds,
 	framesToTimecode,
@@ -32,6 +32,7 @@ export interface VideoClipInternal {
 	currentFrame: SkImage | null;
 	videoDuration: number; // 秒
 	isReady: boolean;
+	playbackEpoch: number;
 	// 缩略图（用于时间线预览）
 	thumbnailCanvas: HTMLCanvasElement | null;
 	// 帧缓存
@@ -71,10 +72,7 @@ export const calculateVideoTime = ({
 
 	if (reversed) {
 		const reversedTime = offsetValue + safeClipDuration - relativeTime;
-		return Math.min(
-			safeVideoDuration,
-			Math.max(0, reversedTime),
-		);
+		return Math.min(safeVideoDuration, Math.max(0, reversedTime));
 	} else {
 		const forwardTime = offsetValue + relativeTime;
 		return Math.min(safeVideoDuration, Math.max(0, forwardTime));
@@ -118,7 +116,10 @@ export function createVideoClipModel(
 	let assetHandle: AssetHandle<VideoAsset> | null = null;
 	let unsubscribeTimelineOffset: (() => void) | null = null;
 	let unsubscribeElements: (() => void) | null = null;
+	let unsubscribeTime: (() => void) | null = null;
 	let activeDedicatedSink = false;
+	let dedicatedVideoSink: CanvasSink | null = null;
+	let lastSinkSwitchFrame: number | null = null;
 
 	const getTimelineFps = () => {
 		const fps = useTimelineStore.getState().fps;
@@ -184,7 +185,10 @@ export function createVideoClipModel(
 
 	const updateMaxDurationByOffset = () => {
 		const { internal, constraints } = store.getState();
-		if (!Number.isFinite(internal.videoDuration) || internal.videoDuration <= 0) {
+		if (
+			!Number.isFinite(internal.videoDuration) ||
+			internal.videoDuration <= 0
+		) {
 			return;
 		}
 		const fps = getTimelineFps();
@@ -211,52 +215,109 @@ export function createVideoClipModel(
 		elements: TimelineElement[],
 		clipId: string,
 		uri?: string,
+		currentTime?: number,
 	): boolean => {
 		if (!uri) return false;
-		for (const element of elements) {
-			if (element.type !== "Transition") continue;
-			const props = (element.props ?? {}) as { fromId?: string; toId?: string };
-			const { fromId, toId } = props;
-			if (!fromId || !toId) continue;
-			if (fromId !== clipId && toId !== clipId) continue;
-			const otherId = fromId === clipId ? toId : fromId;
-			const other = elements.find((el) => el.id === otherId);
-			if (!other || other.type !== "VideoClip") continue;
-			const otherUri = (other.props as { uri?: string } | undefined)?.uri;
-			if (otherUri && otherUri === uri) {
-				return true;
+		const current = elements.find((el) => el.id === clipId);
+		if (!current) return false;
+		const isCoveredAtTime = (clip: TimelineElement, time?: number): boolean => {
+			if (time === undefined) return true;
+			const start = clip.timeline?.start ?? 0;
+			const end = clip.timeline?.end ?? 0;
+			if (time >= start && time < end) return true;
+
+			for (const element of elements) {
+				if (element.type !== "Transition") continue;
+				const props = (element.props ?? {}) as {
+					fromId?: string;
+					toId?: string;
+				};
+				const { fromId, toId } = props;
+				if (!fromId || !toId) continue;
+				if (fromId !== clip.id && toId !== clip.id) continue;
+				const duration = element.transition?.duration ?? 15;
+				const safeDuration = Math.max(0, Math.round(duration));
+				const head = Math.floor(safeDuration / 2);
+				const tail = safeDuration - head;
+				const transitionStart = element.timeline.start - head;
+				const transitionEnd = element.timeline.start + tail;
+				if (time >= transitionStart && time < transitionEnd) {
+					return true;
+				}
 			}
-		}
-		return false;
+
+			return false;
+		};
+
+		if (!isCoveredAtTime(current, currentTime)) return false;
+
+		const candidates = elements.filter((element) => {
+			if (element.type !== "VideoClip") return false;
+			const otherUri = (element.props as { uri?: string } | undefined)?.uri;
+			if (!otherUri || otherUri !== uri) return false;
+			return isCoveredAtTime(element, currentTime);
+		});
+
+		if (candidates.length <= 1) return false;
+
+		const owner = candidates.reduce((prev, next) => {
+			if (prev.timeline.start !== next.timeline.start) {
+				return prev.timeline.start < next.timeline.start ? prev : next;
+			}
+			return prev.id.localeCompare(next.id) <= 0 ? prev : next;
+		});
+
+		return owner.id !== clipId;
 	};
 
 	const resolveVideoSink = (asset: VideoAsset, shouldDedicated: boolean) => {
 		if (!shouldDedicated) return asset.videoSink;
-		try {
-			return asset.createVideoSink();
-		} catch (err) {
-			// 创建独立 sink 失败时回退到共享 sink
-			console.warn("Create video sink failed:", err);
-			return asset.videoSink;
+		if (!dedicatedVideoSink) {
+			try {
+				dedicatedVideoSink = asset.createVideoSink();
+			} catch (err) {
+				// 创建独立 sink 失败时回退到共享 sink
+				console.warn("Create video sink failed:", err);
+				return asset.videoSink;
+			}
 		}
+		return dedicatedVideoSink;
 	};
 
 	const updateVideoSink = () => {
 		const handle = assetHandle;
 		if (!handle) return;
-		if (useTimelineStore.getState().isPlaying) {
-			// 播放中不切换 sink，避免打断流式播放
+		const timelineState = useTimelineStore.getState();
+		const { props } = store.getState();
+		const elements = timelineState.elements;
+		const currentTime = timelineState.getDisplayTime();
+		const fps = getTimelineFps();
+		const minSwitchIntervalFrames = Math.max(2, Math.round(fps / 10));
+		if (
+			lastSinkSwitchFrame !== null &&
+			Math.abs(currentTime - lastSinkSwitchFrame) < minSwitchIntervalFrames
+		) {
 			return;
 		}
-		const { props } = store.getState();
-		const elements = useTimelineStore.getState().elements;
 		const shouldDedicated = shouldUseDedicatedSink(
 			elements,
 			id,
 			props.uri,
+			currentTime,
 		);
+		if (!shouldDedicated && activeDedicatedSink && currentTime !== undefined) {
+			const current = elements.find((el) => el.id === id);
+			if (current) {
+				const start = current.timeline?.start ?? 0;
+				const end = current.timeline?.end ?? 0;
+				if (currentTime >= start && currentTime < end) {
+					return;
+				}
+			}
+		}
 		if (shouldDedicated === activeDedicatedSink) return;
 		activeDedicatedSink = shouldDedicated;
+		lastSinkSwitchFrame = currentTime;
 
 		const nextSink = resolveVideoSink(handle.asset, shouldDedicated);
 		stopPlayback();
@@ -265,8 +326,13 @@ export function createVideoClipModel(
 			internal: {
 				...state.internal,
 				videoSink: nextSink,
+				playbackEpoch: (state.internal.playbackEpoch ?? 0) + 1,
 			},
 		}));
+		if (!shouldDedicated) {
+			// 释放独立 sink 引用，减少长期占用
+			dedicatedVideoSink = null;
+		}
 	};
 
 	// 开始流式播放
@@ -432,7 +498,9 @@ export function createVideoClipModel(
 		}
 	};
 
-	const store = createStore<ComponentModel<VideoClipProps, VideoClipInternal>>()(
+	const store = createStore<
+		ComponentModel<VideoClipProps, VideoClipInternal>
+	>()(
 		subscribeWithSelector((set, get) => ({
 			id,
 			type: "VideoClip",
@@ -448,6 +516,7 @@ export function createVideoClipModel(
 				currentFrame: null,
 				videoDuration: 0,
 				isReady: false,
+				playbackEpoch: 0,
 				thumbnailCanvas: null,
 				frameCache: fallbackFrameCache,
 				seekToTime,
@@ -572,6 +641,7 @@ export function createVideoClipModel(
 
 					const { asset } = localHandle;
 					const elements = useTimelineStore.getState().elements;
+					const currentTime = useTimelineStore.getState().getDisplayTime();
 					const fps = getTimelineFps();
 					const durationFrames = secondsToFrames(asset.duration, fps);
 					const offsetFrames = getTimelineOffsetFrames();
@@ -579,7 +649,12 @@ export function createVideoClipModel(
 						durationFrames,
 						offsetFrames,
 					);
-					const shouldDedicated = shouldUseDedicatedSink(elements, id, uri);
+					const shouldDedicated = shouldUseDedicatedSink(
+						elements,
+						id,
+						uri,
+						currentTime,
+					);
 					activeDedicatedSink = shouldDedicated;
 					const clipSink = resolveVideoSink(asset, shouldDedicated);
 
@@ -617,7 +692,8 @@ export function createVideoClipModel(
 					if (!unsubscribeTimelineOffset) {
 						unsubscribeTimelineOffset = useTimelineStore.subscribe(
 							(state) =>
-								state.elements.find((el) => el.id === id)?.timeline?.offset ?? 0,
+								state.elements.find((el) => el.id === id)?.timeline?.offset ??
+								0,
 							() => {
 								updateMaxDurationByOffset();
 							},
@@ -631,6 +707,23 @@ export function createVideoClipModel(
 								updateVideoSink();
 							},
 						);
+					}
+					if (!unsubscribeTime) {
+						const onTimeChange = () => {
+							updateVideoSink();
+						};
+						const unsub1 = useTimelineStore.subscribe(
+							(state) => state.currentTime,
+							onTimeChange,
+						);
+						const unsub2 = useTimelineStore.subscribe(
+							(state) => state.previewTime,
+							onTimeChange,
+						);
+						unsubscribeTime = () => {
+							unsub1();
+							unsub2();
+						};
 					}
 				} catch (error) {
 					localHandle?.release();
@@ -663,6 +756,8 @@ export function createVideoClipModel(
 				unsubscribeTimelineOffset = null;
 				unsubscribeElements?.();
 				unsubscribeElements = null;
+				unsubscribeTime?.();
+				unsubscribeTime = null;
 
 				assetHandle?.release();
 				assetHandle = null;
