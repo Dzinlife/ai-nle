@@ -118,10 +118,11 @@ const TimelineEditor = () => {
 		setElements((prev) => {
 			const nextElements = prev.filter((el) => !selectedIds.includes(el.id));
 			if (nextElements.length === prev.length) return prev;
-			return nextElements;
+			// 删除 clip 后需要清理失效的转场
+			return reconcileTransitions(nextElements, fps);
 		});
 		deselectAll();
-	}, [selectedIds, setElements, deselectAll]);
+	}, [selectedIds, setElements, deselectAll, fps]);
 
 	const mainTrackMagnetRef = useRef(mainTrackMagnetEnabled);
 
