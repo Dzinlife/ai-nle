@@ -214,12 +214,17 @@ export function useMaterialDnd<T extends MaterialDndItem>({
 	const normalizeGapIndex = (trackIndex: number): number =>
 		Math.max(MAIN_TRACK_INDEX + 1, trackIndex);
 
-	const resolveTransitionBoundary = (time: number) => {
+	const isClipTrack = (trackIndex: number): boolean => {
+		if (trackIndex === MAIN_TRACK_INDEX) return true;
+		return context.trackRoleMap.get(trackIndex) === "clip";
+	};
+
+	const resolveTransitionBoundary = (time: number, trackIndex: number) => {
 		const thresholdFrames = Math.max(1, Math.round(8 / context.ratio));
 		const clips = context.elements
 			.filter(
 				(el) =>
-					(el.timeline.trackIndex ?? MAIN_TRACK_INDEX) === MAIN_TRACK_INDEX &&
+					(el.timeline.trackIndex ?? MAIN_TRACK_INDEX) === trackIndex &&
 					getElementRole(el) === "clip" &&
 					!isTransitionElement(el),
 			)
@@ -257,7 +262,7 @@ export function useMaterialDnd<T extends MaterialDndItem>({
 		const hasExisting = context.elements.some(
 			(el) =>
 				isTransitionElement(el) &&
-				(el.timeline.trackIndex ?? MAIN_TRACK_INDEX) === MAIN_TRACK_INDEX &&
+				(el.timeline.trackIndex ?? MAIN_TRACK_INDEX) === trackIndex &&
 				(el.timeline.start === best.boundary ||
 					(((el.props as { fromId?: string; toId?: string })?.fromId ??
 						"") === best.fromId &&
@@ -302,7 +307,7 @@ export function useMaterialDnd<T extends MaterialDndItem>({
 		if (isTransitionMaterial) {
 			if (
 				baseDropTarget.type === "gap" ||
-				baseDropTarget.trackIndex !== MAIN_TRACK_INDEX
+				!isClipTrack(baseDropTarget.trackIndex)
 			) {
 				return {
 					zone: "timeline",
@@ -313,12 +318,12 @@ export function useMaterialDnd<T extends MaterialDndItem>({
 				};
 			}
 
-			const target = resolveTransitionBoundary(time);
+			const target = resolveTransitionBoundary(time, baseDropTarget.trackIndex);
 			if (!target) {
 				return {
 					zone: "timeline",
 					type: "track",
-					trackIndex: MAIN_TRACK_INDEX,
+					trackIndex: baseDropTarget.trackIndex,
 					time,
 					canDrop: false,
 				};
@@ -327,7 +332,7 @@ export function useMaterialDnd<T extends MaterialDndItem>({
 			return {
 				zone: "timeline",
 				type: "track",
-				trackIndex: MAIN_TRACK_INDEX,
+				trackIndex: baseDropTarget.trackIndex,
 				time: target.boundary,
 				canDrop: true,
 			};

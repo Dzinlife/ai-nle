@@ -127,11 +127,10 @@ const resolveTransitionDrop = (
 	trackIndex: number,
 	boundary: number,
 ) => {
-	if (trackIndex !== 0) return null;
 	const clips = elements
 		.filter(
 			(el) =>
-				(el.timeline.trackIndex ?? 0) === 0 &&
+				(el.timeline.trackIndex ?? 0) === trackIndex &&
 				getElementRole(el) === "clip" &&
 				!isTransitionElement(el),
 		)
@@ -153,7 +152,7 @@ const resolveTransitionDrop = (
 		const hasExisting = elements.some(
 			(el) =>
 				isTransitionElement(el) &&
-				(el.timeline.trackIndex ?? 0) === 0 &&
+				(el.timeline.trackIndex ?? 0) === trackIndex &&
 				(el.timeline.start === boundary ||
 					(((el.props as { fromId?: string; toId?: string })?.fromId ??
 						"") === prev.id &&
@@ -261,7 +260,7 @@ const MaterialLibrary: React.FC = () => {
 							{
 								start: startFrame,
 								end: startFrame,
-								trackIndex: 0,
+								trackIndex,
 								role: "clip",
 							},
 							fps,
