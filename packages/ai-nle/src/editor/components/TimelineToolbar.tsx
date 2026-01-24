@@ -12,6 +12,7 @@ import {
 	useMainTrackMagnet,
 	useMultiSelect,
 	usePlaybackControl,
+	usePreviewAxis,
 	useSnap,
 	useTimelineHistory,
 	useTimelineScale,
@@ -69,6 +70,7 @@ const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
 	const { autoAttach, setAutoAttach } = useAttachments();
 	const { mainTrackMagnetEnabled, setMainTrackMagnetEnabled } =
 		useMainTrackMagnet();
+	const { previewAxisEnabled, setPreviewAxisEnabled } = usePreviewAxis();
 	const { timelineScale, setTimelineScale } = useTimelineScale();
 	const { canUndo, canRedo, undo, redo } = useTimelineHistory();
 	const { elements, setElements } = useElements();
@@ -263,6 +265,18 @@ const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
 					title="主轨道磁吸"
 				>
 					主轨磁吸
+				</button>
+				<button
+					onClick={() => setPreviewAxisEnabled(!previewAxisEnabled)}
+					className={cn(
+						"px-2 py-1 text-xs rounded transition-colors",
+						previewAxisEnabled
+							? "bg-green-600 text-white"
+							: "bg-neutral-700 text-neutral-400 hover:bg-neutral-600",
+					)}
+					title="预览轴"
+				>
+					预览轴
 				</button>
 			</div>
 			<div className="flex items-center gap-2">

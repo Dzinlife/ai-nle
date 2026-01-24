@@ -1,3 +1,4 @@
+import { useDrag } from "@use-gesture/react";
 import React, {
 	startTransition,
 	useCallback,
@@ -25,6 +26,7 @@ import {
 	useMainTrackMagnet,
 	useMultiSelect,
 	usePlaybackControl,
+	usePreviewAxis,
 	usePreviewTime,
 	useSnap,
 	useTimelineScale,
@@ -79,6 +81,7 @@ const TimelineEditor = () => {
 	const scrollLeft = useTimelineStore((state) => state.scrollLeft);
 	const setScrollLeft = useTimelineStore((state) => state.setScrollLeft);
 	const { setPreviewTime } = usePreviewTime();
+	const { previewAxisEnabled } = usePreviewAxis();
 	const { isPlaying } = usePlaybackControl();
 	const { currentTime } = useCurrentTime();
 	const { fps } = useFps();
@@ -113,6 +116,8 @@ const TimelineEditor = () => {
 	const isSelectingRef = useRef(false);
 	const selectionAdditiveRef = useRef(false);
 	const initialSelectedIdsRef = useRef<string[]>([]);
+	const timeStampsRef = useRef<HTMLDivElement>(null);
+	const isRulerDraggingRef = useRef(false);
 	const lastHoverRef = useRef<{
 		clientX: number;
 		clientY: number;
@@ -137,7 +142,6 @@ const TimelineEditor = () => {
 		y2: 0,
 	});
 	const selectionRectRef = useRef(selectionRect);
-
 	useEffect(() => {
 		if (mainTrackMagnetEnabled && !mainTrackMagnetRef.current) {
 			setElements(
@@ -249,8 +253,17 @@ const TimelineEditor = () => {
 				rectTop: rect.top,
 				rectBottom: rect.bottom,
 			};
-			if (isPlaying || isDragging || isSelectingRef.current) return;
+			if (isRulerDraggingRef.current) {
+				setPreviewTime(null);
+				return;
+			}
 			const x = e.clientX - rect.left;
+			if (x <= leftColumnWidth) {
+				setPreviewTime(null);
+				return;
+			}
+			if (isPlaying || isDragging || isSelectingRef.current) return;
+			if (!previewAxisEnabled) return;
 			const time = clampFrame(
 				(x - leftColumnWidth - timelinePaddingLeft + scrollLeft) / ratio,
 			);
@@ -258,7 +271,15 @@ const TimelineEditor = () => {
 				setPreviewTime(time);
 			});
 		},
-		[ratio, scrollLeft, leftColumnWidth, isPlaying, isDragging, setPreviewTime],
+		[
+			previewAxisEnabled,
+			ratio,
+			scrollLeft,
+			leftColumnWidth,
+			isPlaying,
+			isDragging,
+			setPreviewTime,
+		],
 	);
 
 	// 点击时设置固定时间（可选清除选中状态）
@@ -296,6 +317,25 @@ const TimelineEditor = () => {
 		],
 	);
 
+	const updateCurrentTimeFromClientX = useCallback(
+		(clientX: number) => {
+			const rect = timeStampsRef.current?.getBoundingClientRect();
+			if (!rect) return;
+			const x = clientX - rect.left;
+			const time = clampFrame(
+				(x - leftColumnWidth - timelinePaddingLeft + scrollLeft) / ratio,
+			);
+			setCurrentTime(time);
+		},
+		[
+			leftColumnWidth,
+			ratio,
+			scrollLeft,
+			setCurrentTime,
+			timelinePaddingLeft,
+		],
+	);
+
 	// 时间尺点击只更新时间，不影响选中状态
 	const handleRulerClick = useCallback(
 		(e: React.MouseEvent<HTMLDivElement>) => {
@@ -309,6 +349,29 @@ const TimelineEditor = () => {
 		lastHoverRef.current = null;
 		setPreviewTime(null);
 	}, [setPreviewTime]);
+	const bindRulerDrag = useDrag(
+		({ first, last, tap, xy, cancel }) => {
+			if (tap) return;
+			if (first) {
+				const rect = timeStampsRef.current?.getBoundingClientRect();
+				if (!rect) return;
+				const x = xy[0] - rect.left;
+				if (x <= leftColumnWidth) {
+					cancel?.();
+					return;
+				}
+				isRulerDraggingRef.current = true;
+				setPreviewTime(null);
+			}
+			updateCurrentTimeFromClientX(xy[0]);
+			if (last) {
+				isRulerDraggingRef.current = false;
+			}
+		},
+		{
+			filterTaps: true,
+		},
+	);
 
 	const handleSelectionMouseDown = useCallback(
 		(e: React.MouseEvent<HTMLDivElement>) => {
@@ -359,6 +422,11 @@ const TimelineEditor = () => {
 					lastHover.clientY <= lastHover.rectBottom;
 				if (isInside && !isSelectingRef.current) {
 					const x = lastHover.clientX - lastHover.rectLeft;
+					if (!previewAxisEnabled || x <= leftColumnWidth) {
+						setPreviewTime(null);
+						wasDraggingRef.current = isDragging;
+						return;
+					}
 					const time = clampFrame(
 						(x - leftColumnWidth - timelinePaddingLeft + scrollLeft) / ratio,
 					);
@@ -370,6 +438,7 @@ const TimelineEditor = () => {
 	}, [
 		isDragging,
 		isPlaying,
+		previewAxisEnabled,
 		leftColumnWidth,
 		ratio,
 		scrollLeft,
@@ -750,9 +819,11 @@ const TimelineEditor = () => {
 			<div
 				key="time-stamps"
 				className="sticky top-0 left-0 z-60"
+				ref={timeStampsRef}
 				onMouseMove={handleMouseMove}
 				onClick={handleRulerClick}
 				onMouseLeave={handleMouseLeave}
+				{...bindRulerDrag()}
 			>
 				<div className="flex bg-neutral-800/10 border border-white/10 rounded-full mx-4 backdrop-blur-2xl overflow-hidden">
 					<div

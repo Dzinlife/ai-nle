@@ -403,7 +403,7 @@ const Preview = () => {
 	useEffect(() => {
 		const renderSkia = () => {
 			const state = useTimelineStore.getState();
-			const displayTime = state.previewTime ?? state.currentTime;
+			const displayTime = state.getDisplayTime();
 			const visibleElements = computeVisibleElements(
 				getElements(),
 				displayTime,

@@ -66,6 +66,7 @@ interface TimelineStore {
 	timelineScale: number;
 	currentTime: number;
 	previewTime: number | null; // hover 时的临时预览时间
+	previewAxisEnabled: boolean; // 预览轴是否启用
 	elements: TimelineElement[];
 	tracks: TimelineTrack[];
 	historyPast: TimelineHistorySnapshot[];
@@ -95,6 +96,7 @@ interface TimelineStore {
 	setFps: (fps: number) => void;
 	setCurrentTime: (time: number) => void;
 	setPreviewTime: (time: number | null) => void;
+	setPreviewAxisEnabled: (enabled: boolean) => void;
 	setElements: (
 		elements:
 			| TimelineElement[]
@@ -194,6 +196,7 @@ export const useTimelineStore = create<TimelineStore>()(
 		timelineScale: 1,
 		currentTime: 0,
 		previewTime: null,
+		previewAxisEnabled: true,
 		elements: [],
 		tracks: [
 			{
@@ -247,7 +250,24 @@ export const useTimelineStore = create<TimelineStore>()(
 		},
 
 		setPreviewTime: (time: number | null) => {
-			set({ previewTime: time === null ? null : clampFrame(time) });
+			set((state) => {
+				if (!state.previewAxisEnabled) {
+					if (state.previewTime === null) return state;
+					return { previewTime: null };
+				}
+				const nextPreview = time === null ? null : clampFrame(time);
+				if (state.previewTime === nextPreview) return state;
+				return { previewTime: nextPreview };
+			});
+		},
+		setPreviewAxisEnabled: (enabled: boolean) => {
+			set((state) => {
+				if (state.previewAxisEnabled === enabled) return state;
+				return {
+					previewAxisEnabled: enabled,
+					previewTime: enabled ? state.previewTime : null,
+				};
+			});
 		},
 
 		setElements: (
@@ -407,8 +427,8 @@ export const useTimelineStore = create<TimelineStore>()(
 		},
 
 		getDisplayTime: () => {
-			const { previewTime, currentTime } = get();
-			return previewTime ?? currentTime;
+			const { previewTime, currentTime, previewAxisEnabled } = get();
+			return previewAxisEnabled ? previewTime ?? currentTime : currentTime;
 		},
 
 		getElements: () => {
@@ -513,10 +533,13 @@ export const useTimelineStore = create<TimelineStore>()(
 export const useCurrentTime = () => {
 	const currentTime = useTimelineStore((state) => state.currentTime);
 	const previewTime = useTimelineStore((state) => state.previewTime);
+	const previewAxisEnabled = useTimelineStore(
+		(state) => state.previewAxisEnabled,
+	);
 	const setCurrentTime = useTimelineStore((state) => state.setCurrentTime);
 
 	return {
-		currentTime: previewTime ?? currentTime,
+		currentTime: previewAxisEnabled ? previewTime ?? currentTime : currentTime,
 		setCurrentTime,
 	};
 };
@@ -524,7 +547,10 @@ export const useCurrentTime = () => {
 export const useDisplayTime = () => {
 	const currentTime = useTimelineStore((state) => state.currentTime);
 	const previewTime = useTimelineStore((state) => state.previewTime);
-	return previewTime ?? currentTime;
+	const previewAxisEnabled = useTimelineStore(
+		(state) => state.previewAxisEnabled,
+	);
+	return previewAxisEnabled ? previewTime ?? currentTime : currentTime;
 };
 
 export const useFps = () => {
@@ -554,6 +580,20 @@ export const usePreviewTime = () => {
 	return {
 		previewTime,
 		setPreviewTime,
+	};
+};
+
+export const usePreviewAxis = () => {
+	const previewAxisEnabled = useTimelineStore(
+		(state) => state.previewAxisEnabled,
+	);
+	const setPreviewAxisEnabled = useTimelineStore(
+		(state) => state.setPreviewAxisEnabled,
+	);
+
+	return {
+		previewAxisEnabled,
+		setPreviewAxisEnabled,
 	};
 };
 

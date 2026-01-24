@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef } from "react";
 import {
 	useDragging,
 	usePlaybackControl,
+	usePreviewAxis,
 	usePreviewTime,
 	useTimelineStore,
 } from "@/editor/contexts/TimelineContext";
@@ -24,6 +25,7 @@ const CurrentTimeIndicatorCanvas: React.FC<CurrentTimeIndicatorCanvasProps> = ({
 	// 直接从 store 获取固定时间，不受 previewTime 影响
 	const currentTime = useTimelineStore((state) => state.currentTime);
 	const { previewTime } = usePreviewTime();
+	const { previewAxisEnabled } = usePreviewAxis();
 	const { isPlaying } = usePlaybackControl();
 	const { isDragging } = useDragging();
 
@@ -54,7 +56,7 @@ const CurrentTimeIndicatorCanvas: React.FC<CurrentTimeIndicatorCanvasProps> = ({
 		ctx.stroke();
 
 		// 绘制蓝色竖线 - 预览时间（previewTime，如果存在且非播放/拖拽状态）
-		if (previewTime !== null && !isPlaying && !isDragging) {
+		if (previewAxisEnabled && previewTime !== null && !isPlaying && !isDragging) {
 			const previewX = leftOffset + previewTime * ratio - scrollLeft;
 			ctx.strokeStyle = "#3b82f6"; // blue-500
 			ctx.lineWidth = 1;
@@ -71,6 +73,7 @@ const CurrentTimeIndicatorCanvas: React.FC<CurrentTimeIndicatorCanvasProps> = ({
 		scrollLeft,
 		currentTime,
 		previewTime,
+		previewAxisEnabled,
 		isPlaying,
 		isDragging,
 	]);
