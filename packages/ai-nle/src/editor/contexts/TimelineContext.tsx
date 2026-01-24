@@ -625,7 +625,16 @@ export const useTimelineStore = create<TimelineStore>()(
 		},
 
 		play: () => {
-			set({ isPlaying: true });
+			set((state) => {
+				if (state.isPlaying) return state;
+				if (state.previewTime === null) {
+					return { isPlaying: true };
+				}
+				return {
+					isPlaying: true,
+					previewTime: null, // 开始播放时清空预览时间，确保画面跟随播放
+				};
+			});
 		},
 
 		pause: () => {
@@ -633,7 +642,19 @@ export const useTimelineStore = create<TimelineStore>()(
 		},
 
 		togglePlay: () => {
-			set((state) => ({ isPlaying: !state.isPlaying }));
+			set((state) => {
+				const nextIsPlaying = !state.isPlaying;
+				if (!nextIsPlaying) {
+					return { isPlaying: false };
+				}
+				if (state.previewTime === null) {
+					return { isPlaying: true };
+				}
+				return {
+					isPlaying: true,
+					previewTime: null, // 启动播放时移除 hover 预览状态
+				};
+			});
 		},
 
 		setIsDragging: (isDragging: boolean) => {

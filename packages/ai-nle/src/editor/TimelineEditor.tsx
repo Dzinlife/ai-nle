@@ -135,6 +135,8 @@ const TimelineEditor = () => {
 	const isSelectingRef = useRef(false);
 	const selectionAdditiveRef = useRef(false);
 	const initialSelectedIdsRef = useRef<string[]>([]);
+	const selectionStartRef = useRef<{ x: number; y: number } | null>(null);
+	const selectionActivatedRef = useRef(false);
 	const timeStampsRef = useRef<HTMLDivElement>(null);
 	const isRulerDraggingRef = useRef(false);
 	const lastHoverRef = useRef<{
@@ -394,38 +396,6 @@ const TimelineEditor = () => {
 		},
 	);
 
-	const handleSelectionMouseDown = useCallback(
-		(e: React.MouseEvent<HTMLDivElement>) => {
-			if (e.button !== 0) return;
-			const target = e.target as HTMLElement;
-			if (target.closest("[data-timeline-element]")) {
-				return;
-			}
-
-			const container = scrollAreaRef.current;
-			if (!container) return;
-			const rect = container.getBoundingClientRect();
-
-			isSelectingRef.current = true;
-			selectionAdditiveRef.current = e.shiftKey || e.ctrlKey || e.metaKey;
-			initialSelectedIdsRef.current = selectedIds;
-			setPreviewTime(null);
-
-			const x = e.clientX - rect.left;
-			const y = e.clientY - rect.top;
-			const nextRect = {
-				visible: true,
-				x1: x,
-				y1: y,
-				x2: x,
-				y2: y,
-			};
-			selectionRectRef.current = nextRect;
-			setSelectionRect(nextRect);
-		},
-		[selectedIds, setPreviewTime],
-	);
-
 	useEffect(() => {
 		if (selectionRect.visible) {
 			setPreviewTime(null);
@@ -533,6 +503,40 @@ const TimelineEditor = () => {
 		[computeSelectionInRect, setSelection],
 	);
 
+	const handleSelectionMouseDown = useCallback(
+		(e: React.MouseEvent<HTMLDivElement>) => {
+			if (e.button !== 0) return;
+			const target = e.target as HTMLElement;
+			if (target.closest("[data-timeline-element]")) {
+				return;
+			}
+
+			const container = scrollAreaRef.current;
+			if (!container) return;
+			const rect = container.getBoundingClientRect();
+
+			isSelectingRef.current = true;
+			selectionActivatedRef.current = false;
+			selectionStartRef.current = null;
+			selectionAdditiveRef.current = e.shiftKey || e.ctrlKey || e.metaKey;
+			initialSelectedIdsRef.current = selectedIds;
+
+			const x = e.clientX - rect.left;
+			const y = e.clientY - rect.top;
+			selectionStartRef.current = { x, y };
+			const nextRect = {
+				visible: false,
+				x1: x,
+				y1: y,
+				x2: x,
+				y2: y,
+			};
+			selectionRectRef.current = nextRect;
+			setSelectionRect(nextRect);
+		},
+		[selectedIds],
+	);
+
 	const handleSelectionMouseMove = useCallback(
 		(e: React.MouseEvent<HTMLDivElement>) => {
 			if (!isSelectingRef.current) return;
@@ -541,8 +545,24 @@ const TimelineEditor = () => {
 			const rect = container.getBoundingClientRect();
 			const x = e.clientX - rect.left;
 			const y = e.clientY - rect.top;
+			const start = selectionStartRef.current ?? { x, y };
+			const deltaX = x - start.x;
+			const deltaY = y - start.y;
+			if (
+				!selectionActivatedRef.current &&
+				Math.abs(deltaX) < 2 &&
+				Math.abs(deltaY) < 2
+			) {
+				return;
+			}
+			if (!selectionActivatedRef.current) {
+				selectionActivatedRef.current = true;
+				setPreviewTime(null); // 进入框选后暂停预览，避免画面闪烁
+			}
 			const nextRect = {
-				...selectionRectRef.current,
+				visible: true,
+				x1: start.x,
+				y1: start.y,
 				x2: x,
 				y2: y,
 			};
@@ -550,17 +570,26 @@ const TimelineEditor = () => {
 			setSelectionRect(nextRect);
 			applyMarqueeSelection(nextRect);
 		},
-		[applyMarqueeSelection],
+		[applyMarqueeSelection, setPreviewTime],
 	);
 
 	const handleSelectionMouseUp = useCallback(() => {
 		if (!isSelectingRef.current) return;
 		isSelectingRef.current = false;
+		const wasActivated = selectionActivatedRef.current;
+		selectionActivatedRef.current = false;
+		selectionStartRef.current = null;
+
+		if (!wasActivated) {
+			setSelectionRect((prev) =>
+				prev.visible ? { ...prev, visible: false } : prev,
+			);
+			return;
+		}
 
 		setTimeout(() => {
 			setSelectionRect((prev) => ({ ...prev, visible: false }));
 		}, 0);
-
 		applyMarqueeSelection(selectionRectRef.current);
 	}, [applyMarqueeSelection]);
 
