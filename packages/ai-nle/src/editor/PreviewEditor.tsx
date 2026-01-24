@@ -33,9 +33,40 @@ import { LabelLayer } from "./preview/LabelLayer";
 import { usePreviewCoordinates } from "./preview/usePreviewCoordinates";
 import { usePreviewInteractions } from "./preview/usePreviewInteractions";
 import { computeVisibleElements } from "./preview/utils";
+import { getTransitionDuration, isTransitionElement } from "./utils/transitions";
+
+const getTransitionRange = (
+	boundary: number,
+	duration: number,
+): { start: number; end: number; duration: number } => {
+	const safeDuration = Math.max(0, Math.round(duration));
+	const head = Math.floor(safeDuration / 2);
+	const tail = safeDuration - head;
+	return {
+		start: boundary - head,
+		end: boundary + tail,
+		duration: safeDuration,
+	};
+};
+
+const buildTransitionRenderTimeline = (
+	element: TimelineElement,
+	transitionStart: number,
+	transitionEnd: number,
+): { start: number; end: number; offset: number } => {
+	const baseStart = element.timeline.start ?? 0;
+	const baseOffset = element.timeline.offset ?? 0;
+	const offset = Math.round(baseOffset + (transitionStart - baseStart));
+	return {
+		start: transitionStart,
+		end: transitionEnd,
+		offset,
+	};
+};
 
 const Preview = () => {
 	const renderElementsRef = useRef<TimelineElement[]>([]);
+	const skiaRenderElementsRef = useRef<TimelineElement[]>([]);
 	const { tracks } = useTracks();
 
 	const { getDisplayTime, getElements } = useMemo(
@@ -364,13 +395,116 @@ const Preview = () => {
 
 	// 构建 Skia 渲染树（通过组件注册表映射元素）
 	const buildSkiaChildren = useCallback(
-		(visibleElements: TimelineElement[]) => {
-			// ContextBridge 让 Skia 子树可以访问 React Query 等上下文
-			return (
+		(elements: TimelineElement[], displayTime: number) => {
+			const elementsById = new Map(
+				elements.map((el) => [el.id, el] as const),
+			);
+			const transitionExtras = new Map<
+				string,
+				{
+					fromNode: React.ReactNode;
+					toNode: React.ReactNode;
+				}
+			>();
+			const skipIds = new Set<string>();
+
+			const renderElementNode = (
+				target: TimelineElement,
+				extraProps?: Record<string, unknown>,
+			): React.ReactNode => {
+				const componentDef = componentRegistry.get(target.component);
+				if (!componentDef) {
+					console.warn(
+						`[PreviewEditor] Component "${target.component}" not registered`,
+					);
+					console.warn(
+						`[PreviewEditor] Available components:`,
+						componentRegistry.getComponentIds(),
+					);
+					return null;
+				}
+				const Renderer = componentDef.Renderer;
+				return (
+					<Renderer id={target.id} {...target.props} {...(extraProps ?? {})} />
+				);
+			};
+
+			const transitionElements: TimelineElement[] = [];
+			for (const element of elements) {
+				if (!isTransitionElement(element)) continue;
+				const trackIndex = getTrackIndexForElement(element);
+				if (tracks[trackIndex]?.hidden) continue;
+				const transitionDuration = getTransitionDuration(element);
+				if (transitionDuration <= 0) continue;
+
+				const { start, end, duration } = getTransitionRange(
+					element.timeline.start,
+					transitionDuration,
+				);
+				if (displayTime < start || displayTime >= end) continue;
+
+				const { fromId, toId } = (element.props ?? {}) as {
+					fromId?: string;
+					toId?: string;
+				};
+				if (!fromId || !toId) continue;
+				const fromElement = elementsById.get(fromId);
+				const toElement = elementsById.get(toId);
+				if (!fromElement || !toElement) continue;
+				if (isTransitionElement(fromElement) || isTransitionElement(toElement)) {
+					continue;
+				}
+
+				transitionElements.push(element);
+				skipIds.add(fromId);
+				skipIds.add(toId);
+
+				const fromExtraProps =
+					fromElement.type === "VideoClip"
+						? {
+								renderTimeline: buildTransitionRenderTimeline(
+									fromElement,
+									start,
+									end,
+								),
+							}
+						: undefined;
+				const toExtraProps =
+					toElement.type === "VideoClip"
+						? {
+								renderTimeline: buildTransitionRenderTimeline(
+									toElement,
+									start,
+									end,
+								),
+							}
+						: undefined;
+
+				transitionExtras.set(element.id, {
+					fromNode: renderElementNode(fromElement, fromExtraProps),
+					toNode: renderElementNode(toElement, toExtraProps),
+				});
+			}
+
+			const visibleElements = elements.filter((el) => {
+				const trackIndex = getTrackIndexForElement(el);
+				if (tracks[trackIndex]?.hidden) return false;
+				if (skipIds.has(el.id)) return false;
+				if (isTransitionElement(el)) return false;
+				const { start = 0, end = Infinity } = el.timeline;
+				return displayTime >= start && displayTime < end;
+			});
+
+			const orderedElements = sortByTrackIndex([
+				...visibleElements,
+				...transitionElements,
+			]);
+
+			const children = (
 				// <ContextBridge>
 				<>
 					<Fill color="black" />
-					{visibleElements.map((el) => {
+					{orderedElements.map((el) => {
 						// 获取组件定义
 						const componentDef = componentRegistry.get(el.component);
 						if (!componentDef) {
@@ -385,32 +519,39 @@ const Preview = () => {
 						}
 
 						const Renderer = componentDef.Renderer;
+						const extraProps = transitionExtras.get(el.id);
 
 						return (
 							<SkiaGroup key={el.id}>
-								<Renderer id={el.id} {...el.props} />
+								<Renderer id={el.id} {...el.props} {...(extraProps ?? {})} />
 							</SkiaGroup>
 						);
 					})}
 				</>
 				// </ContextBridge>
 			);
+
+			return { children, orderedElements };
 		},
 		// [ContextBridge],
-		[],
+		[getTrackIndexForElement, sortByTrackIndex, tracks],
 	);
 
 	useEffect(() => {
 		const renderSkia = () => {
 			const state = useTimelineStore.getState();
 			const displayTime = state.getDisplayTime();
+			const allElements = getElements();
 			const visibleElements = computeVisibleElements(
-				getElements(),
+				allElements,
 				displayTime,
 				tracks,
 			);
 			const orderedElements = sortByTrackIndex(visibleElements);
-			const children = buildSkiaChildren(orderedElements);
+			const { children, orderedElements: skiaElements } = buildSkiaChildren(
+				allElements,
+				displayTime,
+			);
 
 			// 仅在可见元素集合变化时触发重绘，降低 Skia 渲染频率
 			const prevElements = renderElementsRef.current;
@@ -420,7 +561,14 @@ const Preview = () => {
 			) {
 				renderElementsRef.current = orderedElements;
 				setRenderElements(orderedElements);
+			}
 
+			const prevSkiaElements = skiaRenderElementsRef.current;
+			if (
+				prevSkiaElements.length !== skiaElements.length ||
+				skiaElements.some((el, i) => prevSkiaElements[i] !== el)
+			) {
+				skiaRenderElementsRef.current = skiaElements;
 				skiaCanvasRef.current?.getRoot()?.render(children);
 			}
 		};
@@ -454,12 +602,16 @@ const Preview = () => {
 					tracks,
 				);
 				const orderedElements = sortByTrackIndex(visibleElements);
-				const children = buildSkiaChildren(orderedElements);
+				const { children, orderedElements: skiaElements } = buildSkiaChildren(
+					newElements,
+					time,
+				);
 				root.render(children);
 
 				// Update Konva layer
 				renderElementsRef.current = orderedElements;
 				setRenderElements(orderedElements);
+				skiaRenderElementsRef.current = skiaElements;
 			},
 			{
 				fireImmediately: true,

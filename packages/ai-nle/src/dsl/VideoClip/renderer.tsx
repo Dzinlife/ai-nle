@@ -16,12 +16,20 @@ import { framesToSeconds } from "@/utils/timecode";
 
 interface VideoClipRendererProps extends VideoClipProps {
 	id: string;
+	renderTimeline?: {
+		start: number;
+		end: number;
+		offset?: number;
+	};
 }
 
 const useVideoClipSelector =
 	createModelSelector<VideoClipProps, VideoClipInternal>();
 
-const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({ id }) => {
+const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
+	id,
+	renderTimeline,
+}) => {
 	// 播放时使用真正的 currentTime，非播放时使用 previewTime ?? currentTime
 	const currentTimeFrames = useTimelineStore((state) => {
 		if (state.isPlaying) {
@@ -36,6 +44,7 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({ id }) => {
 	const timeline = useTimelineStore(
 		(state) => state.elements.find((el) => el.id === id)?.timeline,
 	);
+	const activeTimeline = renderTimeline ?? timeline;
 
 	// 将中心坐标转换为左上角坐标
 	const { cx, cy, w: width, h: height, rotation: rotate = 0 } =
@@ -90,18 +99,18 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({ id }) => {
 			hasError ||
 			!props.uri ||
 			videoDuration <= 0 ||
-			!timeline
+			!activeTimeline
 		) {
 			return;
 		}
 
-		const startSeconds = framesToSeconds(timeline.start, fps);
+		const startSeconds = framesToSeconds(activeTimeline.start, fps);
 		const currentSeconds = framesToSeconds(currentTimeFrames, fps);
 		const clipDurationSeconds = framesToSeconds(
-			timeline.end - timeline.start,
+			activeTimeline.end - activeTimeline.start,
 			fps,
 		);
-		const offsetSeconds = framesToSeconds(timeline?.offset ?? 0, fps);
+		const offsetSeconds = framesToSeconds(activeTimeline?.offset ?? 0, fps);
 
 		// 计算实际要 seek 的视频时间
 		const videoTime = calculateVideoTime({
@@ -157,7 +166,7 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({ id }) => {
 	}, [
 		props.uri,
 		props.reversed,
-		timeline,
+		activeTimeline,
 		videoDuration,
 		isLoading,
 		hasError,

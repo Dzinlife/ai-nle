@@ -62,19 +62,20 @@ export const calculateVideoTime = ({
 	clipDuration?: number;
 }): number => {
 	const relativeTime = timelineTime - start;
-	const safeOffset = Math.max(0, offset);
+	const offsetValue = Number.isFinite(offset) ? offset : 0;
+	const safeOffset = Math.max(0, offsetValue);
 	const safeVideoDuration = Math.max(0, videoDuration);
 	const safeClipDuration =
 		clipDuration ?? Math.max(0, safeVideoDuration - safeOffset);
 
 	if (reversed) {
-		const reversedTime = safeOffset + safeClipDuration - relativeTime;
+		const reversedTime = offsetValue + safeClipDuration - relativeTime;
 		return Math.min(
 			safeVideoDuration,
 			Math.max(0, reversedTime),
 		);
 	} else {
-		const forwardTime = safeOffset + relativeTime;
+		const forwardTime = offsetValue + relativeTime;
 		return Math.min(safeVideoDuration, Math.max(0, forwardTime));
 	}
 };
