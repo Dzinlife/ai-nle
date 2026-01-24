@@ -16,6 +16,7 @@ import TimelineDragOverlay from "./components/TimelineDragOverlay";
 import TimelineElement from "./components/TimelineElement";
 import TimelineRuler from "./components/TimelineRuler";
 import TimelineToolbar from "./components/TimelineToolbar";
+import TimelineTrackSidebarItem from "./components/TimelineTrackSidebarItem";
 import {
 	useAttachments,
 	useAutoScroll,
@@ -58,6 +59,12 @@ const shouldUpdateOffset = (element: TimelineElementType): boolean => {
 	return element.type === "VideoClip" || element.type === "AudioClip";
 };
 
+const LOCKED_TRACK_OVERLAY_STYLE: React.CSSProperties = {
+	backgroundImage:
+		"linear-gradient(135deg, rgba(255, 255, 255, 0.16) 25%, rgba(255, 255, 255, 0) 25%, rgba(255, 255, 255, 0) 50%, rgba(255, 255, 255, 0.16) 50%, rgba(255, 255, 255, 0.16) 75%, rgba(255, 255, 255, 0) 75%, rgba(255, 255, 255, 0))",
+	backgroundSize: "6px 6px",
+};
+
 const applyOffsetDelta = (
 	element: TimelineElementType,
 	offsetDelta?: number,
@@ -90,11 +97,22 @@ const TimelineEditor = () => {
 	const { selectedIds, deselectAll, setSelection } = useMultiSelect();
 	const { activeSnapPoint } = useSnap();
 	const { trackAssignments, trackCount } = useTrackAssignments();
-	const { tracks, toggleTrackVisible } = useTracks();
+	const {
+		tracks,
+		toggleTrackHidden,
+		toggleTrackLocked,
+		toggleTrackMuted,
+		toggleTrackSolo,
+	} = useTracks();
 	const { activeDropTarget, dragGhosts, isDragging } = useDragging();
 	const { autoScrollSpeed, autoScrollSpeedY } = useAutoScroll();
 	const { attachments, autoAttach } = useAttachments();
 	const { mainTrackMagnetEnabled } = useMainTrackMagnet();
+	const trackLockedMap = useMemo(() => {
+		return new Map(
+			tracks.map((track, index) => [index, track.locked ?? false]),
+		);
+	}, [tracks]);
 	const deleteSelectedElements = useCallback(() => {
 		if (selectedIds.length === 0) return;
 		setElements((prev) => {
@@ -129,7 +147,7 @@ const TimelineEditor = () => {
 	const wasDraggingRef = useRef(false);
 
 	// 左侧列宽度状态
-	const [leftColumnWidth] = useState(200); // 默认 44 * 4 = 176px (w-44)
+	const [leftColumnWidth] = useState(172); // 默认 44 * 4 = 176px (w-44)
 
 	// 时间刻度尺宽度
 	const [rulerWidth, setRulerWidth] = useState(800);
@@ -151,12 +169,20 @@ const TimelineEditor = () => {
 						attachments,
 						autoAttach,
 						fps,
+						trackLockedMap,
 					}),
 				{ history: false },
 			);
 		}
 		mainTrackMagnetRef.current = mainTrackMagnetEnabled;
-	}, [mainTrackMagnetEnabled, setElements, attachments, autoAttach, fps]);
+	}, [
+		mainTrackMagnetEnabled,
+		setElements,
+		attachments,
+		autoAttach,
+		fps,
+		trackLockedMap,
+	]);
 
 	useEffect(() => {
 		const handleKeyDown = (event: KeyboardEvent) => {
@@ -327,13 +353,7 @@ const TimelineEditor = () => {
 			);
 			setCurrentTime(time);
 		},
-		[
-			leftColumnWidth,
-			ratio,
-			scrollLeft,
-			setCurrentTime,
-			timelinePaddingLeft,
-		],
+		[leftColumnWidth, ratio, scrollLeft, setCurrentTime, timelinePaddingLeft],
 	);
 
 	// 时间尺点击只更新时间，不影响选中状态
@@ -479,6 +499,10 @@ const TimelineEditor = () => {
 				) {
 					const elementId = el.dataset.elementId;
 					if (elementId) {
+						const trackIndex = trackAssignments.get(elementId) ?? 0;
+						if (tracks[trackIndex]?.locked) {
+							continue;
+						}
 						selected.push(elementId);
 					}
 				}
@@ -486,7 +510,7 @@ const TimelineEditor = () => {
 
 			return selected;
 		},
-		[],
+		[trackAssignments, tracks],
 	);
 
 	const applyMarqueeSelection = useCallback(
@@ -878,7 +902,8 @@ const TimelineEditor = () => {
 
 	// 其他轨道数量（不包括主轨道）
 	const otherTrackCount = Math.max(trackCount - 1, 0);
-	const mainTrackVisible = tracks[0]?.visible ?? true;
+	const mainTrackVisible = !(tracks[0]?.hidden ?? false);
+	const mainTrackLocked = tracks[0]?.locked ?? false;
 
 	// 其他轨道的时间线项目
 	const otherTimelineItems = useMemo(() => {
@@ -900,7 +925,8 @@ const TimelineEditor = () => {
 					const y = (layoutItem?.y ?? 0) + TRACK_CONTENT_GAP / 2;
 					const elementTrackHeight =
 						layoutItem?.height ?? getTrackHeightByRole("overlay");
-					const trackVisible = tracks[trackIndex]?.visible ?? true;
+					const trackVisible = !(tracks[trackIndex]?.hidden ?? false);
+					const trackLocked = tracks[trackIndex]?.locked ?? false;
 					return (
 						<TimelineElement
 							key={element.id}
@@ -911,6 +937,7 @@ const TimelineEditor = () => {
 							trackHeight={elementTrackHeight}
 							trackCount={trackCount}
 							trackVisible={trackVisible}
+							trackLocked={trackLocked}
 							updateTimeRange={updateTimeRange}
 						/>
 					);
@@ -929,6 +956,41 @@ const TimelineEditor = () => {
 		trackLayoutByIndex,
 		tracks,
 	]);
+
+	// 锁定轨道的斜线纹理遮罩
+	const otherTrackLockedOverlays = useMemo(() => {
+		if (otherTrackCount === 0) return null;
+		return otherTrackLayout.map((item) => {
+			const trackLocked = tracks[item.index]?.locked ?? false;
+			if (!trackLocked) return null;
+			return (
+				<div
+					key={`track-locked-${tracks[item.index]?.id ?? item.index}`}
+					className="absolute right-0 z-10 bg-black/10"
+					style={{
+						top: item.y,
+						left: -timelinePaddingLeft,
+						height: item.height,
+						...LOCKED_TRACK_OVERLAY_STYLE,
+					}}
+				/>
+			);
+		});
+	}, [otherTrackCount, otherTrackLayout, tracks, timelinePaddingLeft]);
+
+	const mainTrackLockedOverlay = useMemo(() => {
+		if (!mainTrackLocked) return null;
+		return (
+			<div
+				className="absolute right-0 top-0 z-10 bg-black/10"
+				style={{
+					left: -timelinePaddingLeft,
+					height: mainTrackHeight,
+					...LOCKED_TRACK_OVERLAY_STYLE,
+				}}
+			/>
+		);
+	}, [mainTrackHeight, mainTrackLocked, timelinePaddingLeft]);
 
 	// 主轨道的时间线项目
 	const mainTimelineItems = useMemo(() => {
@@ -955,6 +1017,7 @@ const TimelineEditor = () => {
 							trackHeight={mainTrackHeight}
 							trackCount={trackCount}
 							trackVisible={mainTrackVisible}
+							trackLocked={mainTrackLocked}
 							updateTimeRange={updateTimeRange}
 						/>
 					);
@@ -970,6 +1033,7 @@ const TimelineEditor = () => {
 		trackLayoutByIndex,
 		otherTracksHeight,
 		mainTrackHeight,
+		mainTrackLocked,
 		mainTrackVisible,
 	]);
 
@@ -977,51 +1041,47 @@ const TimelineEditor = () => {
 	const otherTrackLabels = useMemo(() => {
 		if (otherTrackCount === 0) return null;
 		return otherTrackLayout.map((item) => {
-			const trackVisible = tracks[item.index]?.visible ?? true;
+			const track = tracks[item.index];
+			if (!track) return null;
+			const trackVisible = !(track.hidden ?? false);
 			return (
-				<div
-					key={tracks[item.index]?.id ?? item.index}
-					className={cn(
-						"flex items-center justify-end gap-2 pr-6 text-xs font-medium text-neutral-400",
-						{
-							"bg-black/60": !trackVisible,
-						},
-					)}
-					style={{ height: item.height }}
-				>
-					<button
-						type="button"
-						className={`text-[10px] px-1.5 py-0.5 rounded border ${
-							trackVisible
-								? "border-emerald-400/40 text-emerald-300"
-								: "border-white/10 text-neutral-500"
-						}`}
-						onClick={() => {
-							const trackId = tracks[item.index]?.id;
-							if (trackId) {
-								toggleTrackVisible(trackId);
-							}
-						}}
-					>
-						{trackVisible ? "显示" : "隐藏"}
-					</button>
-					<span className={trackVisible ? "" : "text-neutral-600"}>
-						{`轨道 ${item.role}`}
-					</span>
-				</div>
+				<TimelineTrackSidebarItem
+					key={track.id}
+					track={track}
+					label={`轨道 ${item.role}`}
+					height={item.height}
+					className={cn("text-neutral-400", {
+						"bg-black/60": !trackVisible,
+					})}
+					labelClassName={trackVisible ? "" : "text-neutral-600"}
+					onToggleVisible={() => toggleTrackHidden(track.id)}
+					onToggleLocked={() => toggleTrackLocked(track.id)}
+					onToggleMuted={() => toggleTrackMuted(track.id)}
+					onToggleSolo={() => toggleTrackSolo(track.id)}
+				/>
 			);
 		});
-	}, [otherTrackCount, otherTrackLayout, tracks, toggleTrackVisible]);
+	}, [
+		otherTrackCount,
+		otherTrackLayout,
+		tracks,
+		toggleTrackHidden,
+		toggleTrackLocked,
+		toggleTrackMuted,
+		toggleTrackSolo,
+	]);
 
 	const otherTrackBackgrounds = useMemo(() => {
 		if (otherTrackCount === 0) return null;
 		return otherTrackLayout.map((item) => {
-			const trackVisible = tracks[item.index]?.visible ?? true;
-			if (trackVisible) return null;
+			const trackHidden = tracks[item.index]?.hidden ?? false;
+			if (!trackHidden) return null;
 			return (
 				<div
 					key={`track-bg-${tracks[item.index]?.id ?? item.index}`}
-					className="absolute left-0 right-0 bg-black/60 pointer-events-none"
+					className={cn("absolute left-0 right-0 pointer-events-none", {
+						"bg-black/60": trackHidden,
+					})}
 					style={{
 						top: item.y,
 						left: -timelinePaddingLeft,
@@ -1034,33 +1094,30 @@ const TimelineEditor = () => {
 
 	// 主轨道标签
 	const mainTrackLabel = useMemo(() => {
+		const mainTrack = tracks[0];
+		if (!mainTrack) return null;
 		return (
-			<div
-				className="flex items-center justify-end gap-2 pr-3 text-xs font-medium text-blue-400"
-				style={{ height: mainTrackHeight }}
-			>
-				<button
-					type="button"
-					className={`text-[10px] px-1.5 py-0.5 rounded border ${
-						mainTrackVisible
-							? "border-emerald-400/40 text-emerald-300"
-							: "border-white/10 text-neutral-500"
-					}`}
-					onClick={() => {
-						const trackId = tracks[0]?.id;
-						if (trackId) {
-							toggleTrackVisible(trackId);
-						}
-					}}
-				>
-					{mainTrackVisible ? "显示" : "隐藏"}
-				</button>
-				<span className={mainTrackVisible ? "" : "text-neutral-600"}>
-					主轨道
-				</span>
-			</div>
+			<TimelineTrackSidebarItem
+				track={mainTrack}
+				label="主轨道"
+				height={mainTrackHeight}
+				className="text-blue-400"
+				labelClassName={mainTrackVisible ? "text-blue-400" : "text-neutral-600"}
+				onToggleVisible={() => toggleTrackHidden(mainTrack.id)}
+				onToggleLocked={() => toggleTrackLocked(mainTrack.id)}
+				onToggleMuted={() => toggleTrackMuted(mainTrack.id)}
+				onToggleSolo={() => toggleTrackSolo(mainTrack.id)}
+			/>
 		);
-	}, [mainTrackHeight, mainTrackVisible, tracks, toggleTrackVisible]);
+	}, [
+		mainTrackHeight,
+		mainTrackVisible,
+		toggleTrackHidden,
+		toggleTrackLocked,
+		toggleTrackMuted,
+		toggleTrackSolo,
+		tracks,
+	]);
 
 	// 吸附指示线
 	const snapIndicator = useMemo(() => {
@@ -1176,6 +1233,7 @@ const TimelineEditor = () => {
 										data-content-height={otherTracksHeight}
 									>
 										{otherTrackBackgrounds}
+										{otherTrackLockedOverlays}
 										{otherTimelineItems}
 									</div>
 								</div>
@@ -1185,7 +1243,7 @@ const TimelineEditor = () => {
 						<div className="z-10 flex items-start border-t border-b border-white/10 sticky bottom-0">
 							{/* 左侧主轨道标签 */}
 							<div
-								className={`text-white z-10 pr-4 flex flex-col ${
+								className={`text-white z-10 pr-px flex flex-col ${
 									mainTrackVisible ? "bg-neutral-900/90" : "bg-black/80"
 								} backdrop-blur-2xl border-r border-white/10`}
 								style={{ width: leftColumnWidth }}
@@ -1207,6 +1265,7 @@ const TimelineEditor = () => {
 							>
 								<div style={{ paddingLeft: timelinePaddingLeft }}>
 									<div className="relative" data-track-content-area="main">
+										{mainTrackLockedOverlay}
 										{mainTimelineItems}
 									</div>
 								</div>

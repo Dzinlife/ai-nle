@@ -9,15 +9,17 @@ import {
 export const MAIN_TRACK_ID = "main";
 
 const createMainTrack = (
-	visible: boolean,
+	hidden: boolean,
 	locked: boolean,
 	muted: boolean,
+	solo: boolean,
 ): TimelineTrack => ({
 	id: MAIN_TRACK_ID,
 	role: "clip",
-	visible,
+	hidden,
 	locked,
 	muted,
+	solo,
 });
 
 const createTrackId = (): string => {
@@ -81,9 +83,10 @@ const isSameTracks = (next: TimelineTrack[], prev: TimelineTrack[]): boolean => 
 		if (
 			a.id !== b.id ||
 			a.role !== b.role ||
-			a.visible !== b.visible ||
+			a.hidden !== b.hidden ||
 			a.locked !== b.locked ||
-			a.muted !== b.muted
+			a.muted !== b.muted ||
+			a.solo !== b.solo
 		) {
 			return false;
 		}
@@ -106,9 +109,10 @@ export const reconcileTracks = (
 		const prevMain = prevTracks.find((track) => track.id === MAIN_TRACK_ID);
 		const nextTracks = [
 			createMainTrack(
-				prevMain?.visible ?? true,
+				prevMain?.hidden ?? false,
 				prevMain?.locked ?? false,
 				prevMain?.muted ?? false,
+				prevMain?.solo ?? false,
 			),
 		];
 		const didChangeTracks = !isSameTracks(nextTracks, prevTracks);
@@ -245,9 +249,10 @@ export const reconcileTracks = (
 		nextTracks.push({
 			id: trackId,
 			role: index === MAIN_TRACK_INDEX ? "clip" : derivedRole,
-			visible: prevTrack?.visible ?? true,
+			hidden: prevTrack?.hidden ?? false,
 			locked: prevTrack?.locked ?? false,
 			muted: prevTrack?.muted ?? false,
+			solo: prevTrack?.solo ?? false,
 		});
 	}
 

@@ -34,9 +34,10 @@ export interface TimelineData {
 export interface TimelineTrackJSON {
 	id: string;
 	role?: TrackRole;
-	visible?: boolean;
+	hidden?: boolean;
 	locked?: boolean;
 	muted?: boolean;
+	solo?: boolean;
 }
 
 /**
@@ -237,12 +238,12 @@ function validateTrack(
 		role = track.role as TrackRole;
 	}
 
-	let visible = true;
-	if (track.visible !== undefined) {
-		if (typeof track.visible !== "boolean") {
-			throw new Error(`${path}.visible: must be a boolean`);
+	let hidden = false;
+	if (track.hidden !== undefined) {
+		if (typeof track.hidden !== "boolean") {
+			throw new Error(`${path}.hidden: must be a boolean`);
 		}
-		visible = track.visible;
+		hidden = track.hidden;
 	}
 
 	let locked = false;
@@ -261,12 +262,21 @@ function validateTrack(
 		muted = track.muted;
 	}
 
+	let solo = false;
+	if (track.solo !== undefined) {
+		if (typeof track.solo !== "boolean") {
+			throw new Error(`${path}.solo: must be a boolean`);
+		}
+		solo = track.solo;
+	}
+
 	return {
 		id: track.id,
 		role,
-		visible,
+		hidden,
 		locked,
 		muted,
+		solo,
 	};
 }
 
@@ -279,9 +289,10 @@ function serializeTracks(
 	return tracks.map((track) => ({
 		id: track.id,
 		role: track.role,
-		visible: track.visible ?? true,
+		hidden: track.hidden ?? false,
 		locked: track.locked ?? false,
 		muted: track.muted ?? false,
+		solo: track.solo ?? false,
 	}));
 }
 

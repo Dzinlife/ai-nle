@@ -51,6 +51,7 @@ export interface MaterialDndContext {
 	elements: TimelineElement[];
 	trackAssignments: Map<string, number>;
 	trackRoleMap: Map<number, TrackRole>;
+	trackLockedMap: Map<number, boolean>;
 	trackCount: number;
 	mainTrackMagnetEnabled: boolean;
 }
@@ -72,6 +73,11 @@ export function useMaterialDndContext(): MaterialDndContext {
 		() => getTrackRoleMapFromTracks(tracks),
 		[tracks],
 	);
+	const trackLockedMap = useMemo(() => {
+		return new Map(
+			tracks.map((track, index) => [index, track.locked ?? false]),
+		);
+	}, [tracks]);
 	const trackCount = tracks.length || 1;
 	const defaultDurationFrames = useMemo(
 		() => secondsToFrames(5, fps),
@@ -85,6 +91,7 @@ export function useMaterialDndContext(): MaterialDndContext {
 		elements,
 		trackAssignments,
 		trackRoleMap,
+		trackLockedMap,
 		trackCount,
 		mainTrackMagnetEnabled,
 	};
@@ -186,6 +193,9 @@ export function useMaterialDnd<T extends MaterialDndItem>({
 		context.defaultDurationFrames,
 	);
 	const isTransitionMaterial = item.type === "transition";
+
+	const isTrackLocked = (trackIndex: number): boolean =>
+		context.trackLockedMap.get(trackIndex) ?? false;
 
 	const resolveTrackRole = (trackIndex: number): TrackRole => {
 		if (trackIndex === MAIN_TRACK_INDEX) return "clip";
@@ -306,6 +316,18 @@ export function useMaterialDnd<T extends MaterialDndItem>({
 
 		if (isTransitionMaterial) {
 			if (
+				baseDropTarget.type === "track" &&
+				isTrackLocked(baseDropTarget.trackIndex)
+			) {
+				return {
+					zone: "timeline",
+					type: baseDropTarget.type,
+					trackIndex: baseDropTarget.trackIndex,
+					time,
+					canDrop: false,
+				};
+			}
+			if (
 				baseDropTarget.type === "gap" ||
 				!isClipTrack(baseDropTarget.trackIndex)
 			) {
@@ -361,7 +383,9 @@ export function useMaterialDnd<T extends MaterialDndItem>({
 			type: resolvedDropTarget.type,
 			trackIndex: resolvedDropTarget.trackIndex,
 			time,
-			canDrop: true,
+			canDrop:
+				resolvedDropTarget.type === "gap" ||
+				!isTrackLocked(resolvedDropTarget.trackIndex),
 		};
 	};
 

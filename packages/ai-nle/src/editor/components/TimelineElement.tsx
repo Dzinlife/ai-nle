@@ -47,6 +47,7 @@ interface TimelineElementProps {
 	trackHeight: number;
 	trackCount: number;
 	trackVisible?: boolean;
+	trackLocked?: boolean;
 	updateTimeRange: (
 		elementId: string,
 		start: number,
@@ -232,6 +233,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	trackHeight,
 	trackCount,
 	trackVisible = true,
+	trackLocked = false,
 	updateTimeRange,
 }) => {
 	const { id, timeline } = element;
@@ -352,6 +354,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	// 点击选中
 	const handleClick = useCallback(
 		(e: React.MouseEvent) => {
+			if (trackLocked) return;
 			e.stopPropagation();
 			const metaPressed = e.shiftKey || e.ctrlKey || e.metaKey;
 			if (metaPressed) {
@@ -360,7 +363,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 			}
 			select(id);
 		},
-		[id, select, toggleSelect],
+		[id, select, toggleSelect, trackLocked],
 	);
 
 	// 判断当前元素是否正在被拖拽
@@ -377,9 +380,14 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 			// "bg-amber-700 ring-1 ring-amber-500": isAtMaxDuration,
 		});
 	}, [isSelected, isAtMaxDuration, isTransition]);
-	const bodyDragBind = isTransition
-		? () => ({}) as ReturnType<typeof bindBodyDrag>
-		: bindBodyDrag;
+	const emptyDragBind = useCallback(
+		(() => ({})) as ReturnType<typeof useDrag>,
+		[],
+	);
+	const bodyDragBind =
+		isTransition || trackLocked ? emptyDragBind : bindBodyDrag;
+	const leftDragBind = trackLocked ? emptyDragBind : bindLeftDrag;
+	const rightDragBind = trackLocked ? emptyDragBind : bindRightDrag;
 
 	return (
 		<div
@@ -394,6 +402,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 				height: isTransition ? elementHeight / 2 : elementHeight,
 				// 拖拽时降低透明度，但保持在 DOM 中以维持拖拽手势
 				opacity: trackOpacity * dragOpacity,
+				pointerEvents: trackLocked ? "none" : "auto",
 			}}
 			onClick={handleClick}
 		>
@@ -423,9 +432,9 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 					isSelected && "shadow-[inset_0_0_0_1px_white]!",
 				)}
 			>
-				<DragHandle position="left" onDrag={bindLeftDrag} />
+				<DragHandle position="left" onDrag={leftDragBind} />
 
-				<DragHandle position="right" onDrag={bindRightDrag} />
+				<DragHandle position="right" onDrag={rightDragBind} />
 			</div>
 		</div>
 	);

@@ -109,8 +109,14 @@ interface TimelineStore {
 	undo: () => void;
 	redo: () => void;
 	resetHistory: () => void;
-	setTrackVisible: (trackId: string, visible: boolean) => void;
-	toggleTrackVisible: (trackId: string) => void;
+	setTrackHidden: (trackId: string, hidden: boolean) => void;
+	toggleTrackHidden: (trackId: string) => void;
+	setTrackLocked: (trackId: string, locked: boolean) => void;
+	toggleTrackLocked: (trackId: string) => void;
+	setTrackMuted: (trackId: string, muted: boolean) => void;
+	toggleTrackMuted: (trackId: string) => void;
+	setTrackSolo: (trackId: string, solo: boolean) => void;
+	toggleTrackSolo: (trackId: string) => void;
 	setCanvasSize: (size: { width: number; height: number }) => void;
 	getCurrentTime: () => number;
 	getDisplayTime: () => number; // 返回 previewTime ?? currentTime
@@ -190,6 +196,27 @@ const reconcileSelection = (
 	return { selectedIds: nextSelected, primarySelectedId: nextPrimary };
 };
 
+const pruneSelectionForTrackLock = (
+	state: {
+		elements: TimelineElement[];
+		selectedIds: string[];
+		primarySelectedId: string | null;
+	},
+	trackIndex: number,
+): { selectedIds: string[]; primarySelectedId: string | null } => {
+	const indexById = new Map(
+		state.elements.map((el) => [el.id, el.timeline.trackIndex ?? 0]),
+	);
+	const nextSelected = state.selectedIds.filter(
+		(id) => indexById.get(id) !== trackIndex,
+	);
+	const nextPrimary =
+		state.primarySelectedId && nextSelected.includes(state.primarySelectedId)
+			? state.primarySelectedId
+			: nextSelected[nextSelected.length - 1] ?? null;
+	return { selectedIds: nextSelected, primarySelectedId: nextPrimary };
+};
+
 export const useTimelineStore = create<TimelineStore>()(
 	subscribeWithSelector((set, get) => ({
 		fps: DEFAULT_FPS,
@@ -202,9 +229,10 @@ export const useTimelineStore = create<TimelineStore>()(
 			{
 				id: MAIN_TRACK_ID,
 				role: "clip",
-				visible: true,
+				hidden: false,
 				locked: false,
 				muted: false,
+				solo: false,
 			},
 		],
 		historyPast: [],
@@ -375,14 +403,14 @@ export const useTimelineStore = create<TimelineStore>()(
 			});
 		},
 
-		setTrackVisible: (trackId: string, visible: boolean) => {
+		setTrackHidden: (trackId: string, hidden: boolean) => {
 			set((state) => {
 				let didChange = false;
 				const nextTracks = state.tracks.map((track) => {
 					if (track.id !== trackId) return track;
-					if (track.visible === visible) return track;
+					if (track.hidden === hidden) return track;
 					didChange = true;
-					return { ...track, visible };
+					return { ...track, hidden };
 				});
 				if (!didChange) return state;
 				const nextPast = trimHistory(
@@ -397,13 +425,170 @@ export const useTimelineStore = create<TimelineStore>()(
 			});
 		},
 
-		toggleTrackVisible: (trackId: string) => {
+		toggleTrackHidden: (trackId: string) => {
 			set((state) => {
 				let didChange = false;
 				const nextTracks = state.tracks.map((track) => {
 					if (track.id !== trackId) return track;
 					didChange = true;
-					return { ...track, visible: !track.visible };
+					return { ...track, hidden: !track.hidden };
+				});
+				if (!didChange) return state;
+				const nextPast = trimHistory(
+					[...state.historyPast, buildHistorySnapshot(state)],
+					state.historyLimit,
+				);
+				return {
+					tracks: nextTracks,
+					historyPast: nextPast,
+					historyFuture: [],
+				};
+			});
+		},
+
+		setTrackLocked: (trackId: string, locked: boolean) => {
+			set((state) => {
+				let didChange = false;
+				let nextLocked = locked;
+				const targetIndex = state.tracks.findIndex(
+					(track) => track.id === trackId,
+				);
+				const nextTracks = state.tracks.map((track) => {
+					if (track.id !== trackId) return track;
+					if (track.locked === locked) return track;
+					didChange = true;
+					nextLocked = locked;
+					return { ...track, locked };
+				});
+				if (!didChange) return state;
+				const nextPast = trimHistory(
+					[...state.historyPast, buildHistorySnapshot(state)],
+					state.historyLimit,
+				);
+				const nextSelection =
+					nextLocked && targetIndex >= 0
+						? pruneSelectionForTrackLock(state, targetIndex)
+						: {
+								selectedIds: state.selectedIds,
+								primarySelectedId: state.primarySelectedId,
+							};
+				return {
+					tracks: nextTracks,
+					historyPast: nextPast,
+					historyFuture: [],
+					selectedIds: nextSelection.selectedIds,
+					primarySelectedId: nextSelection.primarySelectedId,
+				};
+			});
+		},
+
+		toggleTrackLocked: (trackId: string) => {
+			set((state) => {
+				let didChange = false;
+				let nextLocked = false;
+				const targetIndex = state.tracks.findIndex(
+					(track) => track.id === trackId,
+				);
+				const nextTracks = state.tracks.map((track) => {
+					if (track.id !== trackId) return track;
+					didChange = true;
+					nextLocked = !track.locked;
+					return { ...track, locked: nextLocked };
+				});
+				if (!didChange) return state;
+				const nextPast = trimHistory(
+					[...state.historyPast, buildHistorySnapshot(state)],
+					state.historyLimit,
+				);
+				const nextSelection =
+					nextLocked && targetIndex >= 0
+						? pruneSelectionForTrackLock(state, targetIndex)
+						: {
+								selectedIds: state.selectedIds,
+								primarySelectedId: state.primarySelectedId,
+							};
+				return {
+					tracks: nextTracks,
+					historyPast: nextPast,
+					historyFuture: [],
+					selectedIds: nextSelection.selectedIds,
+					primarySelectedId: nextSelection.primarySelectedId,
+				};
+			});
+		},
+
+		setTrackMuted: (trackId: string, muted: boolean) => {
+			set((state) => {
+				let didChange = false;
+				const nextTracks = state.tracks.map((track) => {
+					if (track.id !== trackId) return track;
+					if (track.muted === muted) return track;
+					didChange = true;
+					return { ...track, muted };
+				});
+				if (!didChange) return state;
+				const nextPast = trimHistory(
+					[...state.historyPast, buildHistorySnapshot(state)],
+					state.historyLimit,
+				);
+				return {
+					tracks: nextTracks,
+					historyPast: nextPast,
+					historyFuture: [],
+				};
+			});
+		},
+
+		toggleTrackMuted: (trackId: string) => {
+			set((state) => {
+				let didChange = false;
+				const nextTracks = state.tracks.map((track) => {
+					if (track.id !== trackId) return track;
+					didChange = true;
+					return { ...track, muted: !track.muted };
+				});
+				if (!didChange) return state;
+				const nextPast = trimHistory(
+					[...state.historyPast, buildHistorySnapshot(state)],
+					state.historyLimit,
+				);
+				return {
+					tracks: nextTracks,
+					historyPast: nextPast,
+					historyFuture: [],
+				};
+			});
+		},
+
+		setTrackSolo: (trackId: string, solo: boolean) => {
+			set((state) => {
+				let didChange = false;
+				const nextTracks = state.tracks.map((track) => {
+					if (track.id !== trackId) return track;
+					if (track.solo === solo) return track;
+					didChange = true;
+					return { ...track, solo };
+				});
+				if (!didChange) return state;
+				const nextPast = trimHistory(
+					[...state.historyPast, buildHistorySnapshot(state)],
+					state.historyLimit,
+				);
+				return {
+					tracks: nextTracks,
+					historyPast: nextPast,
+					historyFuture: [],
+				};
+			});
+		},
+
+		toggleTrackSolo: (trackId: string) => {
+			set((state) => {
+				let didChange = false;
+				const nextTracks = state.tracks.map((track) => {
+					if (track.id !== trackId) return track;
+					didChange = true;
+					return { ...track, solo: !track.solo };
 				});
 				if (!didChange) return state;
 				const nextPast = trimHistory(
@@ -793,16 +978,30 @@ export const useMainTrackMagnet = () => {
 export const useTracks = () => {
 	const tracks = useTimelineStore((state) => state.tracks);
 	const setTracks = useTimelineStore((state) => state.setTracks);
-	const setTrackVisible = useTimelineStore((state) => state.setTrackVisible);
-	const toggleTrackVisible = useTimelineStore(
-		(state) => state.toggleTrackVisible,
+	const setTrackHidden = useTimelineStore((state) => state.setTrackHidden);
+	const toggleTrackHidden = useTimelineStore(
+		(state) => state.toggleTrackHidden,
 	);
+	const setTrackLocked = useTimelineStore((state) => state.setTrackLocked);
+	const toggleTrackLocked = useTimelineStore(
+		(state) => state.toggleTrackLocked,
+	);
+	const setTrackMuted = useTimelineStore((state) => state.setTrackMuted);
+	const toggleTrackMuted = useTimelineStore((state) => state.toggleTrackMuted);
+	const setTrackSolo = useTimelineStore((state) => state.setTrackSolo);
+	const toggleTrackSolo = useTimelineStore((state) => state.toggleTrackSolo);
 
 	return {
 		tracks,
 		setTracks,
-		setTrackVisible,
-		toggleTrackVisible,
+		setTrackHidden,
+		toggleTrackHidden,
+		setTrackLocked,
+		toggleTrackLocked,
+		setTrackMuted,
+		toggleTrackMuted,
+		setTrackSolo,
+		toggleTrackSolo,
 	};
 };
 
@@ -815,6 +1014,11 @@ export const useTrackAssignments = () => {
 		(state) => state.mainTrackMagnetEnabled,
 	);
 	const { attachments, autoAttach } = useAttachments();
+	const trackLockedMap = useMemo(() => {
+		return new Map(
+			tracks.map((track, index) => [index, track.locked ?? false]),
+		);
+	}, [tracks]);
 
 	// 基于 elements 计算轨道分配
 	const trackAssignments = useMemo(() => {
@@ -1078,10 +1282,19 @@ export const useTrackAssignments = () => {
 					attachments,
 					autoAttach,
 					fps,
+					trackLockedMap,
 				});
 			});
 		},
-		[setElements, mainTrackMagnetEnabled, attachments, autoAttach, fps, tracks],
+		[
+			setElements,
+			mainTrackMagnetEnabled,
+			attachments,
+			autoAttach,
+			fps,
+			tracks,
+			trackLockedMap,
+		],
 	);
 
 	// 移动元素及其附属元素（用于拖拽结束，处理层叠关联）
@@ -1094,6 +1307,12 @@ export const useTrackAssignments = () => {
 			attachedChildren: { id: string; start: number; end: number }[],
 		) => {
 			setElements((prev) => {
+				const unlockedChildren = attachedChildren.filter((childMove) => {
+					const child = prev.find((el) => el.id === childMove.id);
+					if (!child) return false;
+					const childTrackIndex = child.timeline.trackIndex ?? 0;
+					return !trackLockedMap.get(childTrackIndex);
+				});
 				// 计算当前的轨道分配
 				const currentAssignments = getStoredTrackAssignments(prev);
 				const originalElement = prev.find((el) => el.id === elementId);
@@ -1289,7 +1508,7 @@ export const useTrackAssignments = () => {
 
 				// 第二步：更新附属元素的时间（保持原轨道）
 				updated = updated.map((el) => {
-					const childMove = attachedChildren.find((c) => c.id === el.id);
+					const childMove = unlockedChildren.find((c) => c.id === el.id);
 					if (childMove) {
 						return updateElementTime(el, childMove.start, childMove.end, fps);
 					}
@@ -1298,7 +1517,7 @@ export const useTrackAssignments = () => {
 
 				// 第三步：为附属元素重新计算轨道位置（处理重叠）
 				// 按照原轨道顺序逐个处理，如果有重叠则向上查找
-				for (const childMove of attachedChildren) {
+				for (const childMove of unlockedChildren) {
 					const child = updated.find((el) => el.id === childMove.id);
 					if (!child) continue;
 
@@ -1357,11 +1576,20 @@ export const useTrackAssignments = () => {
 					attachments,
 					autoAttach,
 					fps,
+					trackLockedMap,
 				});
 				return finalized;
 			});
 		},
-		[setElements, mainTrackMagnetEnabled, attachments, autoAttach, fps, tracks],
+		[
+			setElements,
+			mainTrackMagnetEnabled,
+			attachments,
+			autoAttach,
+			fps,
+			tracks,
+			trackLockedMap,
+		],
 	);
 
 	return {

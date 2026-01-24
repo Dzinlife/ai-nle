@@ -3,7 +3,7 @@
  */
 
 import { useDrag } from "@use-gesture/react";
-import { useCallback, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { TimelineElement } from "@/dsl/types";
 import { DragGhostState, useTimelineStore } from "../contexts/TimelineContext";
 import { findTimelineDropTargetFromScreenPosition } from "../drag/timelineDropTargets";
@@ -269,6 +269,11 @@ export const useTimelineElementDnd = ({
 	const elementRole = getElementRole(element);
 	const elementHeight = getElementHeightForTrack(trackHeight);
 	const tracks = useTimelineStore((state) => state.tracks);
+	const trackLockedMap = useMemo(() => {
+		return new Map(
+			tracks.map((track, index) => [index, track.locked ?? false]),
+		);
+	}, [tracks]);
 	const dragSelectedIdsRef = useRef<string[]>([]);
 	const transitionDurationRef = useRef(transitionDuration);
 	const dragInitialElementsRef = useRef<
@@ -296,6 +301,7 @@ export const useTimelineElementDnd = ({
 				attachments,
 				autoAttach,
 				fps,
+				trackLockedMap,
 			});
 			return applyTrackAssignments(finalized);
 		},
@@ -305,6 +311,7 @@ export const useTimelineElementDnd = ({
 			attachments,
 			autoAttach,
 			fps,
+			trackLockedMap,
 		],
 	);
 
@@ -636,6 +643,7 @@ export const useTimelineElementDnd = ({
 									attachments,
 									autoAttach,
 									fps,
+									trackLockedMap,
 								},
 							);
 							if (offsetDelta === 0) return shifted;
@@ -823,6 +831,7 @@ export const useTimelineElementDnd = ({
 								attachments,
 								autoAttach,
 								fps,
+								trackLockedMap,
 							}),
 						);
 					}
@@ -1448,6 +1457,7 @@ export const useTimelineElementDnd = ({
 													attachments,
 													autoAttach,
 													fps,
+													trackLockedMap,
 												},
 											),
 										),
@@ -1482,6 +1492,7 @@ export const useTimelineElementDnd = ({
 											attachments,
 											autoAttach,
 											fps,
+											trackLockedMap,
 										}),
 									);
 									setSelection(copyIds, primaryCopyId);
@@ -1589,6 +1600,7 @@ export const useTimelineElementDnd = ({
 									attachments,
 									autoAttach,
 									fps,
+									trackLockedMap,
 								},
 							),
 						);
@@ -1622,6 +1634,10 @@ export const useTimelineElementDnd = ({
 								if (selectedSet.has(childId)) continue;
 								const childBase = baseElementMap.get(childId);
 								if (!childBase) continue;
+								const childTrackIndex = childBase.timeline.trackIndex ?? 0;
+								if (trackLockedMap.get(childTrackIndex)) {
+									continue;
+								}
 								const childNewStart = childBase.timeline.start + deltaFrames;
 								const childNewEnd = childBase.timeline.end + deltaFrames;
 								if (childNewStart >= 0) {
@@ -1677,6 +1693,7 @@ export const useTimelineElementDnd = ({
 								attachments,
 								autoAttach,
 								fps,
+								trackLockedMap,
 							});
 						});
 
@@ -1795,6 +1812,7 @@ export const useTimelineElementDnd = ({
 							attachments,
 							autoAttach,
 							fps,
+							trackLockedMap,
 						});
 					});
 
@@ -1979,6 +1997,7 @@ export const useTimelineElementDnd = ({
 											attachments,
 											autoAttach,
 											fps,
+											trackLockedMap,
 										},
 										copy,
 									),
@@ -2043,6 +2062,7 @@ export const useTimelineElementDnd = ({
 								attachments,
 								autoAttach,
 								fps,
+								trackLockedMap,
 							}),
 						);
 					}
@@ -2065,6 +2085,10 @@ export const useTimelineElementDnd = ({
 						for (const childId of childIds) {
 							const child = elements.find((el) => el.id === childId);
 							if (child) {
+								const childTrackIndex = child.timeline.trackIndex ?? 0;
+								if (trackLockedMap.get(childTrackIndex)) {
+									continue;
+								}
 								const childNewStart = child.timeline.start + actualDelta;
 								const childNewEnd = child.timeline.end + actualDelta;
 								if (childNewStart >= 0) {

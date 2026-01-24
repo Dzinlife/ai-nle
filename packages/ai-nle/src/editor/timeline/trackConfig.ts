@@ -3,8 +3,8 @@
  * 定义不同类型轨道的属性和兼容性规则
  */
 
-import type { TrackRole } from "@/dsl/types";
 import { componentRegistry } from "@/dsl/model/componentRegistry";
+import type { TrackRole } from "@/dsl/types";
 import { TrackConfig, TrackInstance } from "./types";
 
 // ============================================================================
@@ -46,7 +46,7 @@ export const SIGNIFICANT_VERTICAL_MOVE_RATIO = 0.5;
 export const DEFAULT_TRACK_CONFIGS: Record<TrackRole, TrackConfig> = {
 	clip: {
 		role: "clip",
-		height: 64,
+		height: 72,
 		compatibleWith: ["clip"], // 主轨道只能放主要内容
 		canCreateNew: false, // 主轨道不能创建新的
 		minTracks: 1,
@@ -54,7 +54,7 @@ export const DEFAULT_TRACK_CONFIGS: Record<TrackRole, TrackConfig> = {
 	},
 	overlay: {
 		role: "overlay",
-		height: 32,
+		height: 36,
 		compatibleWith: ["overlay"], // 贴纸、水印等可以共存
 		canCreateNew: true,
 		minTracks: 0,
@@ -62,7 +62,7 @@ export const DEFAULT_TRACK_CONFIGS: Record<TrackRole, TrackConfig> = {
 	},
 	effect: {
 		role: "effect",
-		height: 32,
+		height: 36,
 		compatibleWith: ["effect"],
 		canCreateNew: true,
 		minTracks: 0,
@@ -70,7 +70,7 @@ export const DEFAULT_TRACK_CONFIGS: Record<TrackRole, TrackConfig> = {
 	},
 	audio: {
 		role: "audio",
-		height: 32,
+		height: 36,
 		compatibleWith: ["audio"],
 		canCreateNew: true,
 		minTracks: 0,
@@ -162,8 +162,7 @@ export function calculateTrackLayout(
 		// 从上到下排列，高索引在上
 		const role: TrackRole = i === 0 ? "clip" : "overlay";
 		const trackConfig = getTrackConfig(role);
-		const height =
-			config?.trackConfigs?.[role]?.height ?? trackConfig.height;
+		const height = config?.trackConfigs?.[role]?.height ?? trackConfig.height;
 
 		tracks.push({
 			id: `track-${i}`,

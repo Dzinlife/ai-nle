@@ -16,6 +16,7 @@ export interface MainTrackMagnetOptions {
 	attachments?: Map<string, string[]>;
 	autoAttach?: boolean;
 	fps?: number;
+	trackLockedMap?: Map<number, boolean>;
 }
 
 export interface TimelinePostProcessOptions extends MainTrackMagnetOptions {
@@ -46,6 +47,7 @@ function buildAttachmentUpdates(
 	parentDeltas: Map<string, number>,
 	attachments?: Map<string, string[]>,
 	autoAttach?: boolean,
+	trackLockedMap?: Map<number, boolean>,
 ): Map<string, { start: number; end: number }> {
 	const updates = new Map<string, { start: number; end: number }>();
 	if (!autoAttach || !attachments) return updates;
@@ -57,6 +59,10 @@ function buildAttachmentUpdates(
 			if (updates.has(childId)) continue;
 			const child = elementsById.get(childId);
 			if (!child) continue;
+			const childTrackIndex = child.timeline.trackIndex ?? MAIN_TRACK_INDEX;
+			if (trackLockedMap?.get(childTrackIndex)) {
+				continue;
+			}
 			const nextStart = child.timeline.start + delta;
 			const nextEnd = child.timeline.end + delta;
 			if (nextStart < 0) continue;
@@ -119,6 +125,7 @@ function reflowMainTrack(
 		parentDeltas,
 		options.attachments,
 		options.autoAttach,
+		options.trackLockedMap,
 	);
 	for (const [id, update] of attachmentUpdates.entries()) {
 		if (!updates.has(id)) {
@@ -150,6 +157,7 @@ export function finalizeTimelineElements(
 			attachments: options.attachments,
 			autoAttach: options.autoAttach,
 			fps: options.fps,
+			trackLockedMap: options.trackLockedMap,
 		});
 	}
 	normalized = reconcileTransitions(normalized, options.fps);
@@ -209,6 +217,7 @@ export function shiftMainTrackElementsAfter(
 		parentDeltas,
 		options.attachments,
 		options.autoAttach,
+		options.trackLockedMap,
 	);
 	for (const [id, update] of attachmentUpdates.entries()) {
 		if (!updates.has(id)) {

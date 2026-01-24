@@ -42,9 +42,10 @@ export interface TrackInstance {
 export interface TimelineTrack {
 	id: string;
 	role: TrackRole;
-	visible: boolean;
+	hidden: boolean;
 	locked: boolean;
 	muted: boolean;
+	solo: boolean;
 }
 
 // ============================================================================

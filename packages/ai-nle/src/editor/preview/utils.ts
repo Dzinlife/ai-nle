@@ -13,8 +13,8 @@ export const computeVisibleElements = (
 	return elements.filter((el) => {
 		const { start = 0, end = Infinity } = el.timeline;
 		const trackIndex = el.timeline.trackIndex ?? 0;
-		const trackVisible = tracks[trackIndex]?.visible ?? true;
-		return trackVisible && currentTime >= start && currentTime < end;
+		const trackHidden = tracks[trackIndex]?.hidden ?? false;
+		return !trackHidden && currentTime >= start && currentTime < end;
 	});
 };
 

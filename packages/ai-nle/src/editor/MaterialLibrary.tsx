@@ -227,6 +227,7 @@ const MaterialLibrary: React.FC = () => {
 					attachments,
 					autoAttach,
 					fps,
+					trackLockedMap: dndContext.trackLockedMap,
 				};
 
 				if (item.type === "transition") {
@@ -351,7 +352,14 @@ const MaterialLibrary: React.FC = () => {
 				);
 			});
 		},
-		[setElements, mainTrackMagnetEnabled, attachments, autoAttach, fps],
+		[
+			setElements,
+			mainTrackMagnetEnabled,
+			attachments,
+			autoAttach,
+			fps,
+			dndContext,
+		],
 	);
 
 	// 处理素材库拖拽放置到预览画布
