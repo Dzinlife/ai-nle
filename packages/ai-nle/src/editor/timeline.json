@@ -57,10 +57,10 @@
 			}
 		},
 		{
-			"id": "cloudBackground1",
-			"type": "Background",
-			"component": "background/cloud",
-			"name": "云彩背景",
+			"id": "video-piano",
+			"type": "VideoClip",
+			"component": "video-clip",
+			"name": "WZ",
 			"transform": {
 				"centerX": 0,
 				"centerY": 0,
@@ -81,10 +81,7 @@
 				"zIndex": 0
 			},
 			"props": {
-				"speed": 0.5,
-				"cloudDensity": 1.2,
-				"skyColor": "#87CEEB",
-				"cloudColor": "#FFFFFF"
+				"uri": "/unwrapped-WZ.mp4"
 			}
 		},
 		{

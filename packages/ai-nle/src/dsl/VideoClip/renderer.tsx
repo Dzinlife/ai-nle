@@ -39,6 +39,7 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
 	});
 	const { fps } = useFps();
 	const { isPlaying } = usePlaybackControl();
+	const forceSeek = renderTimeline !== undefined && !isPlaying;
 
 	// 直接从 TimelineStore 读取元素的 timeline 数据
 	const timeline = useTimelineStore(
@@ -104,13 +105,20 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
 			return;
 		}
 
-		const startSeconds = framesToSeconds(activeTimeline.start, fps);
+		const safeFps = Number.isFinite(fps) && fps > 0 ? Math.round(fps) : 30;
+		const startSeconds =
+			renderTimeline !== undefined
+				? activeTimeline.start / safeFps
+				: framesToSeconds(activeTimeline.start, safeFps);
 		const currentSeconds = framesToSeconds(currentTimeFrames, fps);
-		const clipDurationSeconds = framesToSeconds(
-			activeTimeline.end - activeTimeline.start,
-			fps,
-		);
-		const offsetSeconds = framesToSeconds(activeTimeline?.offset ?? 0, fps);
+		const clipDurationSeconds =
+			renderTimeline !== undefined
+				? (activeTimeline.end - activeTimeline.start) / safeFps
+				: framesToSeconds(activeTimeline.end - activeTimeline.start, safeFps);
+		const offsetSeconds =
+			renderTimeline !== undefined
+				? (activeTimeline?.offset ?? 0) / safeFps
+				: framesToSeconds(activeTimeline?.offset ?? 0, safeFps);
 
 		// 计算实际要 seek 的视频时间
 		const videoTime = calculateVideoTime({
@@ -121,6 +129,25 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
 			offset: offsetSeconds,
 			clipDuration: clipDurationSeconds,
 		});
+
+		// 转场渲染期间强制走 seek，避免流式播放导致闪烁
+		if (forceSeek) {
+			if (wasPlayingRef.current) {
+				wasPlayingRef.current = false;
+				lastPlaybackTimeRef.current = null;
+				stopPlayback();
+			}
+
+			if (
+				lastVideoTimeRef.current !== null &&
+				Math.abs(lastVideoTimeRef.current - videoTime) < 0.05
+			) {
+				return;
+			}
+			lastVideoTimeRef.current = videoTime;
+			seekToTime(videoTime);
+			return;
+		}
 
 		// 播放状态变化：从暂停到播放
 		if (isPlaying && !wasPlayingRef.current) {
@@ -167,6 +194,7 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
 		props.uri,
 		props.reversed,
 		activeTimeline,
+		forceSeek,
 		videoDuration,
 		isLoading,
 		hasError,

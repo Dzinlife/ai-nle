@@ -49,6 +49,19 @@ const getTransitionRange = (
 	};
 };
 
+type TransitionClipInfo = {
+	transitionStart: number;
+	transitionEnd: number;
+	boundary: number;
+	duration: number;
+	role: "from" | "to";
+	renderTimeline?: {
+		start: number;
+		end: number;
+		offset: number;
+	};
+};
+
 const buildTransitionRenderTimeline = (
 	element: TimelineElement,
 	transitionStart: number,
@@ -63,6 +76,85 @@ const buildTransitionRenderTimeline = (
 		offset,
 	};
 };
+
+const clamp01 = (value: number): number => {
+	if (!Number.isFinite(value)) return 0;
+	return Math.min(1, Math.max(0, value));
+};
+
+const pickActiveTransition = (
+	infos: TransitionClipInfo[] | undefined,
+	currentTime: number,
+): TransitionClipInfo | null => {
+	if (!infos || infos.length === 0) return null;
+	let best: TransitionClipInfo | null = null;
+	let bestDistance = Number.POSITIVE_INFINITY;
+	for (const info of infos) {
+		if (currentTime < info.transitionStart || currentTime >= info.transitionEnd) {
+			continue;
+		}
+		const distance = Math.abs(currentTime - info.boundary);
+		if (!best || distance < bestDistance) {
+			best = info;
+			bestDistance = distance;
+		}
+	}
+	return best;
+};
+
+interface TransitionClipLayerProps {
+	element: TimelineElement;
+	Renderer: React.ComponentType<any>;
+	transitionInfos?: TransitionClipInfo[];
+}
+
+const TransitionClipLayer: React.FC<TransitionClipLayerProps> = ({
+	element,
+	Renderer,
+	transitionInfos,
+}) => {
+	const currentTimeFrames = useTimelineStore((state) => {
+		if (state.isPlaying) {
+			return state.currentTime;
+		}
+		return state.previewTime ?? state.currentTime;
+	});
+	const activeTransition = pickActiveTransition(transitionInfos, currentTimeFrames);
+	const baseOpacity = element.render?.opacity ?? 1;
+	let opacity = baseOpacity;
+	let renderTimeline: TransitionClipInfo["renderTimeline"];
+	let blendMode: "plus" | undefined;
+
+	if (activeTransition) {
+		const progress =
+			activeTransition.duration > 0
+				? clamp01(
+						(currentTimeFrames - activeTransition.transitionStart) /
+							activeTransition.duration,
+					)
+				: 1;
+		if (activeTransition.role === "from") {
+			opacity = baseOpacity * (1 - progress);
+		} else {
+			opacity = baseOpacity * progress;
+			blendMode = "plus";
+		}
+		renderTimeline = activeTransition.renderTimeline;
+	}
+
+	return (
+		<SkiaGroup opacity={opacity} blendMode={blendMode}>
+			<Renderer
+				id={element.id}
+				{...element.props}
+				{...(element.type === "VideoClip" && renderTimeline
+					? { renderTimeline }
+					: {})}
+			/>
+		</SkiaGroup>
+	);
+};
+
 
 const Preview = () => {
 	const renderElementsRef = useRef<TimelineElement[]>([]);
@@ -399,37 +491,10 @@ const Preview = () => {
 			const elementsById = new Map(
 				elements.map((el) => [el.id, el] as const),
 			);
-			const transitionExtras = new Map<
-				string,
-				{
-					fromNode: React.ReactNode;
-					toNode: React.ReactNode;
-				}
-			>();
-			const skipIds = new Set<string>();
 
-			const renderElementNode = (
-				target: TimelineElement,
-				extraProps?: Record<string, unknown>,
-			): React.ReactNode => {
-				const componentDef = componentRegistry.get(target.component);
-				if (!componentDef) {
-					console.warn(
-						`[PreviewEditor] Component "${target.component}" not registered`,
-					);
-					console.warn(
-						`[PreviewEditor] Available components:`,
-						componentRegistry.getComponentIds(),
-					);
-					return null;
-				}
-				const Renderer = componentDef.Renderer;
-				return (
-					<Renderer id={target.id} {...target.props} {...(extraProps ?? {})} />
-				);
-			};
+			// 记录每个 clip 的转场信息（可能有多个入/出转场）
+			const transitionInfosById = new Map<string, TransitionClipInfo[]>();
 
-			const transitionElements: TimelineElement[] = [];
 			for (const element of elements) {
 				if (!isTransitionElement(element)) continue;
 				const trackIndex = getTrackIndexForElement(element);
@@ -455,12 +520,13 @@ const Preview = () => {
 					continue;
 				}
 
-				transitionElements.push(element);
-				skipIds.add(fromId);
-				skipIds.add(toId);
-
-				const fromExtraProps =
-					fromElement.type === "VideoClip"
+				const fromInfo: TransitionClipInfo = {
+					transitionStart: start,
+					transitionEnd: end,
+					boundary: element.timeline.start,
+					duration,
+					role: "from",
+					...(fromElement.type === "VideoClip"
 						? {
 								renderTimeline: buildTransitionRenderTimeline(
 									fromElement,
@@ -468,9 +534,15 @@ const Preview = () => {
 									end,
 								),
 							}
-						: undefined;
-				const toExtraProps =
-					toElement.type === "VideoClip"
+						: {}),
+				};
+				const toInfo: TransitionClipInfo = {
+					transitionStart: start,
+					transitionEnd: end,
+					boundary: element.timeline.start,
+					duration,
+					role: "to",
+					...(toElement.type === "VideoClip"
 						? {
 								renderTimeline: buildTransitionRenderTimeline(
 									toElement,
@@ -478,27 +550,37 @@ const Preview = () => {
 									end,
 								),
 							}
-						: undefined;
+						: {}),
+				};
 
-				transitionExtras.set(element.id, {
-					fromNode: renderElementNode(fromElement, fromExtraProps),
-					toNode: renderElementNode(toElement, toExtraProps),
-				});
+				const fromList = transitionInfosById.get(fromId) ?? [];
+				fromList.push(fromInfo);
+				transitionInfosById.set(fromId, fromList);
+
+				const toList = transitionInfosById.get(toId) ?? [];
+				toList.push(toInfo);
+				transitionInfosById.set(toId, toList);
 			}
 
 			const visibleElements = elements.filter((el) => {
 				const trackIndex = getTrackIndexForElement(el);
 				if (tracks[trackIndex]?.hidden) return false;
-				if (skipIds.has(el.id)) return false;
 				if (isTransitionElement(el)) return false;
+				const transitionInfos = transitionInfosById.get(el.id);
+				if (
+					transitionInfos?.some(
+						(info) =>
+							displayTime >= info.transitionStart &&
+							displayTime < info.transitionEnd,
+					)
+				) {
+					return true;
+				}
 				const { start = 0, end = Infinity } = el.timeline;
 				return displayTime >= start && displayTime < end;
 			});
 
-			const orderedElements = sortByTrackIndex([
-				...visibleElements,
-				...transitionElements,
-			]);
+			const orderedElements = sortByTrackIndex(visibleElements);
 
 			const children = (
 				// <ContextBridge>
@@ -519,12 +601,14 @@ const Preview = () => {
 						}
 
 						const Renderer = componentDef.Renderer;
-						const extraProps = transitionExtras.get(el.id);
 
 						return (
-							<SkiaGroup key={el.id}>
-								<Renderer id={el.id} {...el.props} {...(extraProps ?? {})} />
-							</SkiaGroup>
+							<TransitionClipLayer
+								key={el.id}
+								element={el}
+								Renderer={Renderer}
+								transitionInfos={transitionInfosById.get(el.id)}
+							/>
 						);
 					})}
 				</>

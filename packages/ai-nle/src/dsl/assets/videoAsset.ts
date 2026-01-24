@@ -9,6 +9,7 @@ export type VideoAsset = {
 	input: Input;
 	videoSink: CanvasSink;
 	duration: number;
+	createVideoSink: () => CanvasSink;
 	frameCache: Map<number, SkImage>;
 	cacheAccessOrder: number[];
 	maxCacheSize: number;
@@ -49,11 +50,13 @@ const createVideoAsset = async (uri: string): Promise<VideoAsset> => {
 	}
 
 	const videoCanBeTransparent = await videoTrack.canBeTransparent();
-	const videoSink = new CanvasSink(videoTrack, {
-		poolSize: 2,
-		fit: "contain",
-		alpha: videoCanBeTransparent,
-	});
+	const buildVideoSink = () =>
+		new CanvasSink(videoTrack, {
+			poolSize: 2,
+			fit: "contain",
+			alpha: videoCanBeTransparent,
+		});
+	const videoSink = buildVideoSink();
 
 	const frameCache = new Map<number, SkImage>();
 	const cacheAccessOrder: number[] = [];
@@ -83,6 +86,7 @@ const createVideoAsset = async (uri: string): Promise<VideoAsset> => {
 		input,
 		videoSink,
 		duration,
+		createVideoSink: buildVideoSink,
 		frameCache,
 		cacheAccessOrder,
 		maxCacheSize: DEFAULT_MAX_CACHE_SIZE,

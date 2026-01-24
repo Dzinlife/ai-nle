@@ -5,6 +5,7 @@ import { createStore } from "zustand/vanilla";
 import { useTimelineStore } from "@/editor/contexts/TimelineContext";
 import type { AssetHandle } from "@/dsl/assets/AssetStore";
 import { acquireVideoAsset, type VideoAsset } from "@/dsl/assets/videoAsset";
+import type { TimelineElement } from "@/dsl/types";
 import {
 	framesToSeconds,
 	framesToTimecode,
@@ -112,9 +113,12 @@ export function createVideoClipModel(
 	// 流式播放状态
 	let isPlaybackActive = false;
 	let nextFrame: WrappedCanvas | null = null;
+	let isSteppingPlayback = false;
 
 	let assetHandle: AssetHandle<VideoAsset> | null = null;
 	let unsubscribeTimelineOffset: (() => void) | null = null;
+	let unsubscribeElements: (() => void) | null = null;
+	let activeDedicatedSink = false;
 
 	const getTimelineFps = () => {
 		const fps = useTimelineStore.getState().fps;
@@ -203,6 +207,68 @@ export function createVideoClipModel(
 		}
 	};
 
+	const shouldUseDedicatedSink = (
+		elements: TimelineElement[],
+		clipId: string,
+		uri?: string,
+	): boolean => {
+		if (!uri) return false;
+		for (const element of elements) {
+			if (element.type !== "Transition") continue;
+			const props = (element.props ?? {}) as { fromId?: string; toId?: string };
+			const { fromId, toId } = props;
+			if (!fromId || !toId) continue;
+			if (fromId !== clipId && toId !== clipId) continue;
+			const otherId = fromId === clipId ? toId : fromId;
+			const other = elements.find((el) => el.id === otherId);
+			if (!other || other.type !== "VideoClip") continue;
+			const otherUri = (other.props as { uri?: string } | undefined)?.uri;
+			if (otherUri && otherUri === uri) {
+				return true;
+			}
+		}
+		return false;
+	};
+
+	const resolveVideoSink = (asset: VideoAsset, shouldDedicated: boolean) => {
+		if (!shouldDedicated) return asset.videoSink;
+		try {
+			return asset.createVideoSink();
+		} catch (err) {
+			// 创建独立 sink 失败时回退到共享 sink
+			console.warn("Create video sink failed:", err);
+			return asset.videoSink;
+		}
+	};
+
+	const updateVideoSink = () => {
+		const handle = assetHandle;
+		if (!handle) return;
+		if (useTimelineStore.getState().isPlaying) {
+			// 播放中不切换 sink，避免打断流式播放
+			return;
+		}
+		const { props } = store.getState();
+		const elements = useTimelineStore.getState().elements;
+		const shouldDedicated = shouldUseDedicatedSink(
+			elements,
+			id,
+			props.uri,
+		);
+		if (shouldDedicated === activeDedicatedSink) return;
+		activeDedicatedSink = shouldDedicated;
+
+		const nextSink = resolveVideoSink(handle.asset, shouldDedicated);
+		stopPlayback();
+		store.setState((state) => ({
+			...state,
+			internal: {
+				...state.internal,
+				videoSink: nextSink,
+			},
+		}));
+	};
+
 	// 开始流式播放
 	const startPlayback = async (startTime: number): Promise<void> => {
 		const { internal } = store.getState();
@@ -252,6 +318,8 @@ export function createVideoClipModel(
 	// 获取下一帧（流式播放时调用）
 	const getNextFrame = async (targetTime: number): Promise<void> => {
 		if (!isPlaybackActive || !videoFrameIterator) return;
+		if (isSteppingPlayback) return;
+		isSteppingPlayback = true;
 
 		const currentAsyncId = asyncId;
 
@@ -285,12 +353,15 @@ export function createVideoClipModel(
 			}
 		} catch (err) {
 			console.warn("Get next frame failed:", err);
+		} finally {
+			isSteppingPlayback = false;
 		}
 	};
 
 	// 停止流式播放
 	const stopPlayback = () => {
 		isPlaybackActive = false;
+		isSteppingPlayback = false;
 		nextFrame = null;
 		videoFrameIterator?.return?.();
 		videoFrameIterator = null;
@@ -500,6 +571,7 @@ export function createVideoClipModel(
 					assetHandle = localHandle;
 
 					const { asset } = localHandle;
+					const elements = useTimelineStore.getState().elements;
 					const fps = getTimelineFps();
 					const durationFrames = secondsToFrames(asset.duration, fps);
 					const offsetFrames = getTimelineOffsetFrames();
@@ -507,6 +579,9 @@ export function createVideoClipModel(
 						durationFrames,
 						offsetFrames,
 					);
+					const shouldDedicated = shouldUseDedicatedSink(elements, id, uri);
+					activeDedicatedSink = shouldDedicated;
+					const clipSink = resolveVideoSink(asset, shouldDedicated);
 
 					// 更新状态
 					set((state) => ({
@@ -517,7 +592,7 @@ export function createVideoClipModel(
 						},
 						internal: {
 							...state.internal,
-							videoSink: asset.videoSink,
+							videoSink: clipSink,
 							input: asset.input,
 							videoDuration: asset.duration,
 							frameCache: asset.frameCache,
@@ -545,6 +620,15 @@ export function createVideoClipModel(
 								state.elements.find((el) => el.id === id)?.timeline?.offset ?? 0,
 							() => {
 								updateMaxDurationByOffset();
+							},
+						);
+					}
+
+					if (!unsubscribeElements) {
+						unsubscribeElements = useTimelineStore.subscribe(
+							(state) => state.elements,
+							() => {
+								updateVideoSink();
 							},
 						);
 					}
@@ -577,6 +661,8 @@ export function createVideoClipModel(
 				videoFrameIterator = null;
 				unsubscribeTimelineOffset?.();
 				unsubscribeTimelineOffset = null;
+				unsubscribeElements?.();
+				unsubscribeElements = null;
 
 				assetHandle?.release();
 				assetHandle = null;
