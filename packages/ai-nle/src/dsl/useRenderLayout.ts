@@ -13,7 +13,7 @@ const EMPTY_LAYOUT: RenderLayout = {
 
 export const useRenderLayout = (id: string): RenderLayout => {
 	const transform = useTimelineStore(
-		(state) => state.elements.find((el) => el.id === id)?.transform,
+		(state) => state.getElementById(id)?.transform,
 	);
 	const canvasSize = useTimelineStore((state) => state.canvasSize);
 

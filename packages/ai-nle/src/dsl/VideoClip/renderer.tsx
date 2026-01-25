@@ -43,7 +43,7 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
 
 	// 直接从 TimelineStore 读取元素的 timeline 数据
 	const timeline = useTimelineStore(
-		(state) => state.elements.find((el) => el.id === id)?.timeline,
+		(state) => state.getElementById(id)?.timeline,
 	);
 	const activeTimeline = renderTimeline ?? timeline;
 

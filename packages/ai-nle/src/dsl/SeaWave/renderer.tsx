@@ -26,7 +26,7 @@ const SeaWaveRenderer: React.FC<SeaWaveRendererProps> = ({
 
 	// 直接从 TimelineStore 读取元素的 timeline 数据（用于计算相对时间）
 	const timeline = useTimelineStore(
-		(state) => state.elements.find((el) => el.id === id)?.timeline,
+		(state) => state.getElementById(id)?.timeline,
 	);
 
 	// 获取渲染布局信息（位置、尺寸、旋转）

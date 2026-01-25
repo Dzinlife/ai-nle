@@ -9,7 +9,7 @@ export const CloudBackgroundTimeline: React.FC<
 	CloudBackgroundTimelineProps
 > = ({ id }) => {
 	const name = useTimelineStore(
-		(state) => state.elements.find((el) => el.id === id)?.name,
+		(state) => state.getElementById(id)?.name,
 	);
 
 	return (

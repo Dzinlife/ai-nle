@@ -1,7 +1,7 @@
 import React, { type ReactNode, useMemo } from "react";
 import { Group, Mask, Rect, Shader, Skia } from "react-skia-lite";
-import { useTimelineStore } from "@/editor/contexts/TimelineContext";
 import type { TimelineElement } from "@/dsl/types";
+import { useTimelineStore } from "@/editor/contexts/TimelineContext";
 import type { TransitionProps } from "../Transition/model";
 
 interface PixelShaderTransitionRendererProps extends TransitionProps {
@@ -42,12 +42,8 @@ const resolveTransitionDuration = (
 ): number => {
 	if (!element) return DEFAULT_TRANSITION_DURATION;
 	const metaDuration = element.transition?.duration;
-	const legacyDuration =
-		typeof (element.props as { duration?: number } | undefined)?.duration ===
-		"number"
-			? (element.props as { duration?: number }).duration
-			: undefined;
-	const value = metaDuration ?? legacyDuration ?? DEFAULT_TRANSITION_DURATION;
+
+	const value = metaDuration ?? DEFAULT_TRANSITION_DURATION;
 	if (!Number.isFinite(value)) return DEFAULT_TRANSITION_DURATION;
 	return Math.max(0, Math.round(value));
 };
@@ -63,8 +59,8 @@ const PixelShaderTransitionRenderer: React.FC<
 		}
 		return state.previewTime ?? state.currentTime;
 	});
-	const transitionElement = useTimelineStore((state) =>
-		state.elements.find((el) => el.id === id),
+	const transitionElement = useTimelineStore(
+		(state) => state.getElementById(id)!,
 	);
 	const canvasSize = useTimelineStore((state) => state.canvasSize);
 
@@ -112,12 +108,7 @@ const PixelShaderTransitionRenderer: React.FC<
 			<Mask
 				mode="luminance"
 				mask={
-					<Rect
-						x={0}
-						y={0}
-						width={canvasSize.width}
-						height={canvasSize.height}
-					>
+					<Rect x={0} y={0} width={canvasSize.width} height={canvasSize.height}>
 						<Shader
 							source={shaderSource}
 							uniforms={{

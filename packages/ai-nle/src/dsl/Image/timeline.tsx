@@ -16,7 +16,7 @@ export const ImageTimeline: React.FC<ImageTimelineProps> = ({ id }) => {
 		(state) => state.props.uri,
 	);
 	const name = useTimelineStore(
-		(state) => state.elements.find((el) => el.id === id)?.name,
+		(state) => state.getElementById(id)?.name,
 	);
 
 	return (

@@ -52,8 +52,7 @@ export const VideoClipTimeline: React.FC<VideoClipTimelineProps> = ({
 	const clipDurationFrames = clipDurationRef.current;
 	const clipDurationSeconds = framesToSeconds(clipDurationFrames, fps);
 	const timelineOffsetFrames = useTimelineStore(
-		(state) =>
-			state.elements.find((el) => el.id === id)?.timeline?.offset ?? 0,
+		(state) => state.getElementById(id)?.timeline?.offset ?? 0,
 	);
 	const offsetSeconds = framesToSeconds(timelineOffsetFrames, fps);
 

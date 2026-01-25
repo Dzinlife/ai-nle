@@ -67,9 +67,10 @@ const TransitionRenderer: React.FC<TransitionRendererProps> = ({
 		}
 		return state.previewTime ?? state.currentTime;
 	});
-	const transitionElement = useTimelineStore((state) =>
-		state.elements.find((el) => el.id === id),
+	const transitionElement = useTimelineStore(
+		(state) => state.getElementById(id)!,
 	);
+
 	const canvasSize = useTimelineStore((state) => state.canvasSize);
 	const boundary = transitionElement?.timeline.start ?? 0;
 	const transitionDuration = resolveTransitionDuration(transitionElement);
@@ -190,13 +191,7 @@ const TransitionRenderer: React.FC<TransitionRendererProps> = ({
 		return <Group>{currentTimeFrames < boundary ? fromNode : toNode}</Group>;
 	};
 
-	const picturesReady = Boolean(preRollPicture && afterRollPicture);
-
-	if (!picturesReady) {
-		return renderHardCut();
-	}
-
-	if (paintBundle) {
+	if (paintBundle && preRollPicture && afterRollPicture) {
 		return (
 			<Group>
 				<Rect

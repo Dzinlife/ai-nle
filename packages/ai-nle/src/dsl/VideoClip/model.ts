@@ -692,8 +692,7 @@ export function createVideoClipModel(
 					if (!unsubscribeTimelineOffset) {
 						unsubscribeTimelineOffset = useTimelineStore.subscribe(
 							(state) =>
-								state.elements.find((el) => el.id === id)?.timeline?.offset ??
-								0,
+								state.getElementById(id)?.timeline?.offset ?? 0,
 							() => {
 								updateMaxDurationByOffset();
 							},

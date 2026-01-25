@@ -145,6 +145,7 @@ interface TimelineStore {
 	// 滚动位置方法
 	setScrollLeft: (scrollLeft: number) => void;
 	setTimelineScale: (scale: number) => void;
+	getElementById: (id: string) => TimelineElement | null;
 }
 
 interface TimelineHistorySnapshot {
@@ -154,6 +155,23 @@ interface TimelineHistorySnapshot {
 }
 
 const HISTORY_LIMIT = 100;
+
+// 元素索引缓存，避免频繁遍历
+let elementIndexById = new Map<string, TimelineElement>();
+
+const buildElementIndex = (
+	elements: TimelineElement[],
+): Map<string, TimelineElement> => {
+	const nextIndex = new Map<string, TimelineElement>();
+	for (const element of elements) {
+		nextIndex.set(element.id, element);
+	}
+	return nextIndex;
+};
+
+const syncElementIndex = (elements: TimelineElement[]) => {
+	elementIndexById = buildElementIndex(elements);
+};
 
 const trimHistory = (
 	history: TimelineHistorySnapshot[],
@@ -259,6 +277,7 @@ export const useTimelineStore = create<TimelineStore>()(
 		autoScrollSpeedY: 0,
 		// 滚动位置初始值
 		scrollLeft: 0,
+		getElementById: (id: string) => elementIndexById.get(id) ?? null,
 
 		setFps: (fps: number) => {
 			set({ fps: normalizeFps(fps) });
@@ -736,6 +755,11 @@ export const useTimelineStore = create<TimelineStore>()(
 	})),
 );
 
+syncElementIndex(useTimelineStore.getState().elements);
+useTimelineStore.subscribe((state) => state.elements, (elements) => {
+	syncElementIndex(elements);
+});
+
 export const useCurrentTime = () => {
 	const currentTime = useTimelineStore((state) => state.currentTime);
 	const previewTime = useTimelineStore((state) => state.previewTime);
@@ -953,11 +977,9 @@ export const useSelectedElement = () => {
 	const setSelectedElementId = useTimelineStore(
 		(state) => state.setSelectedElementId,
 	);
-	const elements = useTimelineStore((state) => state.elements);
-
-	const selectedElement = selectedElementId
-		? (elements.find((el) => el.id === selectedElementId) ?? null)
-		: null;
+	const selectedElement = useTimelineStore((state) =>
+		selectedElementId ? state.getElementById(selectedElementId) : null,
+	);
 
 	return {
 		selectedElementId,
