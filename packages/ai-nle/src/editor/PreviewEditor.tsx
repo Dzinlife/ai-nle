@@ -14,208 +14,23 @@ import {
 	Stage,
 	Transformer,
 } from "react-konva";
-import {
-	Canvas,
-	type CanvasRef,
-	Fill,
-	Group as SkiaGroup,
-	// useContextBridge,
-} from "react-skia-lite";
+import type { CanvasRef } from "react-skia-lite";
 import {
 	renderLayoutToTopLeft,
 	transformMetaToRenderLayout,
 } from "@/dsl/layout";
-import { componentRegistry } from "@/dsl/model/componentRegistry";
 import type { TimelineElement } from "@/dsl/types";
 import { usePreview } from "./contexts/PreviewProvider";
 import { useTimelineStore, useTracks } from "./contexts/TimelineContext";
+import { buildKonvaTree } from "./preview/buildSkiaTree";
 import { LabelLayer } from "./preview/LabelLayer";
+import { SkiaPreviewCanvas } from "./preview/SkiaPreviewCanvas";
 import { usePreviewCoordinates } from "./preview/usePreviewCoordinates";
 import { usePreviewInteractions } from "./preview/usePreviewInteractions";
-import { computeVisibleElements } from "./preview/utils";
-import { getTransitionDuration, isTransitionElement } from "./utils/transitions";
-
-const getTransitionRange = (
-	boundary: number,
-	duration: number,
-): { start: number; end: number; duration: number } => {
-	const safeDuration = Math.max(0, Math.round(duration));
-	const head = Math.floor(safeDuration / 2);
-	const tail = safeDuration - head;
-	return {
-		start: boundary - head,
-		end: boundary + tail,
-		duration: safeDuration,
-	};
-};
-
-type TransitionClipInfo = {
-	transitionStart: number;
-	transitionEnd: number;
-	boundary: number;
-	duration: number;
-	role: "from" | "to";
-	transitionId: string;
-	transitionComponent: string;
-	fromId: string;
-	toId: string;
-	renderTimeline?: {
-		start: number;
-		end: number;
-		offset: number;
-	};
-	peerRenderTimeline?: {
-		start: number;
-		end: number;
-		offset: number;
-	};
-};
-
-const buildTransitionRenderTimeline = (
-	element: TimelineElement,
-	transitionStart: number,
-	transitionEnd: number,
-): { start: number; end: number; offset: number } => {
-	const baseStart = element.timeline.start ?? 0;
-	const baseOffset = element.timeline.offset ?? 0;
-	const offset = Math.round(baseOffset + (transitionStart - baseStart));
-	return {
-		start: transitionStart,
-		end: transitionEnd,
-		offset,
-	};
-};
-
-const pickActiveTransition = (
-	infos: TransitionClipInfo[] | undefined,
-	currentTime: number,
-): TransitionClipInfo | null => {
-	if (!infos || infos.length === 0) return null;
-	let best: TransitionClipInfo | null = null;
-	let bestDistance = Number.POSITIVE_INFINITY;
-	for (const info of infos) {
-		if (currentTime < info.transitionStart || currentTime >= info.transitionEnd) {
-			continue;
-		}
-		const distance = Math.abs(currentTime - info.boundary);
-		if (!best || distance < bestDistance) {
-			best = info;
-			bestDistance = distance;
-		}
-	}
-	return best;
-};
-
-interface TransitionClipLayerProps {
-	element: TimelineElement;
-	Renderer: React.ComponentType<any>;
-	transitionInfos?: TransitionClipInfo[];
-	elementsById: Map<string, TimelineElement>;
-}
-
-const TransitionClipLayer: React.FC<TransitionClipLayerProps> = ({
-	element,
-	Renderer,
-	transitionInfos,
-	elementsById,
-}) => {
-	const currentTimeFrames = useTimelineStore((state) => {
-		if (state.isPlaying) {
-			return state.currentTime;
-		}
-		return state.previewTime ?? state.currentTime;
-	});
-	const activeTransition = pickActiveTransition(transitionInfos, currentTimeFrames);
-	const baseOpacity = element.render?.opacity ?? 1;
-	let renderTimeline: TransitionClipInfo["renderTimeline"];
-	const renderElement = useCallback(
-		(
-			target: TimelineElement,
-			timeline?: TransitionClipInfo["renderTimeline"],
-		) => {
-			const componentDef = componentRegistry.get(target.component);
-			if (!componentDef) {
-				console.warn(
-					`[PreviewEditor] Component "${target.component}" not registered`,
-				);
-				console.warn(
-					`[PreviewEditor] Available components:`,
-					componentRegistry.getComponentIds(),
-				);
-				return null;
-			}
-			const TargetRenderer = componentDef.Renderer;
-			return (
-				<TargetRenderer
-					id={target.id}
-					{...target.props}
-					{...(target.type === "VideoClip" && timeline
-						? { renderTimeline: timeline }
-						: {})}
-				/>
-			);
-		},
-		[],
-	);
-
-	if (activeTransition) {
-		renderTimeline = activeTransition.renderTimeline;
-		const transitionElement = elementsById.get(activeTransition.transitionId);
-		const transitionDef = transitionElement
-			? componentRegistry.get(activeTransition.transitionComponent)
-			: null;
-		if (transitionDef) {
-			if (activeTransition.role === "from") {
-				return null;
-			}
-			const fromElement = elementsById.get(activeTransition.fromId);
-			const toElement = elementsById.get(activeTransition.toId);
-			if (!fromElement || !toElement) return null;
-			const fromOpacity = fromElement.render?.opacity ?? 1;
-			const toOpacity = toElement.render?.opacity ?? 1;
-			const fromContent = renderElement(
-				fromElement,
-				activeTransition.peerRenderTimeline,
-			);
-			const toContent = renderElement(
-				toElement,
-				activeTransition.renderTimeline,
-			);
-			const fromNode = fromContent ? (
-				<SkiaGroup opacity={fromOpacity}>{fromContent}</SkiaGroup>
-			) : null;
-			const toNode = toContent ? (
-				<SkiaGroup opacity={toOpacity}>{toContent}</SkiaGroup>
-			) : null;
-			const TransitionRenderer = transitionDef.Renderer;
-			return (
-				<TransitionRenderer
-					id={activeTransition.transitionId}
-					{...transitionElement?.props}
-					fromNode={fromNode}
-					toNode={toNode}
-				/>
-			);
-		}
-	}
-
-	return (
-		<SkiaGroup opacity={baseOpacity}>
-			<Renderer
-				id={element.id}
-				{...element.props}
-				{...(element.type === "VideoClip" && renderTimeline
-					? { renderTimeline }
-					: {})}
-			/>
-		</SkiaGroup>
-	);
-};
 
 
 const Preview = () => {
 	const renderElementsRef = useRef<TimelineElement[]>([]);
-	const skiaRenderElementsRef = useRef<TimelineElement[]>([]);
 	const { tracks } = useTracks();
 
 	const { getDisplayTime, getElements } = useMemo(
@@ -336,8 +151,6 @@ const Preview = () => {
 		},
 		[getTrackIndexForElement],
 	);
-
-	// const ContextBridge = useContextBridge(QueryClientContext);
 
 	const skiaCanvasRef = useRef<CanvasRef>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -542,159 +355,17 @@ const Preview = () => {
 		[endPinchZoom],
 	);
 
-	// 构建 Skia 渲染树（通过组件注册表映射元素）
-	const buildSkiaChildren = useCallback(
-		(elements: TimelineElement[], displayTime: number) => {
-			const elementsById = new Map(
-				elements.map((el) => [el.id, el] as const),
-			);
-
-			// 记录每个 clip 的转场信息（可能有多个入/出转场）
-			const transitionInfosById = new Map<string, TransitionClipInfo[]>();
-
-			for (const element of elements) {
-				if (!isTransitionElement(element)) continue;
-				const trackIndex = getTrackIndexForElement(element);
-				if (tracks[trackIndex]?.hidden) continue;
-				const transitionDuration = getTransitionDuration(element);
-				if (transitionDuration <= 0) continue;
-
-				const { start, end, duration } = getTransitionRange(
-					element.timeline.start,
-					transitionDuration,
-				);
-				if (displayTime < start || displayTime >= end) continue;
-
-				const { fromId, toId } = (element.props ?? {}) as {
-					fromId?: string;
-					toId?: string;
-				};
-				if (!fromId || !toId) continue;
-				const fromElement = elementsById.get(fromId);
-				const toElement = elementsById.get(toId);
-				if (!fromElement || !toElement) continue;
-				if (isTransitionElement(fromElement) || isTransitionElement(toElement)) {
-					continue;
-				}
-
-				const fromRenderTimeline =
-					fromElement.type === "VideoClip"
-						? buildTransitionRenderTimeline(fromElement, start, end)
-						: undefined;
-				const toRenderTimeline =
-					toElement.type === "VideoClip"
-						? buildTransitionRenderTimeline(toElement, start, end)
-						: undefined;
-				const baseTransitionInfo = {
-					transitionStart: start,
-					transitionEnd: end,
-					boundary: element.timeline.start,
-					duration,
-					transitionId: element.id,
-					transitionComponent: element.component,
-					fromId,
-					toId,
-				};
-
-				const fromInfo: TransitionClipInfo = {
-					...baseTransitionInfo,
-					role: "from",
-					renderTimeline: fromRenderTimeline,
-					peerRenderTimeline: toRenderTimeline,
-				};
-				const toInfo: TransitionClipInfo = {
-					...baseTransitionInfo,
-					role: "to",
-					renderTimeline: toRenderTimeline,
-					peerRenderTimeline: fromRenderTimeline,
-				};
-
-				const fromList = transitionInfosById.get(fromId) ?? [];
-				fromList.push(fromInfo);
-				transitionInfosById.set(fromId, fromList);
-
-				const toList = transitionInfosById.get(toId) ?? [];
-				toList.push(toInfo);
-				transitionInfosById.set(toId, toList);
-			}
-
-			const visibleElements = elements.filter((el) => {
-				const trackIndex = getTrackIndexForElement(el);
-				if (tracks[trackIndex]?.hidden) return false;
-				if (isTransitionElement(el)) return false;
-				const transitionInfos = transitionInfosById.get(el.id);
-				if (
-					transitionInfos?.some(
-						(info) =>
-							displayTime >= info.transitionStart &&
-							displayTime < info.transitionEnd,
-					)
-				) {
-					return true;
-				}
-				const { start = 0, end = Infinity } = el.timeline;
-				return displayTime >= start && displayTime < end;
-			});
-
-			const orderedElements = sortByTrackIndex(visibleElements);
-
-			const children = (
-				// <ContextBridge>
-				<>
-					<Fill color="black" />
-					{orderedElements.map((el) => {
-						// 获取组件定义
-						const componentDef = componentRegistry.get(el.component);
-						if (!componentDef) {
-							console.warn(
-								`[PreviewEditor] Component "${el.component}" not registered`,
-							);
-							console.warn(
-								`[PreviewEditor] Available components:`,
-								componentRegistry.getComponentIds(),
-							);
-							return null;
-						}
-
-						const Renderer = componentDef.Renderer;
-
-						return (
-							<TransitionClipLayer
-								key={el.id}
-								element={el}
-								Renderer={Renderer}
-								transitionInfos={transitionInfosById.get(el.id)}
-								elementsById={elementsById}
-							/>
-						);
-					})}
-				</>
-				// </ContextBridge>
-			);
-
-			return { children, orderedElements };
-		},
-		// [ContextBridge],
-		[getTrackIndexForElement, sortByTrackIndex, tracks],
-	);
-
 	useEffect(() => {
-		const renderSkia = () => {
-			const state = useTimelineStore.getState();
-			const displayTime = state.getDisplayTime();
+		const updateKonvaElements = () => {
+			const displayTime = getDisplayTime();
 			const allElements = getElements();
-			const visibleElements = computeVisibleElements(
-				allElements,
+			const orderedElements = buildKonvaTree({
+				elements: allElements,
 				displayTime,
 				tracks,
-			);
-			const orderedElements = sortByTrackIndex(visibleElements);
-			const { children, orderedElements: skiaElements } = buildSkiaChildren(
-				allElements,
-				displayTime,
-			);
+				sortByTrackIndex,
+			});
 
-			// 仅在可见元素集合变化时触发重绘，降低 Skia 渲染频率
 			const prevElements = renderElementsRef.current;
 			if (
 				prevElements.length !== orderedElements.length ||
@@ -703,77 +374,43 @@ const Preview = () => {
 				renderElementsRef.current = orderedElements;
 				setRenderElements(orderedElements);
 			}
-
-			const prevSkiaElements = skiaRenderElementsRef.current;
-			if (
-				prevSkiaElements.length !== skiaElements.length ||
-				skiaElements.some((el, i) => prevSkiaElements[i] !== el)
-			) {
-				skiaRenderElementsRef.current = skiaElements;
-				skiaCanvasRef.current?.getRoot()?.render(children);
-			}
 		};
 
-		// 同时监听 currentTime 和 previewTime
 		const unsub1 = useTimelineStore.subscribe(
 			(state) => state.currentTime,
-			renderSkia,
+			updateKonvaElements,
 		);
 		const unsub2 = useTimelineStore.subscribe(
 			(state) => state.previewTime,
-			renderSkia,
+			updateKonvaElements,
 		);
 		return () => {
 			unsub1();
 			unsub2();
 		};
-	}, [buildSkiaChildren, getElements, sortByTrackIndex, tracks]);
+	}, [getDisplayTime, getElements, sortByTrackIndex, tracks]);
 
 	useEffect(() => {
 		return useTimelineStore.subscribe(
 			(state) => state.elements,
 			(newElements) => {
-				const root = skiaCanvasRef.current?.getRoot();
-				if (!root) return;
-
 				const time = getDisplayTime();
-				const visibleElements = computeVisibleElements(
-					newElements,
-					time,
+				const orderedElements = buildKonvaTree({
+					elements: newElements,
+					displayTime: time,
 					tracks,
-				);
-				const orderedElements = sortByTrackIndex(visibleElements);
-				const { children, orderedElements: skiaElements } = buildSkiaChildren(
-					newElements,
-					time,
-				);
-				root.render(children);
+					sortByTrackIndex,
+				});
 
 				// Update Konva layer
 				renderElementsRef.current = orderedElements;
 				setRenderElements(orderedElements);
-				skiaRenderElementsRef.current = skiaElements;
 			},
 			{
 				fireImmediately: true,
 			},
 		);
-	}, [buildSkiaChildren, getDisplayTime, sortByTrackIndex, tracks]);
-
-	// Stable Canvas component - only re-creates when size changes
-	// Children are rendered directly via root.render() above
-	const skiaCanvas = useMemo(() => {
-		return (
-			<Canvas
-				style={{
-					width: canvasWidth,
-					height: canvasHeight,
-					overflow: "hidden", // 必须要设置 overflow: "hidden"，否则高度无法缩小，原因未知
-				}}
-				ref={skiaCanvasRef}
-			/>
-		);
-	}, [canvasWidth, canvasHeight]);
+	}, [getDisplayTime, sortByTrackIndex, tracks]);
 
 	const stageWidth = containerDimensions.width || canvasWidth;
 	const stageHeight = containerDimensions.height || canvasHeight;
@@ -813,7 +450,16 @@ const Preview = () => {
 						pointerEvents: "none",
 					}}
 				>
-					{skiaCanvas}
+					<SkiaPreviewCanvas
+						canvasWidth={canvasWidth}
+						canvasHeight={canvasHeight}
+						tracks={tracks}
+						getTrackIndexForElement={getTrackIndexForElement}
+						sortByTrackIndex={sortByTrackIndex}
+						getElements={getElements}
+						getDisplayTime={getDisplayTime}
+						canvasRef={skiaCanvasRef}
+					/>
 				</div>
 			</div>
 

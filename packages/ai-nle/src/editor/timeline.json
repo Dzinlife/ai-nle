@@ -69,9 +69,9 @@
 				"rotation": 0
 			},
 			"timeline": {
-				"start": 180,
+				"start": 178,
 				"end": 480,
-				"startTimecode": "00:00:06:00",
+				"startTimecode": "00:00:05:28",
 				"endTimecode": "00:00:16:00",
 				"trackIndex": 0,
 				"trackId": "main",
@@ -125,10 +125,10 @@
 				"rotation": 0
 			},
 			"timeline": {
-				"start": 480,
-				"end": 480,
-				"startTimecode": "00:00:16:00",
-				"endTimecode": "00:00:16:00",
+				"start": 178,
+				"end": 178,
+				"startTimecode": "00:00:05:28",
+				"endTimecode": "00:00:05:28",
 				"trackIndex": 0,
 				"trackId": "main",
 				"role": "clip"
@@ -137,8 +137,8 @@
 				"zIndex": 1
 			},
 			"props": {
-				"fromId": "cloudBackground1",
-				"toId": "image2"
+				"fromId": "clip1",
+				"toId": "video-piano"
 			},
 			"transition": {
 				"duration": 15
