@@ -1,5 +1,21 @@
 import type { StoreApi } from "zustand";
-import type { AudioClipMeta, ClipMeta, VideoClipMeta } from "../types";
+import type {
+	AudioClipMeta,
+	ClipMeta,
+	TimelineElement,
+	VideoClipMeta,
+} from "../types";
+
+export type PrepareFrameContext = {
+	element: TimelineElement;
+	displayTime: number;
+	fps: number;
+	renderTimeline?: {
+		start: number;
+		end: number;
+		offset?: number;
+	};
+};
 
 // 组件约束信息
 export interface ComponentConstraints {
@@ -59,6 +75,7 @@ export interface ComponentModelActions<
 
 	// 资源就绪接口（用于离屏渲染等场景）
 	waitForReady?: () => Promise<void>;
+	prepareFrame?: (context: PrepareFrameContext) => Promise<void> | void;
 }
 
 // 完整 Model 类型

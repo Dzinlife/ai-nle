@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Slider } from "@/components/ui/slider";
 import type { TimelineElement } from "@/dsl/types";
 import { exportCanvasAsImage } from "@/dsl/export";
+import { exportTimelineAsVideo } from "@/editor/exportVideo";
 import { cn } from "@/lib/utils";
 import { clampFrame } from "@/utils/timecode";
 import { usePreview } from "../contexts/PreviewProvider";
@@ -66,6 +67,7 @@ const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
 	const { isPlaying, togglePlay } = usePlaybackControl();
 	const { canvasRef } = usePreview();
 	const [isExporting, setIsExporting] = useState(false);
+	const [isVideoExporting, setIsVideoExporting] = useState(false);
 	const { snapEnabled, setSnapEnabled } = useSnap();
 	const { autoAttach, setAutoAttach } = useAttachments();
 	const { mainTrackMagnetEnabled, setMainTrackMagnetEnabled } =
@@ -121,7 +123,7 @@ const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
 	}, [togglePlay, undo, redo]);
 
 	const handleExport = useCallback(async () => {
-		if (isExporting) return;
+		if (isExporting || isVideoExporting) return;
 
 		setIsExporting(true);
 		try {
@@ -132,7 +134,19 @@ const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
 		} finally {
 			setIsExporting(false);
 		}
-	}, [canvasRef, isExporting]);
+	}, [canvasRef, isExporting, isVideoExporting]);
+
+	const handleExportVideo = useCallback(async () => {
+		if (isExporting || isVideoExporting) return;
+		setIsVideoExporting(true);
+		try {
+			await exportTimelineAsVideo({
+				fps,
+			});
+		} finally {
+			setIsVideoExporting(false);
+		}
+	}, [fps, isExporting, isVideoExporting]);
 
 	const handleScaleChange = useCallback(
 		(value: number | readonly number[]) => {
@@ -293,10 +307,17 @@ const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
 			<div className="flex-1" />
 			<button
 				onClick={handleExport}
-				disabled={isExporting}
+				disabled={isExporting || isVideoExporting}
 				className="px-3 py-1 text-sm rounded bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-600 disabled:cursor-not-allowed text-white"
 			>
 				{isExporting ? "Exporting..." : "Export"}
+			</button>
+			<button
+				onClick={handleExportVideo}
+				disabled={isExporting || isVideoExporting}
+				className="px-3 py-1 text-sm rounded bg-emerald-600 hover:bg-emerald-500 disabled:bg-neutral-600 disabled:cursor-not-allowed text-white"
+			>
+				{isVideoExporting ? "导出中..." : "导出视频"}
 			</button>
 		</div>
 	);

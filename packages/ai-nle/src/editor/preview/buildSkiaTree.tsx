@@ -21,7 +21,7 @@ const getTransitionRange = (
 	};
 };
 
-type TransitionClipInfo = {
+export type TransitionClipInfo = {
 	transitionStart: number;
 	transitionEnd: number;
 	boundary: number;
@@ -58,7 +58,7 @@ const buildTransitionRenderTimeline = (
 	};
 };
 
-const pickActiveTransition = (
+export const pickActiveTransition = (
 	infos: TransitionClipInfo[] | undefined,
 	currentTime: number,
 ): TransitionClipInfo | null => {
@@ -184,7 +184,7 @@ const TransitionClipLayer: React.FC<TransitionClipLayerProps> = ({
 	);
 };
 
-export const buildSkiaTree = ({
+export const buildSkiaRenderState = ({
 	elements,
 	displayTime,
 	tracks,
@@ -318,6 +318,22 @@ export const buildSkiaTree = ({
 		</>
 	);
 
+	return {
+		children,
+		orderedElements,
+		visibleElements,
+		transitionInfosById,
+	};
+};
+
+export const buildSkiaTree = (args: {
+	elements: TimelineElement[];
+	displayTime: number;
+	tracks: TimelineTrack[];
+	getTrackIndexForElement: (element: TimelineElement) => number;
+	sortByTrackIndex: (elements: TimelineElement[]) => TimelineElement[];
+}) => {
+	const { children, orderedElements } = buildSkiaRenderState(args);
 	return { children, orderedElements };
 };
 

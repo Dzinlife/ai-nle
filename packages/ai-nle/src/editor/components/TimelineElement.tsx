@@ -71,7 +71,9 @@ const DragHandle: React.FC<DragHandleProps> = ({ position, onDrag }) => {
 		<div
 			{...onDrag()}
 			className={cn(
-				isLeft ? "left-0 rounded-l border-l-2" : "right-0 rounded-r border-r-2",
+				isLeft
+					? "left-0 rounded-l border-l-2"
+					: "right-0 rounded-r border-r-2 touch-none",
 				"pointer-events-auto touch-none top-0 bottom-0 max-w-2 w-full cursor-ew-resize z-10 hover:border-white border-transparent border-y-2",
 			)}
 		>

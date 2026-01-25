@@ -14,6 +14,7 @@ import {
 import type {
 	ComponentModel,
 	ComponentModelStore,
+	PrepareFrameContext,
 	ValidationResult,
 } from "../model/types";
 
@@ -498,6 +499,37 @@ export function createVideoClipModel(
 		}
 	};
 
+	const prepareFrame = async (context: PrepareFrameContext): Promise<void> => {
+		const { element, displayTime, fps, renderTimeline } = context;
+		const { internal, constraints, props } = store.getState();
+		if (constraints.isLoading || constraints.hasError) return;
+		if (!props.uri || internal.videoDuration <= 0) return;
+
+		const timeline = renderTimeline ?? {
+			start: element.timeline.start ?? 0,
+			end: element.timeline.end ?? 0,
+			offset: element.timeline.offset ?? 0,
+		};
+		const startSeconds = framesToSeconds(timeline.start, fps);
+		const currentSeconds = framesToSeconds(displayTime, fps);
+		const clipDurationSeconds = framesToSeconds(
+			timeline.end - timeline.start,
+			fps,
+		);
+		const offsetSeconds = framesToSeconds(timeline.offset ?? 0, fps);
+
+		const videoTime = calculateVideoTime({
+			start: startSeconds,
+			timelineTime: currentSeconds,
+			videoDuration: internal.videoDuration,
+			reversed: props.reversed,
+			offset: offsetSeconds,
+			clipDuration: clipDurationSeconds,
+		});
+
+		await seekToTime(videoTime);
+	};
+
 	const store = createStore<
 		ComponentModel<VideoClipProps, VideoClipInternal>
 	>()(
@@ -785,6 +817,7 @@ export function createVideoClipModel(
 					);
 				});
 			},
+			prepareFrame,
 		})),
 	);
 

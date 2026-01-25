@@ -170,23 +170,6 @@ const TransitionRenderer: React.FC<TransitionRendererProps> = ({
 		};
 	}, [paintBundle]);
 
-	const hasNode = Boolean(fromNode || toNode);
-	const sizeValid = width > 0 && height > 0;
-	const hasPicture = Boolean(preRollPicture || afterRollPicture);
-	if (!hasNode || !sizeValid) return null;
-	if (!hasPicture) {
-		return (
-			<Group>
-				{fromNode && <Group opacity={fromOpacity}>{fromNode}</Group>}
-				{toNode && (
-					<Group opacity={toOpacity} blendMode="plus">
-						{toNode}
-					</Group>
-				)}
-			</Group>
-		);
-	}
-
 	const renderHardCut = () => {
 		return <Group>{currentTimeFrames < boundary ? fromNode : toNode}</Group>;
 	};
