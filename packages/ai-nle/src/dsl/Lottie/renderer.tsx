@@ -1,10 +1,6 @@
 import { useCallback } from "react";
 import { Group, Rect, Skottie } from "react-skia-lite";
-import {
-	useCurrentTime,
-	useFps,
-	useTimelineStore,
-} from "@/editor/contexts/TimelineContext";
+import { useFps, useRenderTime, useTimelineStore } from "@/editor/contexts/TimelineContext";
 import { framesToSeconds } from "@/utils/timecode";
 import { createModelSelector } from "../model/registry";
 import { useRenderLayout } from "../useRenderLayout";
@@ -24,7 +20,7 @@ const Lottie: React.FC<LottieRendererProps> = ({
 	speed = 1.0,
 	loop = true,
 }) => {
-	const { currentTime } = useCurrentTime();
+	const currentTime = useRenderTime();
 	const { fps } = useFps();
 
 	// 直接从 TimelineStore 读取元素的 timeline 数据

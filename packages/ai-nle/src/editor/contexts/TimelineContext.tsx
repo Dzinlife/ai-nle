@@ -74,6 +74,8 @@ interface TimelineStore {
 	historyLimit: number;
 	canvasSize: { width: number; height: number };
 	isPlaying: boolean;
+	isExporting: boolean; // 导出时暂停预览更新
+	exportTime: number | null; // 导出用时间帧
 	isDragging: boolean; // 是否正在拖拽元素
 	selectedIds: string[]; // 当前选中的元素 ID 列表
 	primarySelectedId: string | null; // 主选中元素 ID
@@ -125,6 +127,8 @@ interface TimelineStore {
 	play: () => void;
 	pause: () => void;
 	togglePlay: () => void;
+	setIsExporting: (isExporting: boolean) => void;
+	setExportTime: (time: number | null) => void;
 	setIsDragging: (isDragging: boolean) => void;
 	setSelectedElementId: (id: string | null) => void;
 	setSelectedIds: (ids: string[], primaryId?: string | null) => void;
@@ -258,6 +262,8 @@ export const useTimelineStore = create<TimelineStore>()(
 		historyLimit: HISTORY_LIMIT,
 		canvasSize: { width: 1920, height: 1080 },
 		isPlaying: false,
+		isExporting: false,
+		exportTime: null,
 		isDragging: false,
 		selectedIds: [],
 		primarySelectedId: null,
@@ -289,7 +295,8 @@ export const useTimelineStore = create<TimelineStore>()(
 		},
 
 		setCurrentTime: (time: number) => {
-			const currentTime = get().currentTime;
+			const { currentTime, isExporting } = get();
+			if (isExporting) return; // 导出期间冻结时间轴
 			const nextTime = clampFrame(time);
 			if (currentTime !== nextTime) {
 				set({ currentTime: nextTime });
@@ -298,6 +305,9 @@ export const useTimelineStore = create<TimelineStore>()(
 
 		setPreviewTime: (time: number | null) => {
 			set((state) => {
+				if (state.isExporting) {
+					return state; // 导出期间忽略 hover 预览
+				}
 				if (!state.previewAxisEnabled) {
 					if (state.previewTime === null) return state;
 					return { previewTime: null };
@@ -675,6 +685,18 @@ export const useTimelineStore = create<TimelineStore>()(
 				};
 			});
 		},
+		setIsExporting: (isExporting: boolean) => {
+			set((state) => {
+				if (state.isExporting === isExporting) return state;
+				return { isExporting };
+			});
+		},
+		setExportTime: (time: number | null) => {
+			set((state) => {
+				if (state.exportTime === time) return state;
+				return { exportTime: time };
+			});
+		},
 
 		setIsDragging: (isDragging: boolean) => {
 			set({ isDragging });
@@ -759,6 +781,17 @@ syncElementIndex(useTimelineStore.getState().elements);
 useTimelineStore.subscribe((state) => state.elements, (elements) => {
 	syncElementIndex(elements);
 });
+
+// 渲染时间：导出时使用导出帧，否则跟随预览/播放
+const resolveRenderTime = (state: TimelineStore): number => {
+	if (state.isExporting && state.exportTime !== null) return state.exportTime;
+	if (state.isPlaying) return state.currentTime;
+	return state.previewTime ?? state.currentTime;
+};
+
+export const useRenderTime = () => {
+	return useTimelineStore(resolveRenderTime);
+};
 
 export const useCurrentTime = () => {
 	const currentTime = useTimelineStore((state) => state.currentTime);

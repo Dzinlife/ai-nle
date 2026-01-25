@@ -102,10 +102,12 @@ export function createVideoClipModel(
 	id: string,
 	initialProps: VideoClipProps,
 ): ComponentModelStore<VideoClipProps, VideoClipInternal> {
+	const SEEK_PREFETCH_FRAMES = 24;
 	// 用于取消异步操作
 	let asyncId = 0;
 	let isSeekingFlag = false;
 	let lastSeekTime: number | null = null;
+	let lastPreparedFrameIndex: number | null = null;
 	let videoFrameIterator: AsyncGenerator<WrappedCanvas, void, unknown> | null =
 		null;
 
@@ -471,11 +473,11 @@ export function createVideoClipModel(
 		asyncId++;
 		const currentAsyncId = asyncId;
 
+		let iterator: AsyncGenerator<WrappedCanvas, void, unknown> | null = null;
 		try {
 			// 创建临时迭代器获取帧
-			const iterator = videoSink.canvases(seconds);
+			iterator = videoSink.canvases(seconds);
 			const firstFrame = (await iterator.next()).value ?? null;
-			await iterator.return?.();
 
 			if (currentAsyncId !== asyncId) return;
 
@@ -492,9 +494,30 @@ export function createVideoClipModel(
 					}
 				}
 			}
+			if (firstFrame && SEEK_PREFETCH_FRAMES > 0) {
+				// 预取少量连续帧，减少拖动预览时的离散命中
+				for (let i = 0; i < SEEK_PREFETCH_FRAMES; i += 1) {
+					const result = await iterator.next();
+					if (currentAsyncId !== asyncId) return;
+					const nextFrame = result.value ?? null;
+					if (!nextFrame) break;
+					const canvas = nextFrame.canvas;
+					if (
+						canvas instanceof HTMLCanvasElement ||
+						canvas instanceof OffscreenCanvas
+					) {
+						const skiaImage = await canvasToSkImage(canvas);
+						if (skiaImage && currentAsyncId === asyncId) {
+							const alignedTime = alignTime(nextFrame.timestamp);
+							assetHandle?.asset.storeFrame(alignedTime, skiaImage);
+						}
+					}
+				}
+			}
 		} catch (err) {
 			console.warn("Seek failed:", err);
 		} finally {
+			await iterator?.return?.();
 			isSeekingFlag = false;
 		}
 	};
@@ -528,7 +551,35 @@ export function createVideoClipModel(
 			clipDuration: clipDurationSeconds,
 		});
 
-		await seekToTime(videoTime);
+		const targetFrameIndex = secondsToFrames(videoTime, fps);
+		const durationFrames = secondsToFrames(internal.videoDuration, fps);
+		const alignedFrameIndex = Math.min(
+			Math.max(0, targetFrameIndex),
+			durationFrames,
+		);
+		const alignedVideoTime = framesToSeconds(alignedFrameIndex, fps);
+		const t0 = performance.now();
+		// 导出时按帧顺序流式解码，只有回退或首次才重建迭代器
+		if (
+			props.reversed ||
+			lastPreparedFrameIndex === null ||
+			alignedFrameIndex < lastPreparedFrameIndex
+		) {
+			console.log("startPlayback 1");
+			await startPlayback(alignedVideoTime);
+			lastPreparedFrameIndex = alignedFrameIndex;
+		} else {
+			if (!isPlaybackActive) {
+				console.log("startPlayback 2");
+				await startPlayback(framesToSeconds(lastPreparedFrameIndex, fps));
+			}
+			if (alignedFrameIndex > lastPreparedFrameIndex) {
+				await getNextFrame(alignedVideoTime);
+				lastPreparedFrameIndex = alignedFrameIndex;
+			}
+		}
+		const t1 = performance.now();
+		console.log(`prepareFrame time: ${t1 - t0}ms`);
 	};
 
 	const store = createStore<
@@ -724,8 +775,7 @@ export function createVideoClipModel(
 
 					if (!unsubscribeTimelineOffset) {
 						unsubscribeTimelineOffset = useTimelineStore.subscribe(
-							(state) =>
-								state.getElementById(id)?.timeline?.offset ?? 0,
+							(state) => state.getElementById(id)?.timeline?.offset ?? 0,
 							() => {
 								updateMaxDurationByOffset();
 							},

@@ -1,6 +1,6 @@
 import { ALL_FORMATS, CanvasSink, Input, UrlSource } from "mediabunny";
 import type { SkImage } from "react-skia-lite";
-import { assetStore, type AssetHandle } from "./AssetStore";
+import { type AssetHandle, assetStore } from "./AssetStore";
 
 const DEFAULT_MAX_CACHE_SIZE = 500;
 
@@ -21,9 +21,14 @@ export type VideoAsset = {
 export const acquireVideoAsset = (
 	uri: string,
 ): Promise<AssetHandle<VideoAsset>> => {
-	return assetStore.acquire("video", uri, () => createVideoAsset(uri), (asset) => {
-		asset.clearCache();
-	});
+	return assetStore.acquire(
+		"video",
+		uri,
+		() => createVideoAsset(uri),
+		(asset) => {
+			asset.clearCache();
+		},
+	);
 };
 
 const createVideoAsset = async (uri: string): Promise<VideoAsset> => {

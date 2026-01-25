@@ -3,6 +3,7 @@ import { Group, ImageShader, Rect } from "react-skia-lite";
 import {
 	useFps,
 	usePlaybackControl,
+	useRenderTime,
 	useTimelineStore,
 } from "@/editor/contexts/TimelineContext";
 import { createModelSelector } from "../model/registry";
@@ -30,15 +31,11 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
 	id,
 	renderTimeline,
 }) => {
-	// 播放时使用真正的 currentTime，非播放时使用 previewTime ?? currentTime
-	const currentTimeFrames = useTimelineStore((state) => {
-		if (state.isPlaying) {
-			return state.currentTime;
-		}
-		return state.previewTime ?? state.currentTime;
-	});
+	// 渲染时优先使用导出帧
+	const currentTimeFrames = useRenderTime();
 	const { fps } = useFps();
 	const { isPlaying } = usePlaybackControl();
+	const isExporting = useTimelineStore((state) => state.isExporting);
 	const forceSeek = renderTimeline !== undefined;
 
 	// 直接从 TimelineStore 读取元素的 timeline 数据
@@ -106,6 +103,7 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
 
 	// 处理播放状态变化
 	useEffect(() => {
+		if (isExporting) return;
 		if (
 			isLoading ||
 			hasError ||
@@ -216,7 +214,17 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
 		startPlayback,
 		getNextFrame,
 		stopPlayback,
+		isExporting,
 	]);
+
+	useEffect(() => {
+		if (!isExporting) return;
+		// 导出期间重置预览播放状态，避免干扰导出解码
+		wasPlayingRef.current = false;
+		lastPlaybackTimeRef.current = null;
+		lastVideoTimeRef.current = null;
+		stopPlayback();
+	}, [isExporting, stopPlayback]);
 
 	// 组件卸载时停止播放
 	useEffect(() => {

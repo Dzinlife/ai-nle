@@ -7,10 +7,10 @@ import {
 } from "mediabunny";
 import React from "react";
 import {
-	Group as SkiaGroup,
+	JsiSkSurface,
 	Skia,
+	Group as SkiaGroup,
 	SkiaSGRoot,
-	type SkImage,
 } from "react-skia-lite";
 import { componentRegistry } from "@/dsl/model/componentRegistry";
 import { modelRegistry } from "@/dsl/model/registry";
@@ -90,68 +90,61 @@ const buildTransitionNodes = (
 	};
 };
 
-const ensure2DContext = (
-	canvas: HTMLCanvasElement | OffscreenCanvas,
-): CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D => {
+const ensure2DContext = (canvas: HTMLCanvasElement | OffscreenCanvas) => {
 	const ctx = canvas.getContext("2d");
 	if (!ctx) {
 		throw new Error("无法获取导出画布的 2D 上下文");
 	}
-	return ctx;
+	return ctx as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 };
 
-const drawSkiaImageToCanvas = (
-	image: SkImage,
-	targetCanvas: HTMLCanvasElement | OffscreenCanvas,
-	ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
-	reusableImageDataRef: { current: ImageData | null },
-	scratchRef: { current: HTMLCanvasElement | OffscreenCanvas | null },
-) => {
-	const info = image.getImageInfo();
-	const pixels = image.readPixels();
-	if (!pixels) {
-		throw new Error("无法读取 Skia 像素数据");
-	}
-	const clamped =
-		pixels instanceof Uint8ClampedArray
-			? pixels
-			: new Uint8ClampedArray(pixels);
-	if (
-		!reusableImageDataRef.current ||
-		reusableImageDataRef.current.width !== info.width ||
-		reusableImageDataRef.current.height !== info.height
-	) {
-		reusableImageDataRef.current = new ImageData(info.width, info.height);
-	}
-	reusableImageDataRef.current.data.set(clamped);
+const cleanupWebGLContext = (canvas: HTMLCanvasElement | OffscreenCanvas) => {
+	const ctx = canvas.getContext("webgl2");
+	if (!ctx) return;
+	const loseContext = ctx.getExtension("WEBGL_lose_context");
+	loseContext?.loseContext();
+};
 
-	const targetWidth = targetCanvas.width;
-	const targetHeight = targetCanvas.height;
-	if (info.width === targetWidth && info.height === targetHeight) {
-		ctx.putImageData(reusableImageDataRef.current, 0, 0);
-		return;
-	}
+const createWebGLSurfaceForExport = (
+	width: number,
+	height: number,
+): {
+	surface: JsiSkSurface;
+	canvas: HTMLCanvasElement | OffscreenCanvas;
+} | null => {
+	const canvas =
+		typeof OffscreenCanvas !== "undefined"
+			? new OffscreenCanvas(width, height)
+			: (() => {
+					const temp = document.createElement("canvas");
+					temp.width = width;
+					temp.height = height;
+					return temp;
+				})();
 
-	if (
-		!scratchRef.current ||
-		scratchRef.current.width !== info.width ||
-		scratchRef.current.height !== info.height
-	) {
-		scratchRef.current =
-			typeof OffscreenCanvas !== "undefined"
-				? new OffscreenCanvas(info.width, info.height)
-				: (() => {
-						const canvas = document.createElement("canvas");
-						canvas.width = info.width;
-						canvas.height = info.height;
-						return canvas;
-					})();
+	let surface: JsiSkSurface | null = null;
+	try {
+		const canvasKit = (globalThis as { CanvasKit?: any }).CanvasKit;
+		if (!canvasKit?.MakeWebGLCanvasSurface) {
+			throw new Error("CanvasKit 未初始化");
+		}
+		const ctx = canvas.getContext("webgl2") as WebGL2RenderingContext;
+		if (ctx) {
+			ctx.drawingBufferColorSpace = "display-p3";
+		}
+		const webglSurface = canvasKit.MakeWebGLCanvasSurface(canvas);
+		if (!webglSurface) {
+			throw new Error("无法创建 WebGL Surface");
+		}
+		surface = new JsiSkSurface(canvasKit, webglSurface);
+		return { surface, canvas };
+	} catch {
+		if (surface) {
+			surface.ref.delete();
+		}
+		cleanupWebGLContext(canvas);
+		return null;
 	}
-
-	const scratchCtx = ensure2DContext(scratchRef.current);
-	scratchCtx.putImageData(reusableImageDataRef.current, 0, 0);
-	ctx.clearRect(0, 0, targetWidth, targetHeight);
-	ctx.drawImage(scratchRef.current, 0, 0, targetWidth, targetHeight);
 };
 
 const downloadBlob = (blob: Blob, filename: string): void => {
@@ -216,14 +209,20 @@ export const exportTimelineAsVideo = async (options?: {
 		currentTime: timelineState.currentTime,
 		previewTime: timelineState.previewTime,
 		previewAxisEnabled: timelineState.previewAxisEnabled,
+		isExporting: timelineState.isExporting,
+		exportTime: timelineState.exportTime,
 	};
 
 	// 导出时先停掉播放与 hover 预览
 	timelineState.pause();
+	timelineState.setPreviewAxisEnabled(false);
 	timelineState.setPreviewTime(null);
+	timelineState.setIsExporting(true);
+	timelineState.setExportTime(startFrame);
 
 	let root: SkiaSGRoot | null = null;
-	let surface: ReturnType<typeof Skia.Surface.MakeOffscreen> | null = null;
+	let surface: JsiSkSurface | null = null;
+	let webglCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
 
 	try {
 		await waitForStaticModelsReady(elements);
@@ -250,20 +249,24 @@ export const exportTimelineAsVideo = async (options?: {
 		await output.start();
 
 		root = new SkiaSGRoot(Skia);
-		surface = Skia.Surface.MakeOffscreen(width, height);
+		const webglResult = createWebGLSurfaceForExport(width, height);
+		if (!webglResult) {
+			throw new Error("导出失败：无法创建 WebGL Surface");
+		}
+		surface = webglResult.surface;
+		webglCanvas = webglResult.canvas;
 		if (!surface) {
 			throw new Error("导出失败：无法创建离屏画布");
 		}
 		const skiaCanvas = surface.getCanvas();
 
 		const ctx = ensure2DContext(exportCanvas);
-		const reusableImageDataRef = { current: null as ImageData | null };
-		const scratchCanvasRef = {
-			current: null as HTMLCanvasElement | OffscreenCanvas | null,
-		};
+		if (!webglCanvas) {
+			throw new Error("导出失败：无法获取 WebGL 画布");
+		}
 
 		for (let frame = startFrame; frame < endFrame; frame += 1) {
-			timelineState.setCurrentTime(frame);
+			timelineState.setExportTime(frame);
 
 			const { children, visibleElements, transitionInfosById } =
 				buildSkiaRenderState({
@@ -300,45 +303,35 @@ export const exportTimelineAsVideo = async (options?: {
 				transitionEntries.set(info.transitionId, info);
 			}
 
-			for (const info of transitionEntries.values()) {
-				const nodes = buildTransitionNodes(info, elementsById);
-				if (!nodes) continue;
-				const { fromNode, toNode, transitionId } = nodes;
-				if (fromNode) {
-					await prepareSyncPicture(`${transitionId}:from`, frame, fromNode, {
-						width,
-						height,
-					});
-				}
-				if (toNode) {
-					await prepareSyncPicture(`${transitionId}:to`, frame, toNode, {
-						width,
-						height,
-					});
-				}
-			}
+			// for (const info of transitionEntries.values()) {
+			// 	const nodes = buildTransitionNodes(info, elementsById);
+			// 	if (!nodes) continue;
+			// 	const { fromNode, toNode, transitionId } = nodes;
+			// 	if (fromNode) {
+			// 		await prepareSyncPicture(`${transitionId}:from`, frame, fromNode, {
+			// 			width,
+			// 			height,
+			// 		});
+			// 	}
+			// 	if (toNode) {
+			// 		await prepareSyncPicture(`${transitionId}:to`, frame, toNode, {
+			// 			width,
+			// 			height,
+			// 		});
+			// 	}
+			// }
 
 			await root.render(children);
 
 			skiaCanvas.clear(Float32Array.of(0, 0, 0, 0));
 			root.drawOnCanvas(skiaCanvas);
 			surface.flush();
-			const snapshot = surface.makeImageSnapshot();
-			const image = snapshot.makeNonTextureImage();
-			try {
-				drawSkiaImageToCanvas(
-					image,
-					exportCanvas,
-					ctx,
-					reusableImageDataRef,
-					scratchCanvasRef,
-				);
-			} finally {
-				image.dispose();
-				snapshot.dispose();
-			}
+
+			ctx.clearRect(0, 0, width, height);
+			ctx.drawImage(webglCanvas, 0, 0, width, height);
 
 			await videoSource.add(frame / fps, 1 / fps);
+
 			clearSyncPictures(frame);
 		}
 
@@ -356,15 +349,20 @@ export const exportTimelineAsVideo = async (options?: {
 			root?.unmount();
 		} catch {}
 		try {
-			surface?.dispose();
+			if (surface && webglCanvas) {
+				surface.ref.delete();
+				cleanupWebGLContext(webglCanvas);
+			}
 		} catch {}
+		timelineState.setIsExporting(previousState.isExporting);
+		timelineState.setExportTime(previousState.exportTime ?? null);
+		timelineState.setPreviewAxisEnabled(previousState.previewAxisEnabled);
+		timelineState.setPreviewTime(previousState.previewTime);
+		timelineState.setCurrentTime(previousState.currentTime);
 		if (previousState.isPlaying) {
 			timelineState.play();
 		} else {
 			timelineState.pause();
 		}
-		timelineState.setPreviewAxisEnabled(previousState.previewAxisEnabled);
-		timelineState.setPreviewTime(previousState.previewTime);
-		timelineState.setCurrentTime(previousState.currentTime);
 	}
 };

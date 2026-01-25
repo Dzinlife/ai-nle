@@ -2,7 +2,7 @@ import React, { useCallback } from "react";
 import { Fill, Group as SkiaGroup } from "react-skia-lite";
 import { componentRegistry } from "@/dsl/model/componentRegistry";
 import type { TimelineElement } from "@/dsl/types";
-import { useTimelineStore } from "@/editor/contexts/TimelineContext";
+import { useRenderTime } from "@/editor/contexts/TimelineContext";
 import type { TimelineTrack } from "@/editor/timeline/types";
 import { getTransitionDuration, isTransitionElement } from "@/editor/utils/transitions";
 import { computeVisibleElements } from "./utils";
@@ -91,12 +91,7 @@ const TransitionClipLayer: React.FC<TransitionClipLayerProps> = ({
 	transitionInfos,
 	elementsById,
 }) => {
-	const currentTimeFrames = useTimelineStore((state) => {
-		if (state.isPlaying) {
-			return state.currentTime;
-		}
-		return state.previewTime ?? state.currentTime;
-	});
+	const currentTimeFrames = useRenderTime();
 	const activeTransition = pickActiveTransition(transitionInfos, currentTimeFrames);
 	const baseOpacity = element.render?.opacity ?? 1;
 	let renderTimeline: TransitionClipInfo["renderTimeline"];

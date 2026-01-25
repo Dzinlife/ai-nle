@@ -2,7 +2,10 @@ import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { Skia, SkiaSGRoot, type SkPicture } from "react-skia-lite";
 
-const syncPictureCacheByFrame = new Map<number, Map<string, SkPicture | null>>();
+const syncPictureCacheByFrame = new Map<
+	number,
+	Map<string, SkPicture | null>
+>();
 
 const getSyncPictureEntry = (
 	syncKey: string,
@@ -83,28 +86,15 @@ export const useSkPictureFromNode = (
 	node: ReactNode | null,
 	size: { width: number; height: number },
 	renderKey?: number,
-	options?: { syncKey?: string },
 ): SkPicture | null => {
 	const [picture, setPicture] = useState<SkPicture | null>(null);
 	const renderIdRef = useRef(0);
 	const pictureRef = useRef<SkPicture | null>(null);
-	const syncKey = options?.syncKey;
-	const hasSyncKey = typeof syncKey === "string" && syncKey.length > 0;
-	const syncEntry =
-		hasSyncKey && renderKey !== undefined
-			? getSyncPictureEntry(syncKey, renderKey)
-			: { exists: false, picture: null };
 
 	useEffect(() => {
 		let active = true;
 		const renderId = renderIdRef.current + 1;
 		renderIdRef.current = renderId;
-
-		if (syncEntry.exists) {
-			pictureRef.current = syncEntry.picture;
-			setPicture(syncEntry.picture);
-			return;
-		}
 
 		if (!node) {
 			pictureRef.current = null;
@@ -141,5 +131,5 @@ export const useSkPictureFromNode = (
 		};
 	}, []);
 
-	return syncEntry.exists ? syncEntry.picture : picture;
+	return picture;
 };

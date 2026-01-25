@@ -1,8 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Toaster } from "@/components/ui/sonner";
 import { ModelManager } from "@/dsl/model";
 import { TimelineElement } from "@/dsl/types";
-import { Toaster } from "@/components/ui/sonner";
 import EditorSidebars from "./components/EditorSidebars";
 import PreviewProvider from "./contexts/PreviewProvider";
 import { TimelineProvider } from "./contexts/TimelineContext";

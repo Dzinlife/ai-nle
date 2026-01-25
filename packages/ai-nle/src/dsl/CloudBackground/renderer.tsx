@@ -1,10 +1,6 @@
 import { useMemo } from "react";
 import { Fill, Group, Rect, Shader, Skia } from "react-skia-lite";
-import {
-	useCurrentTime,
-	useFps,
-	useTimelineStore,
-} from "@/editor/contexts/TimelineContext";
+import { useFps, useRenderTime, useTimelineStore } from "@/editor/contexts/TimelineContext";
 import { framesToSeconds } from "@/utils/timecode";
 import { createModelSelector } from "../model/registry";
 import { parseStartEndSchema } from "../startEndSchema";
@@ -21,7 +17,7 @@ const useCloudBackgroundSelector =
 const CloudBackgroundRenderer: React.FC<CloudBackgroundRendererProps> = ({
 	id,
 }) => {
-	const { currentTime } = useCurrentTime();
+	const currentTime = useRenderTime();
 	const { fps } = useFps();
 
 	// 直接从 TimelineStore 读取元素的 timeline 数据

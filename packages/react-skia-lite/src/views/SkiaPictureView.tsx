@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useImperativeHandle, useRef } from "react";
 import { Platform } from "../Platform";
 import type { LayoutChangeEvent } from "../react-native-types";
+import { CanvasKit } from "../skia/Skia";
 import type { SkImage, SkPicture, SkRect } from "../skia/types";
 import { JsiSkSurface } from "../skia/web/JsiSkSurface";
 import { SkiaViewApi } from "./api";

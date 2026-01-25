@@ -10,7 +10,7 @@ import {
 	TileMode,
 } from "react-skia-lite";
 import type { TimelineElement } from "@/dsl/types";
-import { useTimelineStore } from "@/editor/contexts/TimelineContext";
+import { useRenderTime, useTimelineStore } from "@/editor/contexts/TimelineContext";
 import type { TransitionProps } from "./model";
 import { useSkPictureFromNode } from "./picture";
 
@@ -61,12 +61,7 @@ const TransitionRenderer: React.FC<TransitionRendererProps> = ({
 	progress,
 	id,
 }) => {
-	const currentTimeFrames = useTimelineStore((state) => {
-		if (state.isPlaying) {
-			return state.currentTime;
-		}
-		return state.previewTime ?? state.currentTime;
-	});
+	const currentTimeFrames = useRenderTime();
 	const transitionElement = useTimelineStore(
 		(state) => state.getElementById(id)!,
 	);
@@ -104,13 +99,11 @@ const TransitionRenderer: React.FC<TransitionRendererProps> = ({
 		fromNode ?? null,
 		canvasSize,
 		currentTimeFrames,
-		{ syncKey: `${id}:from` },
 	);
 	const afterRollPicture = useSkPictureFromNode(
 		toNode ?? null,
 		canvasSize,
 		currentTimeFrames,
-		{ syncKey: `${id}:to` },
 	);
 
 	const blendShader = useMemo(() => {
