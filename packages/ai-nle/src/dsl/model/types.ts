@@ -15,6 +15,7 @@ export type PrepareFrameContext = {
 		end: number;
 		offset?: number;
 	};
+	phase?: "beforeRender" | "afterRender";
 };
 
 // 组件约束信息

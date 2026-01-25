@@ -5,9 +5,20 @@ import {
 	Output,
 	QUALITY_HIGH,
 } from "mediabunny";
-import { Skia, SkiaSGRoot, type SkImage } from "react-skia-lite";
-import type { TimelineElement } from "@/dsl/types";
+import React from "react";
+import {
+	Group as SkiaGroup,
+	Skia,
+	SkiaSGRoot,
+	type SkImage,
+} from "react-skia-lite";
+import { componentRegistry } from "@/dsl/model/componentRegistry";
 import { modelRegistry } from "@/dsl/model/registry";
+import {
+	clearSyncPictures,
+	prepareSyncPicture,
+} from "@/dsl/Transition/picture";
+import type { TimelineElement } from "@/dsl/types";
 import { useTimelineStore } from "@/editor/contexts/TimelineContext";
 import {
 	buildSkiaRenderState,
@@ -31,6 +42,52 @@ const sortByTrackIndex = (items: TimelineElement[]) => {
 			return a.index - b.index;
 		})
 		.map(({ el }) => el);
+};
+
+const renderElementNode = (
+	element: TimelineElement,
+	renderTimeline?: { start: number; end: number; offset: number },
+) => {
+	const componentDef = componentRegistry.get(element.component);
+	if (!componentDef) {
+		console.warn(`[Export] Component "${element.component}" not registered`);
+		return null;
+	}
+	const Renderer = componentDef.Renderer;
+	return React.createElement(Renderer, {
+		id: element.id,
+		...element.props,
+		...(element.type === "VideoClip" && renderTimeline
+			? { renderTimeline }
+			: {}),
+	});
+};
+
+const wrapOpacityNode = (node: React.ReactNode, opacity: number) => {
+	if (!node) return null;
+	return React.createElement(SkiaGroup, { opacity }, node);
+};
+
+const buildTransitionNodes = (
+	info: ReturnType<typeof pickActiveTransition>,
+	elementsById: Map<string, TimelineElement>,
+) => {
+	if (!info) return null;
+	const fromElement = elementsById.get(info.fromId);
+	const toElement = elementsById.get(info.toId);
+	if (!fromElement || !toElement) return null;
+
+	const fromOpacity = fromElement.render?.opacity ?? 1;
+	const toOpacity = toElement.render?.opacity ?? 1;
+
+	const fromContent = renderElementNode(fromElement, info.peerRenderTimeline);
+	const toContent = renderElementNode(toElement, info.renderTimeline);
+
+	return {
+		fromNode: wrapOpacityNode(fromContent, fromOpacity),
+		toNode: wrapOpacityNode(toContent, toOpacity),
+		transitionId: info.transitionId,
+	};
 };
 
 const ensure2DContext = (
@@ -130,6 +187,7 @@ export const exportTimelineAsVideo = async (options?: {
 }): Promise<void> => {
 	const timelineState = useTimelineStore.getState();
 	const elements = timelineState.elements;
+	const elementsById = new Map(elements.map((el) => [el.id, el] as const));
 	const tracks = timelineState.tracks;
 	const fps = Number.isFinite(options?.fps)
 		? Math.round(options?.fps as number)
@@ -228,7 +286,36 @@ export const exportTimelineAsVideo = async (options?: {
 					displayTime: frame,
 					fps,
 					renderTimeline: transition?.renderTimeline,
+					phase: "beforeRender",
 				});
+			}
+
+			const transitionEntries = new Map<
+				string,
+				ReturnType<typeof pickActiveTransition>
+			>();
+			for (const infos of transitionInfosById.values()) {
+				const info = pickActiveTransition(infos, frame);
+				if (!info) continue;
+				transitionEntries.set(info.transitionId, info);
+			}
+
+			for (const info of transitionEntries.values()) {
+				const nodes = buildTransitionNodes(info, elementsById);
+				if (!nodes) continue;
+				const { fromNode, toNode, transitionId } = nodes;
+				if (fromNode) {
+					await prepareSyncPicture(`${transitionId}:from`, frame, fromNode, {
+						width,
+						height,
+					});
+				}
+				if (toNode) {
+					await prepareSyncPicture(`${transitionId}:to`, frame, toNode, {
+						width,
+						height,
+					});
+				}
 			}
 
 			await root.render(children);
@@ -252,6 +339,7 @@ export const exportTimelineAsVideo = async (options?: {
 			}
 
 			await videoSource.add(frame / fps, 1 / fps);
+			clearSyncPictures(frame);
 		}
 
 		await output.finalize();

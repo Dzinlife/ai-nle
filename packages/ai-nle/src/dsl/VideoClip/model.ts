@@ -501,6 +501,7 @@ export function createVideoClipModel(
 
 	const prepareFrame = async (context: PrepareFrameContext): Promise<void> => {
 		const { element, displayTime, fps, renderTimeline } = context;
+		if (context.phase === "afterRender") return;
 		const { internal, constraints, props } = store.getState();
 		if (constraints.isLoading || constraints.hasError) return;
 		if (!props.uri || internal.videoDuration <= 0) return;

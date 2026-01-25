@@ -104,11 +104,13 @@ const TransitionRenderer: React.FC<TransitionRendererProps> = ({
 		fromNode ?? null,
 		canvasSize,
 		currentTimeFrames,
+		{ syncKey: `${id}:from` },
 	);
 	const afterRollPicture = useSkPictureFromNode(
 		toNode ?? null,
 		canvasSize,
 		currentTimeFrames,
+		{ syncKey: `${id}:to` },
 	);
 
 	const blendShader = useMemo(() => {
