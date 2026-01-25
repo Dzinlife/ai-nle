@@ -86,10 +86,25 @@ export const useSkPictureFromNode = (
 	node: ReactNode | null,
 	size: { width: number; height: number },
 	renderKey?: number,
+	syncKey?: string,
 ): SkPicture | null => {
 	const [picture, setPicture] = useState<SkPicture | null>(null);
 	const renderIdRef = useRef(0);
 	const pictureRef = useRef<SkPicture | null>(null);
+	const usedSyncRef = useRef(false);
+	const syncEntry =
+		renderKey !== undefined && syncKey
+			? getSyncPictureEntry(syncKey, renderKey)
+			: { exists: false, picture: null };
+
+	useEffect(() => {
+		// 同步缓存失效后清空引用，避免使用已释放的 SkPicture
+		if (!syncEntry.exists && usedSyncRef.current) {
+			usedSyncRef.current = false;
+			pictureRef.current = null;
+			setPicture(null);
+		}
+	}, [syncEntry.exists]);
 
 	useEffect(() => {
 		let active = true;
@@ -101,6 +116,11 @@ export const useSkPictureFromNode = (
 			setPicture(null);
 			return;
 		}
+		if (syncEntry.exists) {
+			usedSyncRef.current = true;
+			return;
+		}
+		usedSyncRef.current = false;
 
 		const render = async () => {
 			try {
@@ -123,7 +143,7 @@ export const useSkPictureFromNode = (
 		return () => {
 			active = false;
 		};
-	}, [node, renderKey, size.height, size.width]);
+	}, [node, renderKey, syncKey, size.height, size.width, syncEntry.exists]);
 
 	useEffect(() => {
 		return () => {
@@ -131,5 +151,8 @@ export const useSkPictureFromNode = (
 		};
 	}, []);
 
+	if (syncEntry.exists) return syncEntry.picture;
+	// 同步缓存刚被清理时，避免返回已释放的引用
+	if (usedSyncRef.current) return null;
 	return picture;
 };

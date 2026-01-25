@@ -44,6 +44,8 @@ export interface VideoClipInternal {
 	startPlayback: (startTime: number) => Promise<void>;
 	// 获取下一帧（流式播放时调用）
 	getNextFrame: (targetTime: number) => Promise<void>;
+	// 播放步进（自动处理启动/回退）
+	stepPlayback: (targetTime: number) => Promise<void>;
 	// 停止流式播放
 	stopPlayback: () => void;
 }
@@ -81,6 +83,8 @@ export const calculateVideoTime = ({
 };
 
 const DEFAULT_FPS = 30;
+// 目标时间回退超过该帧数则重启流式播放（按时间线 FPS 计算）
+const PLAYBACK_BACK_JUMP_FRAMES = 3;
 const normalizeOffsetFrames = (offset?: number): number => {
 	if (!Number.isFinite(offset ?? NaN)) return 0;
 	return Math.max(0, Math.round(offset as number));
@@ -107,6 +111,7 @@ export function createVideoClipModel(
 	let asyncId = 0;
 	let isSeekingFlag = false;
 	let lastSeekTime: number | null = null;
+	let pendingSeekTime: number | null = null;
 	let lastPreparedFrameIndex: number | null = null;
 	let videoFrameIterator: AsyncGenerator<WrappedCanvas, void, unknown> | null =
 		null;
@@ -115,6 +120,30 @@ export function createVideoClipModel(
 	let isPlaybackActive = false;
 	let nextFrame: WrappedCanvas | null = null;
 	let isSteppingPlayback = false;
+	let lastPlaybackTargetTime: number | null = null;
+	let playbackIdleTimer: ReturnType<typeof setTimeout> | null = null;
+	let lastPlaybackTouch = 0;
+
+	const PLAYBACK_IDLE_MS = 500;
+
+	const touchPlayback = () => {
+		lastPlaybackTouch = performance.now();
+		if (playbackIdleTimer) {
+			clearTimeout(playbackIdleTimer);
+		}
+		// 导出时保持流式解码，不触发空闲停止
+		if (useTimelineStore.getState().isExporting) {
+			playbackIdleTimer = null;
+			return;
+		}
+		playbackIdleTimer = setTimeout(() => {
+			if (useTimelineStore.getState().isExporting) return;
+			const now = performance.now();
+			if (now - lastPlaybackTouch >= PLAYBACK_IDLE_MS) {
+				stopPlayback();
+			}
+		}, PLAYBACK_IDLE_MS);
+	};
 
 	let assetHandle: AssetHandle<VideoAsset> | null = null;
 	let unsubscribeTimelineOffset: (() => void) | null = null;
@@ -344,6 +373,7 @@ export function createVideoClipModel(
 		const { videoSink } = internal;
 
 		if (!videoSink || isPlaybackActive) return;
+		touchPlayback();
 
 		// 停止之前的迭代器
 		await videoFrameIterator?.return?.();
@@ -354,10 +384,16 @@ export function createVideoClipModel(
 
 		try {
 			// 创建新的迭代器
-			videoFrameIterator = videoSink.canvases(startTime);
+			const iterator = videoSink.canvases(startTime);
+			if (!iterator || typeof iterator.next !== "function") {
+				isPlaybackActive = false;
+				console.warn("Start playback failed: invalid iterator");
+				return;
+			}
+			videoFrameIterator = iterator;
 
 			// 获取第一帧
-			const firstFrameResult = await videoFrameIterator.next();
+			const firstFrameResult = await iterator.next();
 			if (currentAsyncId !== asyncId) return;
 
 			const firstFrame = firstFrameResult.value ?? null;
@@ -374,8 +410,9 @@ export function createVideoClipModel(
 				}
 			}
 
+			if (currentAsyncId !== asyncId || !isPlaybackActive) return;
 			// 预读下一帧
-			const secondFrameResult = await videoFrameIterator.next();
+			const secondFrameResult = await iterator.next();
 			if (currentAsyncId !== asyncId) return;
 			nextFrame = secondFrameResult.value ?? null;
 		} catch (err) {
@@ -389,6 +426,7 @@ export function createVideoClipModel(
 		if (!isPlaybackActive || !videoFrameIterator) return;
 		if (isSteppingPlayback) return;
 		isSteppingPlayback = true;
+		touchPlayback();
 
 		const currentAsyncId = asyncId;
 
@@ -429,11 +467,39 @@ export function createVideoClipModel(
 
 	// 停止流式播放
 	const stopPlayback = () => {
+		asyncId++; // 取消可能在途的播放解码
 		isPlaybackActive = false;
 		isSteppingPlayback = false;
 		nextFrame = null;
+		lastPlaybackTargetTime = null;
+		if (playbackIdleTimer) {
+			clearTimeout(playbackIdleTimer);
+			playbackIdleTimer = null;
+		}
 		videoFrameIterator?.return?.();
 		videoFrameIterator = null;
+	};
+
+	// 统一的播放步进方法，避免频繁挂载导致状态丢失
+	const stepPlayback = async (targetTime: number): Promise<void> => {
+		if (!Number.isFinite(targetTime)) return;
+		if (!isPlaybackActive) {
+			await startPlayback(targetTime);
+			lastPlaybackTargetTime = targetTime;
+			return;
+		}
+		if (
+			lastPlaybackTargetTime !== null &&
+			targetTime <
+				lastPlaybackTargetTime - PLAYBACK_BACK_JUMP_FRAMES / getTimelineFps()
+		) {
+			stopPlayback();
+			await startPlayback(targetTime);
+			lastPlaybackTargetTime = targetTime;
+			return;
+		}
+		await getNextFrame(targetTime);
+		lastPlaybackTargetTime = targetTime;
 	};
 
 	// Seek 到指定时间的方法（用于拖动/跳转）
@@ -449,10 +515,12 @@ export function createVideoClipModel(
 		}
 
 		// 防止并发 seek
-		if (isSeekingFlag) return;
-		if (lastSeekTime === seconds) return;
-
 		const alignedTime = alignTime(seconds);
+		if (isSeekingFlag) {
+			pendingSeekTime = alignedTime;
+			return;
+		}
+		if (lastSeekTime === alignedTime) return;
 
 		// 检查缓存
 		const cachedFrame = assetHandle?.asset.getCachedFrame(alignedTime);
@@ -465,7 +533,7 @@ export function createVideoClipModel(
 					isReady: true,
 				},
 			}));
-			lastSeekTime = seconds;
+			lastSeekTime = alignedTime;
 			return;
 		}
 
@@ -476,7 +544,7 @@ export function createVideoClipModel(
 		let iterator: AsyncGenerator<WrappedCanvas, void, unknown> | null = null;
 		try {
 			// 创建临时迭代器获取帧
-			iterator = videoSink.canvases(seconds);
+			iterator = videoSink.canvases(alignedTime);
 			const firstFrame = (await iterator.next()).value ?? null;
 
 			if (currentAsyncId !== asyncId) return;
@@ -489,8 +557,8 @@ export function createVideoClipModel(
 				) {
 					const skiaImage = await canvasToSkImage(canvas);
 					if (skiaImage && currentAsyncId === asyncId) {
-						updateCurrentFrame(skiaImage, seconds);
-						lastSeekTime = seconds;
+						updateCurrentFrame(skiaImage, alignedTime);
+						lastSeekTime = alignedTime;
 					}
 				}
 			}
@@ -519,6 +587,13 @@ export function createVideoClipModel(
 		} finally {
 			await iterator?.return?.();
 			isSeekingFlag = false;
+			if (pendingSeekTime !== null && pendingSeekTime !== lastSeekTime) {
+				const nextTime = pendingSeekTime;
+				pendingSeekTime = null;
+				await seekToTime(nextTime);
+			} else {
+				pendingSeekTime = null;
+			}
 		}
 	};
 
@@ -558,19 +633,16 @@ export function createVideoClipModel(
 			durationFrames,
 		);
 		const alignedVideoTime = framesToSeconds(alignedFrameIndex, fps);
-		const t0 = performance.now();
 		// 导出时按帧顺序流式解码，只有回退或首次才重建迭代器
 		if (
 			props.reversed ||
 			lastPreparedFrameIndex === null ||
 			alignedFrameIndex < lastPreparedFrameIndex
 		) {
-			console.log("startPlayback 1");
 			await startPlayback(alignedVideoTime);
 			lastPreparedFrameIndex = alignedFrameIndex;
 		} else {
 			if (!isPlaybackActive) {
-				console.log("startPlayback 2");
 				await startPlayback(framesToSeconds(lastPreparedFrameIndex, fps));
 			}
 			if (alignedFrameIndex > lastPreparedFrameIndex) {
@@ -578,8 +650,6 @@ export function createVideoClipModel(
 				lastPreparedFrameIndex = alignedFrameIndex;
 			}
 		}
-		const t1 = performance.now();
-		console.log(`prepareFrame time: ${t1 - t0}ms`);
 	};
 
 	const store = createStore<
@@ -606,6 +676,7 @@ export function createVideoClipModel(
 				seekToTime,
 				startPlayback,
 				getNextFrame,
+				stepPlayback,
 				stopPlayback,
 			} satisfies VideoClipInternal,
 
@@ -830,6 +901,8 @@ export function createVideoClipModel(
 			dispose: () => {
 				asyncId++; // 取消所有进行中的异步操作
 				const internal = get().internal as VideoClipInternal;
+
+				stopPlayback();
 
 				// 清理迭代器
 				videoFrameIterator?.return?.();

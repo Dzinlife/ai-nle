@@ -141,7 +141,7 @@
 				"toId": "video-piano"
 			},
 			"transition": {
-				"duration": 15
+				"duration": 200
 			}
 		},
 		{

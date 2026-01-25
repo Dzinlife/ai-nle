@@ -6,14 +6,14 @@ import {
 	useRenderTime,
 	useTimelineStore,
 } from "@/editor/contexts/TimelineContext";
+import { framesToSeconds } from "@/utils/timecode";
 import { createModelSelector } from "../model/registry";
 import { useRenderLayout } from "../useRenderLayout";
 import {
+	calculateVideoTime,
 	type VideoClipInternal,
 	type VideoClipProps,
-	calculateVideoTime,
 } from "./model";
-import { framesToSeconds } from "@/utils/timecode";
 
 interface VideoClipRendererProps extends VideoClipProps {
 	id: string;
@@ -24,8 +24,50 @@ interface VideoClipRendererProps extends VideoClipProps {
 	};
 }
 
-const useVideoClipSelector =
-	createModelSelector<VideoClipProps, VideoClipInternal>();
+const useVideoClipSelector = createModelSelector<
+	VideoClipProps,
+	VideoClipInternal
+>();
+
+// 低于该帧数的时间抖动不触发 seek（按时间线 FPS 计算）
+const SEEK_SKIP_FRAMES = 1.5;
+const DEFAULT_TRANSITION_DURATION = 15;
+
+const resolveRenderTimeFromState = (
+	state: ReturnType<typeof useTimelineStore.getState>,
+) => {
+	if (state.isExporting && state.exportTime !== null) return state.exportTime;
+	if (state.isPlaying) return state.currentTime;
+	return state.previewTime ?? state.currentTime;
+};
+
+const isClipInTransitionAtTime = (
+	clipId: string,
+	time: number,
+	elements: ReturnType<typeof useTimelineStore.getState>["elements"],
+): boolean => {
+	for (const element of elements) {
+		if (element.type !== "Transition") continue;
+		const props = (element.props ?? {}) as {
+			fromId?: string;
+			toId?: string;
+			duration?: number;
+		};
+		if (props.fromId !== clipId && props.toId !== clipId) continue;
+		const duration =
+			element.transition?.duration ??
+			props.duration ??
+			DEFAULT_TRANSITION_DURATION;
+		const safeDuration = Math.max(0, Math.round(duration));
+		const head = Math.floor(safeDuration / 2);
+		const tail = safeDuration - head;
+		const boundary = element.timeline.start ?? 0;
+		const start = boundary - head;
+		const end = boundary + tail;
+		if (time >= start && time < end) return true;
+	}
+	return false;
+};
 
 const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
 	id,
@@ -36,7 +78,7 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
 	const { fps } = useFps();
 	const { isPlaying } = usePlaybackControl();
 	const isExporting = useTimelineStore((state) => state.isExporting);
-	const forceSeek = renderTimeline !== undefined;
+	const isTransitionRender = renderTimeline !== undefined;
 
 	// 直接从 TimelineStore 读取元素的 timeline 数据
 	const timeline = useTimelineStore(
@@ -45,8 +87,13 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
 	const activeTimeline = renderTimeline ?? timeline;
 
 	// 将中心坐标转换为左上角坐标
-	const { cx, cy, w: width, h: height, rotation: rotate = 0 } =
-		useRenderLayout(id);
+	const {
+		cx,
+		cy,
+		w: width,
+		h: height,
+		rotation: rotate = 0,
+	} = useRenderLayout(id);
 	const x = cx - width / 2;
 	const y = cy - height / 2;
 
@@ -76,13 +123,9 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
 		id,
 		(state) => state.internal.seekToTime,
 	);
-	const startPlayback = useVideoClipSelector(
+	const stepPlayback = useVideoClipSelector(
 		id,
-		(state) => state.internal.startPlayback,
-	);
-	const getNextFrame = useVideoClipSelector(
-		id,
-		(state) => state.internal.getNextFrame,
+		(state) => state.internal.stepPlayback,
 	);
 	const stopPlayback = useVideoClipSelector(
 		id,
@@ -92,12 +135,11 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
 	// 跟踪播放状态
 	const wasPlayingRef = useRef(false);
 	const lastVideoTimeRef = useRef<number | null>(null);
-	const lastPlaybackTimeRef = useRef<number | null>(null); // 追踪播放时的时间
+	const wasExportingRef = useRef(false);
 
 	useEffect(() => {
 		// sink 切换后重置播放状态，确保重新启动流式播放
 		wasPlayingRef.current = false;
-		lastPlaybackTimeRef.current = null;
 		lastVideoTimeRef.current = null;
 	}, [playbackEpoch]);
 
@@ -115,6 +157,7 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
 		}
 
 		const safeFps = Number.isFinite(fps) && fps > 0 ? Math.round(fps) : 30;
+		const seekSkipSeconds = SEEK_SKIP_FRAMES / safeFps;
 		const startSeconds =
 			renderTimeline !== undefined
 				? activeTimeline.start / safeFps
@@ -139,17 +182,16 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
 			clipDuration: clipDurationSeconds,
 		});
 
-		// 转场渲染期间强制走 seek，避免流式播放导致闪烁
-		if (forceSeek) {
-			if (wasPlayingRef.current) {
-				wasPlayingRef.current = false;
-				lastPlaybackTimeRef.current = null;
-				stopPlayback();
+		// 转场渲染：播放时用流式步进，暂停时用 seek
+		if (isTransitionRender) {
+			if (isPlaying) {
+				stepPlayback(videoTime);
+				return;
 			}
-
+			stopPlayback();
 			if (
 				lastVideoTimeRef.current !== null &&
-				Math.abs(lastVideoTimeRef.current - videoTime) < 0.05
+				Math.abs(lastVideoTimeRef.current - videoTime) < seekSkipSeconds
 			) {
 				return;
 			}
@@ -158,41 +200,25 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
 			return;
 		}
 
-		// 播放状态变化：从暂停到播放
-		if (isPlaying && !wasPlayingRef.current) {
-			wasPlayingRef.current = true;
-			lastPlaybackTimeRef.current = videoTime;
-			startPlayback(videoTime);
+		// 播放中：使用统一步进，跨组件跳转也能生效
+		if (isPlaying) {
+			if (!wasPlayingRef.current) {
+				wasPlayingRef.current = true;
+			}
+			stepPlayback(videoTime);
 			return;
 		}
 
 		// 播放状态变化：从播放到暂停
-		if (!isPlaying && wasPlayingRef.current) {
+		if (wasPlayingRef.current) {
 			wasPlayingRef.current = false;
-			lastPlaybackTimeRef.current = null;
 			stopPlayback();
-			return;
-		}
-
-		// 播放中：检测是否需要重新 seek（时间跳跃）
-		if (isPlaying) {
-			const lastTime = lastPlaybackTimeRef.current;
-			// 如果时间向后跳跃（seek 到更早的位置），需要重新启动播放
-			if (lastTime !== null && videoTime < lastTime - 0.1) {
-				// 重新启动播放
-				stopPlayback();
-				startPlayback(videoTime);
-			} else {
-				getNextFrame(videoTime);
-			}
-			lastPlaybackTimeRef.current = videoTime;
-			return;
 		}
 
 		// 非播放状态：使用 seek（拖动时间轴）
 		if (
 			lastVideoTimeRef.current !== null &&
-			Math.abs(lastVideoTimeRef.current - videoTime) < 0.05
+			Math.abs(lastVideoTimeRef.current - videoTime) < seekSkipSeconds
 		) {
 			return; // 时间变化太小，跳过
 		}
@@ -203,7 +229,7 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
 		props.uri,
 		props.reversed,
 		activeTimeline,
-		forceSeek,
+		isTransitionRender,
 		videoDuration,
 		isLoading,
 		hasError,
@@ -211,27 +237,41 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
 		fps,
 		isPlaying,
 		seekToTime,
-		startPlayback,
-		getNextFrame,
+		stepPlayback,
 		stopPlayback,
 		isExporting,
 	]);
 
 	useEffect(() => {
-		if (!isExporting) return;
-		// 导出期间重置预览播放状态，避免干扰导出解码
-		wasPlayingRef.current = false;
-		lastPlaybackTimeRef.current = null;
-		lastVideoTimeRef.current = null;
-		stopPlayback();
+		if (isExporting) {
+			// 导出期间只重置状态，不停止流式播放，避免频繁重启
+			wasExportingRef.current = true;
+			wasPlayingRef.current = false;
+			lastVideoTimeRef.current = null;
+			return;
+		}
+		if (wasExportingRef.current) {
+			// 导出结束后再停止流式播放，清理资源
+			wasExportingRef.current = false;
+			stopPlayback();
+		}
 	}, [isExporting, stopPlayback]);
 
 	// 组件卸载时停止播放
 	useEffect(() => {
 		return () => {
+			if (isExporting) return;
+			if (isPlaying) {
+				const state = useTimelineStore.getState();
+				const renderTime = resolveRenderTimeFromState(state);
+				// 转场切换期间不停止播放，避免进入瞬间卡顿
+				if (isClipInTransitionAtTime(id, renderTime, state.elements)) {
+					return;
+				}
+			}
 			stopPlayback();
 		};
-	}, [stopPlayback]);
+	}, [id, isPlaying, stopPlayback]);
 
 	// Loading 状态
 	if (isLoading) {
