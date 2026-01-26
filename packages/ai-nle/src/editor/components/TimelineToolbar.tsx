@@ -20,7 +20,7 @@ import {
 	useTimelineStore,
 } from "../contexts/TimelineContext";
 import { updateElementTime } from "../utils/timelineTime";
-import { reconcileTransitions } from "../utils/transitions";
+import { isTransitionElement, reconcileTransitions } from "../utils/transitions";
 
 const isSplittableClip = (element: TimelineElement) =>
 	element.type === "VideoClip" || element.type === "AudioClip";
@@ -61,6 +61,34 @@ const buildSplitElements = (
 	};
 	const right = updateElementTime(rightBase, splitFrame, originalEnd, fps);
 	return { left, right };
+};
+
+const remapTransitionsAfterSplit = (
+	elements: TimelineElement[],
+	options: {
+		clipId: string;
+		rightClipId: string;
+		originalEnd: number;
+	},
+): TimelineElement[] => {
+	const { clipId, rightClipId, originalEnd } = options;
+	let didChange = false;
+	const next = elements.map((element) => {
+		if (!isTransitionElement(element)) return element;
+		const props = (element.props ?? {}) as { fromId?: string; toId?: string };
+		const fromId = typeof props.fromId === "string" ? props.fromId : undefined;
+		if (fromId !== clipId) return element;
+		if (element.timeline.start !== originalEnd) return element;
+		didChange = true;
+		return {
+			...element,
+			props: {
+				...props,
+				fromId: rightClipId,
+			},
+		};
+	});
+	return didChange ? next : elements;
 };
 
 const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
@@ -177,6 +205,7 @@ const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
 			const splitFrame = clampFrame(currentTime);
 			if (splitFrame <= target.timeline.start) return prev;
 			if (splitFrame >= target.timeline.end) return prev;
+			const originalEnd = target.timeline.end;
 			const newId = createElementId();
 			const { left, right } = buildSplitElements(
 				target,
@@ -187,7 +216,12 @@ const TimelineToolbar: React.FC<{ className?: string }> = ({ className }) => {
 			const next = [...prev];
 			next[targetIndex] = left;
 			next.splice(targetIndex + 1, 0, right);
-			return reconcileTransitions(next, fps);
+			const remapped = remapTransitionsAfterSplit(next, {
+				clipId: target.id,
+				rightClipId: newId,
+				originalEnd,
+			});
+			return reconcileTransitions(remapped, fps);
 		});
 	}, [currentTime, fps, setElements, splitCandidate]);
 
