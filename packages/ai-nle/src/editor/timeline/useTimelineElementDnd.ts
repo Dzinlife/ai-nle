@@ -23,6 +23,7 @@ import {
 } from "../utils/trackAssignment";
 import {
 	collectLinkedTransitions,
+	getTransitionDuration,
 	isTransitionElement,
 } from "../utils/transitions";
 import {
@@ -164,9 +165,99 @@ const normalizeOffsetFrames = (value: unknown): number => {
 const isOffsetElement = (element: TimelineElement): boolean =>
 	element.type === "VideoClip" || element.type === "AudioClip";
 
+const isClipElement = (element: TimelineElement): boolean =>
+	getElementRole(element) === "clip" && !isTransitionElement(element);
+
 const getElementOffsetFrames = (element: TimelineElement): number | null => {
 	if (!isOffsetElement(element)) return null;
 	return normalizeOffsetFrames(element.timeline.offset);
+};
+
+const getTransitionLinkIds = (
+	transition: TimelineElement,
+): { fromId?: string; toId?: string } => {
+	const props = (transition.props ?? {}) as {
+		fromId?: string;
+		toId?: string;
+	};
+	const fromId = typeof props.fromId === "string" ? props.fromId : undefined;
+	const toId = typeof props.toId === "string" ? props.toId : undefined;
+	return { fromId, toId };
+};
+
+const getTransitionDurationParts = (duration: number) => {
+	const safeDuration = Math.max(0, Math.round(duration));
+	const head = Math.floor(safeDuration / 2);
+	const tail = safeDuration - head;
+	return { duration: safeDuration, head, tail };
+};
+
+const resolveTransitionClips = (
+	transition: TimelineElement,
+	elements: TimelineElement[],
+): { from?: TimelineElement; to?: TimelineElement } => {
+	const { fromId, toId } = getTransitionLinkIds(transition);
+	let from = fromId ? elements.find((el) => el.id === fromId) : undefined;
+	let to = toId ? elements.find((el) => el.id === toId) : undefined;
+	if (!from || !to) {
+		const boundary = transition.timeline.start;
+		const trackIndex = transition.timeline.trackIndex ?? 0;
+		if (!from) {
+			from = elements.find(
+				(el) =>
+					isClipElement(el) &&
+					(el.timeline.trackIndex ?? 0) === trackIndex &&
+					el.timeline.end === boundary,
+			);
+		}
+		if (!to) {
+			to = elements.find(
+				(el) =>
+					isClipElement(el) &&
+					(el.timeline.trackIndex ?? 0) === trackIndex &&
+					el.timeline.start === boundary,
+			);
+		}
+	}
+	if (from && !isClipElement(from)) {
+		from = undefined;
+	}
+	if (to && !isClipElement(to)) {
+		to = undefined;
+	}
+	return { from, to };
+};
+
+const getTransitionMaxDuration = (
+	transition: TimelineElement,
+	elements: TimelineElement[],
+	fallbackDuration: number,
+): number => {
+	if (!isTransitionElement(transition)) return fallbackDuration;
+	const { from, to } = resolveTransitionClips(transition, elements);
+	if (!from || !to) return fallbackDuration;
+	const fromLength = Math.max(0, from.timeline.end - from.timeline.start);
+	const toLength = Math.max(0, to.timeline.end - to.timeline.start);
+	let incomingTail = 0;
+	let outgoingHead = 0;
+	for (const el of elements) {
+		if (!isTransitionElement(el)) continue;
+		if (el.id === transition.id) continue;
+		const { fromId, toId } = getTransitionLinkIds(el);
+		if (toId === from.id && el.timeline.start === from.timeline.start) {
+			const { tail } = getTransitionDurationParts(getTransitionDuration(el));
+			incomingTail = Math.max(incomingTail, tail);
+		}
+		if (fromId === to.id && el.timeline.start === to.timeline.end) {
+			const { head } = getTransitionDurationParts(getTransitionDuration(el));
+			outgoingHead = Math.max(outgoingHead, head);
+		}
+	}
+	const maxHead = Math.max(0, fromLength - incomingTail);
+	const maxTail = Math.max(0, toLength - outgoingHead);
+	// 限制转场时长，避免超过相邻片段或与其他转场重叠
+	const maxDuration = Math.min(maxTail * 2, maxHead * 2 + 1);
+	return Math.max(0, Math.round(maxDuration));
 };
 
 const applyElementOffsetDelta = (
@@ -534,10 +625,16 @@ export const useTimelineElementDnd = ({
 					0,
 					transitionDurationRef.current - deltaFrames * 2,
 				);
+				const maxDuration = getTransitionMaxDuration(
+					element,
+					elements,
+					transitionDurationRef.current,
+				);
+				const clampedDuration = Math.min(nextDuration, maxDuration);
 
 				if (last) {
 					const hasDurationChange =
-						nextDuration !== transitionDurationRef.current;
+						clampedDuration !== transitionDurationRef.current;
 					setIsDragging(false);
 					setActiveSnapPoint(null);
 					setLocalTransitionDuration(null);
@@ -549,7 +646,7 @@ export const useTimelineElementDnd = ({
 											...el,
 											transition: {
 												...(el.transition ?? {}),
-												duration: nextDuration,
+												duration: clampedDuration,
 											},
 										}
 									: el,
@@ -557,7 +654,7 @@ export const useTimelineElementDnd = ({
 						);
 					}
 				} else {
-					setLocalTransitionDuration(nextDuration);
+					setLocalTransitionDuration(clampedDuration);
 				}
 				return;
 			}
@@ -755,10 +852,16 @@ export const useTimelineElementDnd = ({
 					0,
 					transitionDurationRef.current + deltaFrames * 2,
 				);
+				const maxDuration = getTransitionMaxDuration(
+					element,
+					elements,
+					transitionDurationRef.current,
+				);
+				const clampedDuration = Math.min(nextDuration, maxDuration);
 
 				if (last) {
 					const hasDurationChange =
-						nextDuration !== transitionDurationRef.current;
+						clampedDuration !== transitionDurationRef.current;
 					setIsDragging(false);
 					setActiveSnapPoint(null);
 					setLocalTransitionDuration(null);
@@ -770,7 +873,7 @@ export const useTimelineElementDnd = ({
 											...el,
 											transition: {
 												...(el.transition ?? {}),
-												duration: nextDuration,
+												duration: clampedDuration,
 											},
 										}
 									: el,
@@ -778,7 +881,7 @@ export const useTimelineElementDnd = ({
 						);
 					}
 				} else {
-					setLocalTransitionDuration(nextDuration);
+					setLocalTransitionDuration(clampedDuration);
 				}
 				return;
 			}

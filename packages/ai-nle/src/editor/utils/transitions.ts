@@ -44,6 +44,15 @@ export const getTransitionDuration = (element: TimelineElement): number => {
 	if (!Number.isFinite(value)) return DEFAULT_TRANSITION_DURATION;
 	return Math.max(0, Math.round(value));
 };
+
+const getTransitionDurationParts = (
+	duration: number,
+): { duration: number; head: number; tail: number } => {
+	const safeDuration = Math.max(0, Math.round(duration));
+	const head = Math.floor(safeDuration / 2);
+	const tail = safeDuration - head;
+	return { duration: safeDuration, head, tail };
+};
 const isClipElement = (element: TimelineElement): boolean =>
 	getElementRole(element) === "clip" && !isTransitionElement(element);
 
@@ -182,6 +191,73 @@ const resolveTransitionLink = (
 	return null;
 };
 
+const buildTransitionDurationLimiter = (
+	elements: TimelineElement[],
+	pairsById: Map<string, TransitionLink>,
+	pairsByBoundary: Map<string, TransitionLink[]>,
+	pairsByBoundaryOnly: Map<number, TransitionLink[]>,
+) => {
+	const clipsById = new Map<string, TimelineElement>();
+	for (const el of elements) {
+		if (!isClipElement(el)) continue;
+		clipsById.set(el.id, el);
+	}
+
+	const incomingTailByClipId = new Map<string, number>();
+	const outgoingHeadByClipId = new Map<string, number>();
+
+	for (const el of elements) {
+		if (!isTransitionElement(el)) continue;
+		const link = resolveTransitionLink(
+			el,
+			pairsById,
+			pairsByBoundary,
+			pairsByBoundaryOnly,
+		);
+		if (!link) continue;
+		const { head, tail } = getTransitionDurationParts(getTransitionDuration(el));
+		const fromClip = clipsById.get(link.fromId);
+		const toClip = clipsById.get(link.toId);
+		if (fromClip && link.boundary === fromClip.timeline.end) {
+			const current = outgoingHeadByClipId.get(fromClip.id) ?? 0;
+			if (head > current) {
+				outgoingHeadByClipId.set(fromClip.id, head);
+			}
+		}
+		if (toClip && link.boundary === toClip.timeline.start) {
+			const current = incomingTailByClipId.get(toClip.id) ?? 0;
+			if (tail > current) {
+				incomingTailByClipId.set(toClip.id, tail);
+			}
+		}
+	}
+
+	const getMaxDuration = (
+		link: TransitionLink,
+		transition: TimelineElement,
+	): number => {
+		const fromClip = clipsById.get(link.fromId);
+		const toClip = clipsById.get(link.toId);
+		if (!fromClip || !toClip) {
+			return getTransitionDuration(transition);
+		}
+		const fromLength = Math.max(
+			0,
+			fromClip.timeline.end - fromClip.timeline.start,
+		);
+		const toLength = Math.max(0, toClip.timeline.end - toClip.timeline.start);
+		const incomingTail = incomingTailByClipId.get(fromClip.id) ?? 0;
+		const outgoingHead = outgoingHeadByClipId.get(toClip.id) ?? 0;
+		const maxHead = Math.max(0, fromLength - incomingTail);
+		const maxTail = Math.max(0, toLength - outgoingHead);
+		// 限制转场时长，避免超过相邻片段或与其他转场重叠
+		const maxDuration = Math.min(maxTail * 2, maxHead * 2 + 1);
+		return Math.max(0, Math.round(maxDuration));
+	};
+
+	return { getMaxDuration };
+};
+
 export const collectLinkedTransitions = (
 	elements: TimelineElement[],
 	selectedIds: string[],
@@ -268,6 +344,12 @@ export const reconcileTransitions = (
 	}
 
 	const fpsValue = normalizeFps(fps);
+	const durationLimiter = buildTransitionDurationLimiter(
+		elements,
+		pairsById,
+		pairsByBoundary,
+		pairsByBoundaryOnly,
+	);
 	const usedPairs = new Set<string>();
 	let didChange = false;
 	const next: TimelineElement[] = [];
@@ -314,6 +396,21 @@ export const reconcileTransitions = (
 		if (normalized !== updated) {
 			didChange = true;
 		}
+
+		const maxDuration = durationLimiter.getMaxDuration(link, normalized);
+		const currentDuration = getTransitionDuration(normalized);
+		if (currentDuration > maxDuration) {
+			next.push({
+				...normalized,
+				transition: {
+					...(normalized.transition ?? {}),
+					duration: maxDuration,
+				},
+			});
+			didChange = true;
+			continue;
+		}
+
 		next.push(normalized);
 	}
 
