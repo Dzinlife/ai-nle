@@ -6,6 +6,7 @@ export { default as Image } from "./Image";
 export { default as Lottie } from "./Lottie";
 export { default as Transition } from "./Transition";
 export { default as PixelShaderTransition } from "./PixelShaderTransition";
+export { default as RippleDissolveTransition } from "./RippleDissolveTransition";
 // Utilities
 export * from "./layout";
 export * from "./model";

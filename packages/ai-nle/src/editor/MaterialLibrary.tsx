@@ -210,6 +210,15 @@ const DEMO_MATERIALS: MaterialItem[] = [
 			"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='80'><defs><pattern id='pix' width='8' height='8' patternUnits='userSpaceOnUse'><rect width='8' height='8' fill='%230f172a'/><rect width='4' height='4' fill='%23f97316'/><rect x='4' y='4' width='4' height='4' fill='%233b82f6'/></pattern></defs><rect width='200' height='80' fill='url(%23pix)'/><rect width='200' height='80' fill='none' stroke='%23ffffff' stroke-width='2' opacity='0.6'/><text x='100' y='50' font-size='20' fill='%23ffffff' text-anchor='middle' font-family='Arial'>PIXEL</text></svg>",
 		duration: 18,
 	},
+	{
+		id: "material-transition-3",
+		type: "transition",
+		name: "Ripple Dissolve",
+		uri: "transition://ripple-dissolve",
+		thumbnailUrl:
+			"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='80'><rect width='200' height='80' fill='%231e293b'/><circle cx='100' cy='40' r='10' fill='none' stroke='%23a5b4fc' stroke-width='4' opacity='0.9'/><circle cx='100' cy='40' r='24' fill='none' stroke='%23818cf8' stroke-width='3' opacity='0.7'/><circle cx='100' cy='40' r='38' fill='none' stroke='%23c7d2fe' stroke-width='2' opacity='0.6'/><text x='100' y='50' font-size='18' fill='%23ffffff' text-anchor='middle' font-family='Arial'>RIPPLE</text></svg>",
+		duration: 18,
+	},
 ];
 
 const MaterialLibrary: React.FC = () => {
@@ -253,7 +262,9 @@ const MaterialLibrary: React.FC = () => {
 						component:
 							item.uri === "transition://pixel-shader"
 								? "transition/pixel-shader"
-								: "transition/crossfade",
+								: item.uri === "transition://ripple-dissolve"
+									? "transition/ripple-dissolve"
+									: "transition/crossfade",
 						name: item.name,
 						props: {
 							fromId: link.fromId,
