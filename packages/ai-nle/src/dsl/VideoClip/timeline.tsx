@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef } from "react";
+import {
+	useCallback,
+	useEffect,
+	useEffectEvent,
+	useLayoutEffect,
+	useRef,
+} from "react";
 import { useFps, useTimelineStore } from "@/editor/contexts/TimelineContext";
 import { framesToSeconds, framesToTimecode } from "@/utils/timecode";
 import { createModelSelector } from "../model/registry";
@@ -8,6 +14,7 @@ import {
 	type VideoClipInternal,
 	type VideoClipProps,
 } from "./model";
+import { getThumbnail, getVideoSize } from "./thumbnailCache";
 
 interface VideoClipTimelineProps extends TimelineProps {
 	id: string;
@@ -25,7 +32,10 @@ export const VideoClipTimeline: React.FC<VideoClipTimelineProps> = ({
 }) => {
 	const { fps } = useFps();
 	const canvasRef = useRef<HTMLCanvasElement>(null);
-	const isGeneratingRef = useRef(false);
+	const renderTokenRef = useRef(0);
+	const lastRenderKeyRef = useRef("");
+	const lastUriRef = useRef<string | null>(null);
+	const scheduleIdRef = useRef<number | null>(null);
 
 	// 订阅 model 状态
 	const uri = useVideoClipSelector(id, (state) => state.props.uri);
@@ -51,34 +61,30 @@ export const VideoClipTimeline: React.FC<VideoClipTimelineProps> = ({
 		(state) => state.internal.videoDuration,
 	);
 
-	const clipDurationRef = useRef(end - start);
-	clipDurationRef.current = end - start;
-	const clipDurationFrames = clipDurationRef.current;
+	const getVideoSink = useEffectEvent(() => videoSink);
+
+	const clipDurationFrames = end - start;
 	const clipDurationSeconds = framesToSeconds(clipDurationFrames, fps);
 	const timelineOffsetFrames = useTimelineStore(
 		(state) => state.getElementById(id)?.timeline?.offset ?? 0,
 	);
 	const offsetSeconds = framesToSeconds(timelineOffsetFrames, fps);
+	const scrollLeft = useTimelineStore((state) => state.scrollLeft);
 
-	// 生成预览图（使用 Model 中的 videoSink）
+	// 生成预览图（使用全局缓存）
 	const generateThumbnails = useCallback(async () => {
 		if (
 			!canvasRef.current ||
-			!videoSink ||
 			!uri ||
-			isGeneratingRef.current ||
-			videoDuration <= 0
+			videoDuration <= 0 ||
+			clipDurationSeconds <= 0
 		) {
 			return;
 		}
 
-		isGeneratingRef.current = true;
 		const canvas = canvasRef.current;
 		const ctx = canvas.getContext("2d");
-		if (!ctx) {
-			isGeneratingRef.current = false;
-			return;
-		}
+		if (!ctx) return;
 
 		let canvasWidth = 0;
 		let canvasHeight = 0;
@@ -86,6 +92,19 @@ export const VideoClipTimeline: React.FC<VideoClipTimelineProps> = ({
 
 		try {
 			const rect = canvas.getBoundingClientRect();
+			const viewport = canvas.closest(
+				"[data-timeline-scroll-area]",
+			) as HTMLElement | null;
+			const viewportRect = viewport ? viewport.getBoundingClientRect() : rect;
+
+			const visibleLeft = Math.max(rect.left, viewportRect.left);
+			const visibleRight = Math.min(rect.right, viewportRect.right);
+			const visibleTop = Math.max(rect.top, viewportRect.top);
+			const visibleBottom = Math.min(rect.bottom, viewportRect.bottom);
+			if (visibleRight <= visibleLeft || visibleBottom <= visibleTop) {
+				return;
+			}
+
 			canvasWidth = rect.width;
 			canvasHeight = rect.height;
 			if (canvasWidth <= 0 || canvasHeight <= 0) {
@@ -93,70 +112,46 @@ export const VideoClipTimeline: React.FC<VideoClipTimelineProps> = ({
 			}
 
 			pixelRatio = Math.max(1, window.devicePixelRatio || 1);
-			canvas.width = Math.max(1, Math.floor(canvasWidth * pixelRatio));
-			canvas.height = Math.max(1, Math.floor(canvasHeight * pixelRatio));
+			const targetWidth = Math.max(1, Math.floor(canvasWidth * pixelRatio));
+			const targetHeight = Math.max(1, Math.floor(canvasHeight * pixelRatio));
+			let snapshotCanvas: HTMLCanvasElement | null = null;
+			if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+				if (canvas.width > 0 && canvas.height > 0) {
+					snapshotCanvas = document.createElement("canvas");
+					snapshotCanvas.width = canvas.width;
+					snapshotCanvas.height = canvas.height;
+					const snapshotCtx = snapshotCanvas.getContext("2d");
+					if (snapshotCtx) {
+						snapshotCtx.drawImage(canvas, 0, 0);
+					}
+				}
+				canvas.width = targetWidth;
+				canvas.height = targetHeight;
+			}
 			// 兼容高 DPI，绘制仍使用 CSS 像素
 			ctx.setTransform(1, 0, 0, 1, 0, 0);
 			ctx.scale(pixelRatio, pixelRatio);
-
-			// 获取最后一帧
-			let lastFrameCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
-			try {
-				const lastFrameTime = Math.max(0, videoDuration - 0.001);
-				if (lastFrameTime >= 0 && videoDuration > 0) {
-					const lastFrameIterator = videoSink.canvases(lastFrameTime);
-					const lastFrame = (await lastFrameIterator.next()).value;
-					if (lastFrame?.canvas) {
-						const sourceCanvas = lastFrame.canvas;
-						if (sourceCanvas instanceof HTMLCanvasElement) {
-							const copyCanvas = document.createElement("canvas");
-							copyCanvas.width = sourceCanvas.width;
-							copyCanvas.height = sourceCanvas.height;
-							const copyCtx = copyCanvas.getContext("2d");
-							if (copyCtx) {
-								copyCtx.drawImage(sourceCanvas, 0, 0);
-								lastFrameCanvas = copyCanvas;
-							}
-						} else if (sourceCanvas instanceof OffscreenCanvas) {
-							const imageBitmap = await createImageBitmap(sourceCanvas);
-							const copyCanvas = document.createElement("canvas");
-							copyCanvas.width = imageBitmap.width;
-							copyCanvas.height = imageBitmap.height;
-							const copyCtx = copyCanvas.getContext("2d");
-							if (copyCtx) {
-								copyCtx.drawImage(imageBitmap, 0, 0);
-								imageBitmap.close();
-								lastFrameCanvas = copyCanvas;
-							}
-						}
-					}
-					await lastFrameIterator.return();
-				}
-			} catch (err) {
-				console.warn("Failed to get last frame:", err);
+			if (snapshotCanvas) {
+				// 尺寸变化时先铺一层旧画面，避免缩放闪白
+				ctx.drawImage(
+					snapshotCanvas,
+					0,
+					0,
+					snapshotCanvas.width,
+					snapshotCanvas.height,
+					0,
+					0,
+					canvasWidth,
+					canvasHeight,
+				);
 			}
 
 			// 使用素材实际比例计算预览图尺寸
-			let sourceAspectRatio = 0;
-			if (lastFrameCanvas && lastFrameCanvas.height > 0) {
-				sourceAspectRatio = lastFrameCanvas.width / lastFrameCanvas.height;
-			}
-			if (!sourceAspectRatio || !Number.isFinite(sourceAspectRatio)) {
-				try {
-					const probeIterator = videoSink.canvases(0);
-					const probeFrame = (await probeIterator.next()).value;
-					if (probeFrame?.canvas && probeFrame.canvas.height > 0) {
-						sourceAspectRatio =
-							probeFrame.canvas.width / probeFrame.canvas.height;
-					}
-					await probeIterator.return();
-				} catch (err) {
-					console.warn("Failed to probe frame size:", err);
-				}
-			}
-			if (!sourceAspectRatio || !Number.isFinite(sourceAspectRatio)) {
-				sourceAspectRatio = 16 / 9;
-			}
+			const videoSize = await getVideoSize(uri, getVideoSink());
+			const sourceAspectRatio =
+				videoSize && videoSize.height > 0
+					? videoSize.width / videoSize.height
+					: 16 / 9;
 
 			const thumbnailHeight = canvasHeight;
 			const thumbnailWidth = Math.max(1, thumbnailHeight * sourceAspectRatio);
@@ -166,12 +161,38 @@ export const VideoClipTimeline: React.FC<VideoClipTimelineProps> = ({
 			);
 			const previewInterval = clipDurationSeconds / numThumbnails;
 
-			// 清空 canvas
-			ctx.fillStyle = "#e5e7eb";
-			ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+			const visibleStartX = Math.max(0, visibleLeft - rect.left);
+			const visibleEndX = Math.min(canvasWidth, visibleRight - rect.left);
+			const overscan = thumbnailWidth * 2;
+			const renderStartX = Math.max(0, visibleStartX - overscan);
+			const renderEndX = Math.min(canvasWidth, visibleEndX + overscan);
+			const startIndex = Math.max(0, Math.floor(renderStartX / thumbnailWidth));
+			const endIndex = Math.min(
+				numThumbnails - 1,
+				Math.ceil(renderEndX / thumbnailWidth) - 1,
+			);
 
-			// 按间隔提取帧并绘制
-			for (let i = 0; i < numThumbnails; i++) {
+			const hasSink = Boolean(getVideoSink());
+			const renderKey = [
+				uri,
+				clipDurationFrames,
+				offsetSeconds,
+				reversed ? 1 : 0,
+				`${canvasWidth}x${canvasHeight}`,
+				pixelRatio,
+				hasSink ? 1 : 0,
+				`${startIndex}-${endIndex}`,
+			].join("|");
+			if (renderKey === lastRenderKeyRef.current) {
+				return;
+			}
+
+			const currentToken = ++renderTokenRef.current;
+			let didDraw = false;
+
+			// 按间隔提取帧并绘制（仅渲染可见区域）
+			for (let i = startIndex; i <= endIndex; i++) {
+				if (renderTokenRef.current !== currentToken) return;
 				const relativeTime = i * previewInterval;
 
 				const absoluteTime = calculateVideoTime({
@@ -183,69 +204,42 @@ export const VideoClipTimeline: React.FC<VideoClipTimelineProps> = ({
 					clipDuration: clipDurationSeconds,
 				});
 
-				let frameCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
-
 				try {
-					if (absoluteTime >= 0 && absoluteTime < videoDuration) {
-						const frameIterator = videoSink.canvases(absoluteTime);
-						const frame = (await frameIterator.next()).value;
-						if (frame?.canvas) {
-							frameCanvas = frame.canvas;
-						}
-						await frameIterator.return();
-					} else if (absoluteTime >= videoDuration && lastFrameCanvas) {
-						frameCanvas = lastFrameCanvas;
-					} else if (absoluteTime < 0) {
-						const frameIterator = videoSink.canvases(0);
-						const frame = (await frameIterator.next()).value;
-						if (frame?.canvas) {
-							frameCanvas = frame.canvas;
-						}
-						await frameIterator.return();
-					}
-
-					if (frameCanvas) {
-						const x = i * thumbnailWidth;
-						const drawWidth = Math.min(thumbnailWidth, canvasWidth - x);
-						if (drawWidth <= 0 || frameCanvas.height <= 0) {
-							continue;
-						}
-						const scale = thumbnailHeight / frameCanvas.height;
-						const scaledWidth = frameCanvas.width * scale;
-
-						if (scaledWidth > drawWidth) {
-							const sourceWidth = drawWidth / scale;
-							const sourceX = (frameCanvas.width - sourceWidth) / 2;
-
-							ctx.drawImage(
-								frameCanvas,
-								sourceX,
-								0,
-								sourceWidth,
-								frameCanvas.height,
-								x,
-								0,
-								drawWidth,
-								thumbnailHeight,
-							);
-						} else {
-							const offsetX = (drawWidth - scaledWidth) / 2;
-							ctx.drawImage(
-								frameCanvas,
-								0,
-								0,
-								frameCanvas.width,
-								frameCanvas.height,
-								x + offsetX,
-								0,
-								scaledWidth,
-								thumbnailHeight,
-							);
-						}
-					}
+					const clampedTime = Math.min(
+						Math.max(0, absoluteTime),
+						Math.max(0, videoDuration - 0.001),
+					);
+					const timeKey = Math.max(0, Math.round(clampedTime * 1000));
+					const thumbnail = await getThumbnail({
+						uri,
+						time: clampedTime,
+						timeKey,
+						width: thumbnailWidth,
+						height: thumbnailHeight,
+						pixelRatio,
+						videoSink: getVideoSink(),
+					});
+					if (renderTokenRef.current !== currentToken) return;
+					if (!thumbnail) continue;
+					const x = i * thumbnailWidth;
+					ctx.drawImage(
+						thumbnail,
+						0,
+						0,
+						thumbnail.width,
+						thumbnail.height,
+						x,
+						0,
+						thumbnailWidth,
+						thumbnailHeight,
+					);
+					didDraw = true;
 				} catch (err) {
 					console.warn(`Failed to extract frame at ${absoluteTime}:`, err);
 				}
+			}
+			if (didDraw) {
+				lastRenderKeyRef.current = renderKey;
 			}
 		} catch (err) {
 			console.error("Failed to generate thumbnails:", err);
@@ -265,24 +259,77 @@ export const VideoClipTimeline: React.FC<VideoClipTimelineProps> = ({
 					errorHeight / 2,
 				);
 			}
-		} finally {
-			isGeneratingRef.current = false;
 		}
 	}, [
-		videoSink,
 		videoDuration,
 		uri,
 		reversed,
 		clipDurationSeconds,
+		clipDurationFrames,
 		offsetSeconds,
 	]);
 
-	// 当 videoSink 准备好后生成缩略图
-	useEffect(() => {
-		if (!isLoading && videoSink && videoDuration > 0) {
-			void generateThumbnails();
+	const scheduleGenerate = useCallback(() => {
+		if (scheduleIdRef.current !== null) {
+			cancelAnimationFrame(scheduleIdRef.current);
+			scheduleIdRef.current = null;
 		}
-	}, [isLoading, videoSink, videoDuration, generateThumbnails]);
+		scheduleIdRef.current = requestAnimationFrame(() => {
+			scheduleIdRef.current = null;
+			void generateThumbnails();
+		});
+	}, [generateThumbnails]);
+
+	useEffect(() => {
+		if (lastUriRef.current !== uri) {
+			lastUriRef.current = uri ?? null;
+			lastRenderKeyRef.current = "";
+		}
+		scheduleGenerate();
+	}, [
+		uri,
+		reversed,
+		clipDurationSeconds,
+		offsetSeconds,
+		videoDuration,
+		scrollLeft,
+		scheduleGenerate,
+	]);
+
+	useLayoutEffect(() => {
+		const canvas = canvasRef.current;
+		if (!canvas) return;
+		const observer = new ResizeObserver(() => {
+			scheduleGenerate();
+		});
+		observer.observe(canvas);
+		return () => observer.disconnect();
+	}, [scheduleGenerate]);
+
+	useEffect(() => {
+		const handleResize = () => scheduleGenerate();
+		window.addEventListener("resize", handleResize, { passive: true });
+		return () => window.removeEventListener("resize", handleResize);
+	}, [scheduleGenerate]);
+
+	useEffect(() => {
+		const scrollArea = document.querySelector<HTMLElement>(
+			"[data-vertical-scroll-area]",
+		);
+		if (!scrollArea) return;
+		const handleScroll = () => scheduleGenerate();
+		scrollArea.addEventListener("scroll", handleScroll, { passive: true });
+		return () => scrollArea.removeEventListener("scroll", handleScroll);
+	}, [scheduleGenerate]);
+
+	useEffect(() => {
+		return () => {
+			if (scheduleIdRef.current !== null) {
+				cancelAnimationFrame(scheduleIdRef.current);
+				scheduleIdRef.current = null;
+			}
+		};
+	}, []);
 
 	return (
 		<div className="absolute inset-0 overflow-hidden bg-zinc-700">
