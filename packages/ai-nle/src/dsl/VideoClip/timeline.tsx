@@ -56,12 +56,14 @@ export const VideoClipTimeline: React.FC<VideoClipTimelineProps> = ({
 		id,
 		(state) => state.internal.videoSink,
 	);
+	const input = useVideoClipSelector(id, (state) => state.internal.input);
 	const videoDuration = useVideoClipSelector(
 		id,
 		(state) => state.internal.videoDuration,
 	);
 
 	const getVideoSink = useEffectEvent(() => videoSink);
+	const getInput = useEffectEvent(() => input);
 
 	const clipDurationFrames = end - start;
 	const clipDurationSeconds = framesToSeconds(clipDurationFrames, fps);
@@ -146,8 +148,10 @@ export const VideoClipTimeline: React.FC<VideoClipTimelineProps> = ({
 				);
 			}
 
+			const currentVideoSink = getVideoSink();
+			const currentInput = getInput();
 			// 使用素材实际比例计算预览图尺寸
-			const videoSize = await getVideoSize(uri, getVideoSink());
+			const videoSize = await getVideoSize(uri, currentVideoSink);
 			const sourceAspectRatio =
 				videoSize && videoSize.height > 0
 					? videoSize.width / videoSize.height
@@ -172,7 +176,8 @@ export const VideoClipTimeline: React.FC<VideoClipTimelineProps> = ({
 				Math.ceil(renderEndX / thumbnailWidth) - 1,
 			);
 
-			const hasSink = Boolean(getVideoSink());
+			const hasSink = Boolean(currentVideoSink);
+			const hasInput = Boolean(currentInput);
 			const renderKey = [
 				uri,
 				clipDurationFrames,
@@ -181,6 +186,7 @@ export const VideoClipTimeline: React.FC<VideoClipTimelineProps> = ({
 				`${canvasWidth}x${canvasHeight}`,
 				pixelRatio,
 				hasSink ? 1 : 0,
+				hasInput ? 1 : 0,
 				`${startIndex}-${endIndex}`,
 			].join("|");
 			if (renderKey === lastRenderKeyRef.current) {
@@ -217,7 +223,9 @@ export const VideoClipTimeline: React.FC<VideoClipTimelineProps> = ({
 						width: thumbnailWidth,
 						height: thumbnailHeight,
 						pixelRatio,
-						videoSink: getVideoSink(),
+						videoSink: currentVideoSink,
+						input: currentInput,
+						preferKeyframes: true,
 					});
 					if (renderTokenRef.current !== currentToken) return;
 					if (!thumbnail) continue;
@@ -292,6 +300,7 @@ export const VideoClipTimeline: React.FC<VideoClipTimelineProps> = ({
 		clipDurationSeconds,
 		offsetSeconds,
 		videoDuration,
+		input,
 		scrollLeft,
 		scheduleGenerate,
 	]);
