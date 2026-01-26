@@ -38,8 +38,8 @@ export interface DragGhostState {
 	screenY: number;
 	width: number;
 	height: number;
-	// 克隆的元素 HTML（用于渲染半透明影子）
-	clonedHtml: string;
+	// 克隆的元素节点（用于渲染半透明影子）
+	clonedNode: HTMLElement | null;
 }
 
 // 自动滚动配置

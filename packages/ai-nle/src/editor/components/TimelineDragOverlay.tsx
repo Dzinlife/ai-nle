@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useLayoutEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { DragGhostState } from "../contexts/TimelineContext";
 import {
@@ -19,6 +19,36 @@ interface TimelineDragOverlayProps {
 	mainTrackHeight: number;
 	timelinePaddingLeft?: number;
 }
+
+const GhostClone: React.FC<{ ghost: DragGhostState }> = ({ ghost }) => {
+	const containerRef = useRef<HTMLDivElement>(null);
+
+	useLayoutEffect(() => {
+		const container = containerRef.current;
+		if (!container) return;
+		while (container.firstChild) {
+			container.removeChild(container.firstChild);
+		}
+		if (!ghost.clonedNode) return;
+		container.appendChild(ghost.clonedNode);
+	}, [ghost.clonedNode]);
+
+	return (
+		<div
+			className="fixed pointer-events-none"
+			style={{
+				left: ghost.screenX,
+				top: ghost.screenY,
+				width: ghost.width,
+				height: ghost.height,
+				zIndex: 9999,
+			}}
+		>
+			<div ref={containerRef} className="absolute inset-0 opacity-60" />
+			<div className="absolute inset-0 border-2 border-blue-500 rounded-md shadow-lg shadow-blue-500/30" />
+		</div>
+	);
+};
 
 const TimelineDragOverlay: React.FC<TimelineDragOverlayProps> = ({
 	activeDropTarget,
@@ -145,23 +175,7 @@ const TimelineDragOverlay: React.FC<TimelineDragOverlayProps> = ({
 		if (!dragGhosts.length) return null;
 
 		const ghosts = dragGhosts.map((ghost) => (
-			<div
-				key={ghost.elementId}
-				className="fixed pointer-events-none"
-				style={{
-					left: ghost.screenX,
-					top: ghost.screenY,
-					width: ghost.width,
-					height: ghost.height,
-					zIndex: 9999,
-				}}
-			>
-				<div
-					className="absolute inset-0 opacity-60"
-					dangerouslySetInnerHTML={{ __html: ghost.clonedHtml }}
-				/>
-				<div className="absolute inset-0 border-2 border-blue-500 rounded-md shadow-lg shadow-blue-500/30" />
-			</div>
+			<GhostClone key={ghost.elementId} ghost={ghost} />
 		));
 
 		return createPortal(ghosts, document.body);

@@ -300,7 +300,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	const displayY = trackIndex === 0 ? 0 : (localTrackY ?? trackY);
 
 	// 计算位置和尺寸
-	const transitionDisplayWidth = Math.max(6, transitionDuration * ratio);
+	const transitionDisplayWidth = Math.max(6, transitionDuration * ratio - 2);
 	const left = isTransition
 		? timeline.start * ratio - transitionDisplayWidth / 2
 		: startTime * ratio;
@@ -378,7 +378,7 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	const containerClassName = useMemo(() => {
 		return cn("absolute flex rounded group overflow-hidden", {
 			"bg-neutral-700": !isTransition,
-			"bg-white/30 z-10": isTransition,
+			"bg-white/30 z-10 backdrop-blur-sm": isTransition,
 			// "bg-amber-700 ring-1 ring-amber-500": isAtMaxDuration,
 		});
 	}, [isSelected, isAtMaxDuration, isTransition]);
@@ -400,8 +400,8 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 			style={{
 				left,
 				width: displayWidth,
-				top: displayY + (isTransition ? elementHeight / 4 : 0),
-				height: isTransition ? elementHeight / 2 : elementHeight,
+				top: displayY + (isTransition ? elementHeight / 4 + 1 : 0),
+				height: isTransition ? elementHeight / 2 - 2 : elementHeight,
 				// 拖拽时降低透明度，但保持在 DOM 中以维持拖拽手势
 				opacity: trackOpacity * dragOpacity,
 				pointerEvents: trackLocked ? "none" : "auto",

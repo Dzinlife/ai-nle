@@ -1,16 +1,13 @@
 import type { DSLComponentDefinition } from "../model/componentRegistry";
 import { componentRegistry } from "../model/componentRegistry";
-import {
-	type TransitionProps,
-	createTransitionModel,
-} from "./model";
+import { createTransitionModel, type TransitionProps } from "./model";
 import { prepareSyncPicture } from "./picture";
 import TransitionRenderer from "./renderer";
 import { TransitionTimeline } from "./timeline";
 
-export { type TransitionProps, createTransitionModel } from "./model";
-export { TransitionTimeline } from "./timeline";
+export { createTransitionModel, type TransitionProps } from "./model";
 export { renderNodeToPicture, useSkPictureFromNode } from "./picture";
+export { TransitionTimeline } from "./timeline";
 
 export const TransitionDefinition: DSLComponentDefinition<TransitionProps> = {
 	type: "Transition",

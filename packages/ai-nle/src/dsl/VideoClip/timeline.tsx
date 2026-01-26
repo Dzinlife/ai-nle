@@ -1,20 +1,22 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useFps, useTimelineStore } from "@/editor/contexts/TimelineContext";
+import { framesToSeconds, framesToTimecode } from "@/utils/timecode";
 import { createModelSelector } from "../model/registry";
 import type { TimelineProps } from "../model/types";
 import {
+	calculateVideoTime,
 	type VideoClipInternal,
 	type VideoClipProps,
-	calculateVideoTime,
 } from "./model";
-import { framesToSeconds, framesToTimecode } from "@/utils/timecode";
 
 interface VideoClipTimelineProps extends TimelineProps {
 	id: string;
 }
 
-const useVideoClipSelector =
-	createModelSelector<VideoClipProps, VideoClipInternal>();
+const useVideoClipSelector = createModelSelector<
+	VideoClipProps,
+	VideoClipInternal
+>();
 
 export const VideoClipTimeline: React.FC<VideoClipTimelineProps> = ({
 	id,
@@ -32,6 +34,8 @@ export const VideoClipTimeline: React.FC<VideoClipTimelineProps> = ({
 		id,
 		(state) => state.constraints.maxDuration,
 	);
+	const element = useTimelineStore((state) => state.getElementById(id));
+
 	const isLoading = useVideoClipSelector(
 		id,
 		(state) => state.constraints.isLoading ?? false,
@@ -76,12 +80,24 @@ export const VideoClipTimeline: React.FC<VideoClipTimelineProps> = ({
 			return;
 		}
 
+		let canvasWidth = 0;
+		let canvasHeight = 0;
+		let pixelRatio = 1;
+
 		try {
-			// 设置 canvas 尺寸
-			const canvasWidth = canvas.offsetWidth;
-			const canvasHeight = canvas.offsetHeight;
-			canvas.width = canvasWidth;
-			canvas.height = canvasHeight;
+			const rect = canvas.getBoundingClientRect();
+			canvasWidth = rect.width;
+			canvasHeight = rect.height;
+			if (canvasWidth <= 0 || canvasHeight <= 0) {
+				return;
+			}
+
+			pixelRatio = Math.max(1, window.devicePixelRatio || 1);
+			canvas.width = Math.max(1, Math.floor(canvasWidth * pixelRatio));
+			canvas.height = Math.max(1, Math.floor(canvasHeight * pixelRatio));
+			// 兼容高 DPI，绘制仍使用 CSS 像素
+			ctx.setTransform(1, 0, 0, 1, 0, 0);
+			ctx.scale(pixelRatio, pixelRatio);
 
 			// 获取最后一帧
 			let lastFrameCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
@@ -120,17 +136,35 @@ export const VideoClipTimeline: React.FC<VideoClipTimelineProps> = ({
 				console.warn("Failed to get last frame:", err);
 			}
 
-			// 计算预览图数量
-			const estimatedAspectRatio = 16 / 9;
-			const estimatedThumbnailWidth = canvasHeight * estimatedAspectRatio;
+			// 使用素材实际比例计算预览图尺寸
+			let sourceAspectRatio = 0;
+			if (lastFrameCanvas && lastFrameCanvas.height > 0) {
+				sourceAspectRatio = lastFrameCanvas.width / lastFrameCanvas.height;
+			}
+			if (!sourceAspectRatio || !Number.isFinite(sourceAspectRatio)) {
+				try {
+					const probeIterator = videoSink.canvases(0);
+					const probeFrame = (await probeIterator.next()).value;
+					if (probeFrame?.canvas && probeFrame.canvas.height > 0) {
+						sourceAspectRatio =
+							probeFrame.canvas.width / probeFrame.canvas.height;
+					}
+					await probeIterator.return();
+				} catch (err) {
+					console.warn("Failed to probe frame size:", err);
+				}
+			}
+			if (!sourceAspectRatio || !Number.isFinite(sourceAspectRatio)) {
+				sourceAspectRatio = 16 / 9;
+			}
+
+			const thumbnailHeight = canvasHeight;
+			const thumbnailWidth = Math.max(1, thumbnailHeight * sourceAspectRatio);
 			const numThumbnails = Math.max(
 				1,
-				Math.ceil(canvasWidth / estimatedThumbnailWidth),
+				Math.ceil(canvasWidth / thumbnailWidth),
 			);
-
 			const previewInterval = clipDurationSeconds / numThumbnails;
-			const thumbnailWidth = canvasWidth / numThumbnails;
-			const thumbnailHeight = canvasHeight;
 
 			// 清空 canvas
 			ctx.fillStyle = "#e5e7eb";
@@ -172,11 +206,15 @@ export const VideoClipTimeline: React.FC<VideoClipTimelineProps> = ({
 
 					if (frameCanvas) {
 						const x = i * thumbnailWidth;
+						const drawWidth = Math.min(thumbnailWidth, canvasWidth - x);
+						if (drawWidth <= 0 || frameCanvas.height <= 0) {
+							continue;
+						}
 						const scale = thumbnailHeight / frameCanvas.height;
 						const scaledWidth = frameCanvas.width * scale;
 
-						if (scaledWidth > thumbnailWidth) {
-							const sourceWidth = thumbnailWidth / scale;
+						if (scaledWidth > drawWidth) {
+							const sourceWidth = drawWidth / scale;
 							const sourceX = (frameCanvas.width - sourceWidth) / 2;
 
 							ctx.drawImage(
@@ -187,11 +225,11 @@ export const VideoClipTimeline: React.FC<VideoClipTimelineProps> = ({
 								frameCanvas.height,
 								x,
 								0,
-								thumbnailWidth,
+								drawWidth,
 								thumbnailHeight,
 							);
 						} else {
-							const offsetX = (thumbnailWidth - scaledWidth) / 2;
+							const offsetX = (drawWidth - scaledWidth) / 2;
 							ctx.drawImage(
 								frameCanvas,
 								0,
@@ -212,15 +250,19 @@ export const VideoClipTimeline: React.FC<VideoClipTimelineProps> = ({
 		} catch (err) {
 			console.error("Failed to generate thumbnails:", err);
 			if (ctx) {
+				const errorWidth = canvasWidth || canvas.width / pixelRatio;
+				const errorHeight = canvasHeight || canvas.height / pixelRatio;
+				ctx.setTransform(1, 0, 0, 1, 0, 0);
+				ctx.scale(pixelRatio, pixelRatio);
 				ctx.fillStyle = "#fee2e2";
-				ctx.fillRect(0, 0, canvas.width, canvas.height);
+				ctx.fillRect(0, 0, errorWidth, errorHeight);
 				ctx.fillStyle = "#dc2626";
 				ctx.font = "12px sans-serif";
 				ctx.textAlign = "center";
 				ctx.fillText(
 					"Video Thumbnails Generation Failed",
-					canvas.width / 2,
-					canvas.height / 2,
+					errorWidth / 2,
+					errorHeight / 2,
 				);
 			}
 		} finally {
@@ -243,14 +285,13 @@ export const VideoClipTimeline: React.FC<VideoClipTimelineProps> = ({
 	}, [isLoading, videoSink, videoDuration, generateThumbnails]);
 
 	return (
-		<div className="absolute inset-0 overflow-hidden">
-			{/* 时长显示 */}
-			<div className="absolute top-1 left-1 px-1 rounded bg-white/50 backdrop-blur-sm text-black/80 text-xs z-10">
-				{framesToTimecode(clipDurationFrames, fps)}
+		<div className="absolute inset-0 overflow-hidden bg-zinc-700">
+			<div className="absolute inset-x-0 top-0 px-1 pt-px items-center truncate leading-none">
+				{element?.name}
 			</div>
 
 			{/* 最大时长指示器 */}
-			{maxDuration !== undefined && clipDurationFrames > maxDuration && (
+			{/* {maxDuration !== undefined && clipDurationFrames > maxDuration && (
 				<div
 					className="absolute top-0 bottom-0 bg-red-500/30 border-l-2 border-red-500 z-10"
 					style={{
@@ -262,7 +303,7 @@ export const VideoClipTimeline: React.FC<VideoClipTimelineProps> = ({
 						Exceeds max
 					</div>
 				</div>
-			)}
+			)} */}
 
 			{/* Loading 指示器 */}
 			{isLoading && (
@@ -272,7 +313,10 @@ export const VideoClipTimeline: React.FC<VideoClipTimelineProps> = ({
 			)}
 
 			{/* 缩略图 canvas */}
-			<canvas ref={canvasRef} className="absolute inset-y-0 left-0" />
+			<div className="absolute inset-y-4 w-full">
+				<canvas ref={canvasRef} className="absolute inset-0 size-full" />
+			</div>
+			<div className="absolute inset-x-0 bottom-0 h-4 bg-neutral-700/20"></div>
 		</div>
 	);
 };

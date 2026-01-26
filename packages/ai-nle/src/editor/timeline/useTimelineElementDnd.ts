@@ -103,18 +103,44 @@ interface DragRefs {
 	currentEnd: number;
 }
 
-const createGhostFromNode = (
-	ghostSource: HTMLElement,
-	element: TimelineElement,
-	ghostId: string = element.id,
-): DragGhostState => {
-	const rect = ghostSource.getBoundingClientRect();
+const syncCanvasContent = (
+	source: HTMLElement,
+	clone: HTMLElement,
+): void => {
+	const sourceCanvases = source.querySelectorAll("canvas");
+	if (sourceCanvases.length === 0) return;
+	const cloneCanvases = clone.querySelectorAll("canvas");
+	const count = Math.min(sourceCanvases.length, cloneCanvases.length);
+	for (let i = 0; i < count; i++) {
+		const sourceCanvas = sourceCanvases[i];
+		const cloneCanvas = cloneCanvases[i];
+		cloneCanvas.width = sourceCanvas.width;
+		cloneCanvas.height = sourceCanvas.height;
+		const ctx = cloneCanvas.getContext("2d");
+		if (ctx) {
+			ctx.drawImage(sourceCanvas, 0, 0);
+		}
+	}
+};
+
+const cloneGhostNode = (ghostSource: HTMLElement): HTMLElement => {
 	const clone = ghostSource.cloneNode(true) as HTMLElement;
 	clone.removeAttribute("data-timeline-element");
 	clone.style.position = "relative";
 	clone.style.left = "0";
 	clone.style.top = "0";
 	clone.style.opacity = "1";
+	syncCanvasContent(ghostSource, clone);
+	return clone;
+};
+
+const createGhostFromNode = (
+	ghostSource: HTMLElement,
+	element: TimelineElement,
+	ghostId: string = element.id,
+): DragGhostState => {
+	const rect = ghostSource.getBoundingClientRect();
+	const clone = cloneGhostNode(ghostSource);
 
 	return {
 		elementId: ghostId,
@@ -123,7 +149,7 @@ const createGhostFromNode = (
 		screenY: rect.top,
 		width: rect.width,
 		height: rect.height,
-		clonedHtml: clone.outerHTML,
+		clonedNode: clone,
 	};
 };
 
@@ -375,7 +401,7 @@ export const useTimelineElementDnd = ({
 	const initialGhostsRef = useRef<DragGhostState[]>([]);
 	const initialMouseOffsetRef = useRef({ x: 0, y: 0 });
 	const initialScrollLeftRef = useRef(0);
-	const clonedHtmlRef = useRef("");
+	const clonedNodeRef = useRef<HTMLElement | null>(null);
 	const copyModeRef = useRef(false);
 	const copyIdMapRef = useRef<Map<string, string>>(new Map());
 	const applyTrackAssignments = useCallback(
@@ -1083,13 +1109,7 @@ export const useTimelineElementDnd = ({
 							? (getCopyId(element.id) ?? element.id)
 							: element.id;
 					if (elementRef.current) {
-						const clone = elementRef.current.cloneNode(true) as HTMLElement;
-						clone.removeAttribute("data-timeline-element");
-						clone.style.position = "relative";
-						clone.style.left = "0";
-						clone.style.top = "0";
-						clone.style.opacity = "1";
-						clonedHtmlRef.current = clone.outerHTML;
+						clonedNodeRef.current = cloneGhostNode(elementRef.current);
 					}
 
 					const ghostWidth = isTransition
@@ -1105,7 +1125,7 @@ export const useTimelineElementDnd = ({
 							screenY: xy[1] - initialMouseOffsetRef.current.y,
 							width: ghostWidth,
 							height: elementHeight,
-							clonedHtml: clonedHtmlRef.current,
+							clonedNode: clonedNodeRef.current,
 						},
 					]);
 				} else {
@@ -2233,7 +2253,7 @@ export const useTimelineElementDnd = ({
 						screenY: xy[1] - initialMouseOffsetRef.current.y,
 						width: ghostWidth,
 						height: elementHeight,
-						clonedHtml: clonedHtmlRef.current,
+						clonedNode: clonedNodeRef.current,
 					},
 				]);
 
