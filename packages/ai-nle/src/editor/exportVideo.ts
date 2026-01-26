@@ -14,10 +14,7 @@ import { modelRegistry } from "@/dsl/model/registry";
 import { clearSyncPictures } from "@/dsl/Transition/picture";
 import type { TimelineElement } from "@/dsl/types";
 import { useTimelineStore } from "@/editor/contexts/TimelineContext";
-import {
-	buildSkiaRenderState,
-	pickActiveTransition,
-} from "@/editor/preview/buildSkiaTree";
+import { buildSkiaRenderState } from "@/editor/preview/buildSkiaTree";
 
 const getTrackIndexForElement = (element: TimelineElement) =>
 	element.timeline.trackIndex ?? 0;
@@ -215,42 +212,21 @@ export const exportTimelineAsVideo = async (options?: {
 		for (let frame = startFrame; frame < endFrame; frame += 1) {
 			timelineState.setExportTime(frame);
 
-			const { children, visibleElements, transitionInfosById } =
-				buildSkiaRenderState({
-					elements,
-					displayTime: frame,
-					tracks,
-					getTrackIndexForElement,
-					sortByTrackIndex,
-				});
-
-			for (const element of visibleElements) {
-				const store = modelRegistry.get(element.id);
-				if (!store) continue;
-				const transition = pickActiveTransition(
-					transitionInfosById.get(element.id),
-					frame,
-				);
-				await store.getState().prepareFrame?.({
-					element,
-					displayTime: frame,
+			const { children, ready } = buildSkiaRenderState({
+				elements,
+				displayTime: frame,
+				tracks,
+				getTrackIndexForElement,
+				sortByTrackIndex,
+				prepare: {
+					isExporting: true,
 					fps,
-					renderTimeline: transition?.renderTimeline,
-					phase: "beforeRender",
-				});
-			}
+					canvasSize: { width, height },
+					getModelStore: (id) => modelRegistry.get(id),
+				},
+			});
 
-			for (const element of elements) {
-				if (element.type !== "Transition") continue;
-				const store = modelRegistry.get(element.id);
-				if (!store) continue;
-				await store.getState().prepareFrame?.({
-					element,
-					displayTime: frame,
-					fps,
-					phase: "beforeRender",
-				});
-			}
+			await ready;
 
 			await root.render(children);
 

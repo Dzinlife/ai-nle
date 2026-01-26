@@ -1,6 +1,6 @@
 import type { DSLComponentDefinition } from "../model/componentRegistry";
 import { componentRegistry } from "../model/componentRegistry";
-import { type VideoClipProps, createVideoClipModel } from "./model";
+import { createVideoClipModel, type VideoClipProps } from "./model";
 import VideoClipRenderer from "./renderer";
 import { VideoClipTimeline } from "./timeline";
 
@@ -10,6 +10,21 @@ export const VideoClipDefinition: DSLComponentDefinition<VideoClipProps> = {
 	component: "video-clip",
 	createModel: createVideoClipModel,
 	Renderer: VideoClipRenderer,
+	prepareRenderFrame: async ({
+		element,
+		displayTime,
+		fps,
+		renderTimeline,
+		modelStore,
+	}) => {
+		await modelStore?.getState()?.prepareFrame?.({
+			element,
+			displayTime,
+			fps,
+			renderTimeline,
+			phase: "beforeRender",
+		});
+	},
 	Timeline: VideoClipTimeline,
 	meta: {
 		name: "Video Clip",

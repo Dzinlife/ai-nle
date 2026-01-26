@@ -1,7 +1,10 @@
 import React, { type ReactNode, useMemo } from "react";
 import { Group, Mask, Rect, Shader, Skia } from "react-skia-lite";
 import type { TimelineElement } from "@/dsl/types";
-import { useRenderTime, useTimelineStore } from "@/editor/contexts/TimelineContext";
+import {
+	useRenderTime,
+	useTimelineStore,
+} from "@/editor/contexts/TimelineContext";
 import type { TransitionProps } from "../Transition/model";
 
 interface PixelShaderTransitionRendererProps extends TransitionProps {

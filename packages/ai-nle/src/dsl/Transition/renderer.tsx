@@ -10,7 +10,10 @@ import {
 	TileMode,
 } from "react-skia-lite";
 import type { TimelineElement } from "@/dsl/types";
-import { useRenderTime, useTimelineStore } from "@/editor/contexts/TimelineContext";
+import {
+	useRenderTime,
+	useTimelineStore,
+} from "@/editor/contexts/TimelineContext";
 import type { TransitionProps } from "./model";
 import { useSkPictureFromNode } from "./picture";
 
@@ -80,8 +83,6 @@ const TransitionRenderer: React.FC<TransitionRendererProps> = ({
 		typeof progress === "number" && Number.isFinite(progress)
 			? clampProgress(progress)
 			: computedProgress;
-	const fromOpacity = 1 - safeProgress;
-	const toOpacity = safeProgress;
 
 	const shaderSource = useMemo(() => {
 		try {

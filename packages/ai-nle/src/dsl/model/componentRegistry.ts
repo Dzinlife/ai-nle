@@ -1,6 +1,6 @@
 import type React from "react";
 import type { ElementType, TrackRole } from "../types";
-import type { ComponentModelStore } from "./types";
+import type { ComponentModelStore, RendererPrepareFrameContext } from "./types";
 
 /**
  * 组件定义接口
@@ -19,6 +19,10 @@ export interface DSLComponentDefinition<Props = any, Internal = any> {
 
 	// 渲染组件（用于 Preview 和导出）
 	Renderer: React.ComponentType<any>;
+
+	prepareRenderFrame?: (
+		context: RendererPrepareFrameContext,
+	) => Promise<void> | void;
 
 	// 时间线组件
 	Timeline: React.ComponentType<any>;

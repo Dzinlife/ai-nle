@@ -99,6 +99,15 @@ editor/
 - `PreviewProvider`：预览画布尺寸、缩放、平移与 canvas 引用。
 - `timelineLoader`：JSON 校验 + timecode 维护，加载 `timeline.json` 作为初始数据。
 
+## 导出与渲染准备
+
+- 导出流程在每帧构建 Skia 渲染树，同时生成 `ready` Promise，用于等待渲染依赖就绪。
+- 需要导出等待的组件，通过 `DSLComponentDefinition.prepareRenderFrame` 提供准备逻辑。
+- `prepareRenderFrame` 只负责准备渲染依赖（解码、离屏图片等），不要在 React 组件内等待。
+- 典型实现：
+  - `VideoClip` 在 `prepareRenderFrame` 中调用 model 的 `prepareFrame`。
+  - `Transition` 在 `prepareRenderFrame` 中生成 from/to 的离屏图片，且由渲染计划级联等待。
+
 ## 轨道与时间线策略
 
 - 主轨 (track 0) 固定在底部，按角色分配轨道。

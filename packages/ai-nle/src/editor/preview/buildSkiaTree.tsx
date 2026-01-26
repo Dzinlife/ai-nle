@@ -1,8 +1,11 @@
-import React, { useCallback } from "react";
+import React from "react";
 import { Fill, Group as SkiaGroup } from "react-skia-lite";
 import { componentRegistry } from "@/dsl/model/componentRegistry";
+import type {
+	ComponentModelStore,
+	RendererPrepareFrameContext,
+} from "@/dsl/model/types";
 import type { TimelineElement } from "@/dsl/types";
-import { useRenderTime } from "@/editor/contexts/TimelineContext";
 import type { TimelineTrack } from "@/editor/timeline/types";
 import { getTransitionDuration, isTransitionElement } from "@/editor/utils/transitions";
 import { computeVisibleElements } from "./utils";
@@ -78,105 +81,48 @@ export const pickActiveTransition = (
 	return best;
 };
 
-interface TransitionClipLayerProps {
-	element: TimelineElement;
-	Renderer: React.ComponentType<any>;
-	transitionInfos?: TransitionClipInfo[];
-	elementsById: Map<string, TimelineElement>;
-}
+type RenderPlan = {
+	node: React.ReactNode | null;
+	ready: Promise<void>;
+};
 
-const TransitionClipLayer: React.FC<TransitionClipLayerProps> = ({
-	element,
-	Renderer,
-	transitionInfos,
-	elementsById,
-}) => {
-	const currentTimeFrames = useRenderTime();
-	const activeTransition = pickActiveTransition(transitionInfos, currentTimeFrames);
-	const baseOpacity = element.render?.opacity ?? 1;
-	let renderTimeline: TransitionClipInfo["renderTimeline"];
-	const renderElement = useCallback(
-		(
-			target: TimelineElement,
-			timeline?: TransitionClipInfo["renderTimeline"],
-		) => {
-			const componentDef = componentRegistry.get(target.component);
-			if (!componentDef) {
-				console.warn(
-					`[PreviewEditor] Component "${target.component}" not registered`,
-				);
-				console.warn(
-					`[PreviewEditor] Available components:`,
-					componentRegistry.getComponentIds(),
-				);
-				return null;
-			}
-			const TargetRenderer = componentDef.Renderer;
-			return (
-				<TargetRenderer
-					id={target.id}
-					{...target.props}
-					{...(target.type === "VideoClip" && timeline
-						? { renderTimeline: timeline }
-						: {})}
-				/>
-			);
-		},
-		[],
-	);
+type RenderPrepareOptions = {
+	isExporting: boolean;
+	fps: number;
+	canvasSize: { width: number; height: number };
+	getModelStore?: (id: string) => ComponentModelStore | undefined;
+};
 
-	if (activeTransition) {
-		renderTimeline = activeTransition.renderTimeline;
-		const transitionElement = elementsById.get(activeTransition.transitionId);
-		const transitionDef = transitionElement
-			? componentRegistry.get(activeTransition.transitionComponent)
-			: null;
-		if (transitionDef) {
-			if (activeTransition.role === "from") {
-				return null;
-			}
-			const fromElement = elementsById.get(activeTransition.fromId);
-			const toElement = elementsById.get(activeTransition.toId);
-			if (!fromElement || !toElement) return null;
-			const fromOpacity = fromElement.render?.opacity ?? 1;
-			const toOpacity = toElement.render?.opacity ?? 1;
-			const fromContent = renderElement(
-				fromElement,
-				activeTransition.peerRenderTimeline,
-			);
-			const toContent = renderElement(
-				toElement,
-				activeTransition.renderTimeline,
-			);
-			const fromNode = fromContent ? (
-				<SkiaGroup opacity={fromOpacity}>{fromContent}</SkiaGroup>
-			) : null;
-			const toNode = toContent ? (
-				<SkiaGroup opacity={toOpacity}>{toContent}</SkiaGroup>
-			) : null;
-			const TransitionRenderer = transitionDef.Renderer;
-			return (
-				<TransitionRenderer
-					id={activeTransition.transitionId}
-					{...transitionElement?.props}
-					fromNode={fromNode}
-					toNode={toNode}
-				/>
-			);
-		}
+const renderElementNode = (
+	target: TimelineElement,
+	timeline?: TransitionClipInfo["renderTimeline"],
+) => {
+	const componentDef = componentRegistry.get(target.component);
+	if (!componentDef) {
+		console.warn(
+			`[PreviewEditor] Component "${target.component}" not registered`,
+		);
+		console.warn(
+			`[PreviewEditor] Available components:`,
+			componentRegistry.getComponentIds(),
+		);
+		return null;
 	}
-
+	const TargetRenderer = componentDef.Renderer;
 	return (
-		<SkiaGroup opacity={baseOpacity}>
-			<Renderer
-				id={element.id}
-				{...element.props}
-				{...(element.type === "VideoClip" && renderTimeline
-					? { renderTimeline }
-					: {})}
-			/>
-		</SkiaGroup>
+		<TargetRenderer
+			id={target.id}
+			{...target.props}
+			{...(target.type === "VideoClip" && timeline
+				? { renderTimeline: timeline }
+				: {})}
+		/>
 	);
+};
+
+const wrapOpacityNode = (node: React.ReactNode | null, opacity: number) => {
+	if (!node) return null;
+	return <SkiaGroup opacity={opacity}>{node}</SkiaGroup>;
 };
 
 export const buildSkiaRenderState = ({
@@ -185,14 +131,20 @@ export const buildSkiaRenderState = ({
 	tracks,
 	getTrackIndexForElement,
 	sortByTrackIndex,
+	prepare,
 }: {
 	elements: TimelineElement[];
 	displayTime: number;
 	tracks: TimelineTrack[];
 	getTrackIndexForElement: (element: TimelineElement) => number;
 	sortByTrackIndex: (elements: TimelineElement[]) => TimelineElement[];
+	prepare?: RenderPrepareOptions;
 }) => {
 	const elementsById = new Map(elements.map((el) => [el.id, el] as const));
+	const isExporting = prepare?.isExporting ?? false;
+	const fps = prepare?.fps ?? 0;
+	const canvasSize = prepare?.canvasSize;
+	const getModelStore = prepare?.getModelStore;
 
 	const transitionInfosById = new Map<string, TransitionClipInfo[]>();
 
@@ -282,42 +234,126 @@ export const buildSkiaRenderState = ({
 
 	const orderedElements = sortByTrackIndex(visibleElements);
 
+	const runPrepareRenderFrame = async (
+		target: TimelineElement,
+		renderTimeline?: TransitionClipInfo["renderTimeline"],
+		extra?: Partial<RendererPrepareFrameContext>,
+	): Promise<void> => {
+		if (!isExporting) return;
+		const componentDef = componentRegistry.get(target.component);
+		if (!componentDef?.prepareRenderFrame) return;
+		await componentDef.prepareRenderFrame({
+			element: target,
+			displayTime,
+			fps,
+			renderTimeline,
+			modelStore: getModelStore?.(target.id),
+			getModelStore,
+			canvasSize,
+			...extra,
+		});
+	};
+
+	const buildPlainElementPlan = (
+		target: TimelineElement,
+		options?: {
+			renderTimeline?: TransitionClipInfo["renderTimeline"];
+			opacity?: number;
+		},
+	): RenderPlan => {
+		const content = renderElementNode(target, options?.renderTimeline);
+		const node = wrapOpacityNode(content, options?.opacity ?? 1);
+		const ready = runPrepareRenderFrame(target, options?.renderTimeline);
+		return { node, ready };
+	};
+
+	const buildElementPlan = (
+		element: TimelineElement,
+		transitionInfos?: TransitionClipInfo[],
+	): RenderPlan => {
+		const activeTransition = pickActiveTransition(transitionInfos, displayTime);
+		const baseOpacity = element.render?.opacity ?? 1;
+		let renderTimeline: TransitionClipInfo["renderTimeline"];
+
+		if (activeTransition) {
+			renderTimeline = activeTransition.renderTimeline;
+			const transitionElement = elementsById.get(activeTransition.transitionId);
+			if (transitionElement) {
+				const transitionDef = componentRegistry.get(
+					activeTransition.transitionComponent,
+				);
+				if (transitionDef) {
+					if (activeTransition.role === "from") {
+						return { node: null, ready: Promise.resolve() };
+					}
+					const fromElement = elementsById.get(activeTransition.fromId);
+					const toElement = elementsById.get(activeTransition.toId);
+					if (!fromElement || !toElement) {
+						return { node: null, ready: Promise.resolve() };
+					}
+					const fromOpacity = fromElement.render?.opacity ?? 1;
+					const toOpacity = toElement.render?.opacity ?? 1;
+					const fromPlan = buildPlainElementPlan(fromElement, {
+						renderTimeline: activeTransition.peerRenderTimeline,
+						opacity: fromOpacity,
+					});
+					const toPlan = buildPlainElementPlan(toElement, {
+						renderTimeline: activeTransition.renderTimeline,
+						opacity: toOpacity,
+					});
+					const TransitionRenderer = transitionDef.Renderer;
+					const node = (
+						<TransitionRenderer
+							id={activeTransition.transitionId}
+							{...transitionElement.props}
+							fromNode={fromPlan.node}
+							toNode={toPlan.node}
+						/>
+					);
+					const ready = isExporting
+						? Promise.all([fromPlan.ready, toPlan.ready]).then(() =>
+								runPrepareRenderFrame(transitionElement, undefined, {
+									fromNode: fromPlan.node,
+									toNode: toPlan.node,
+								}),
+							)
+						: Promise.resolve();
+					return { node, ready };
+				}
+			}
+		}
+
+		return buildPlainElementPlan(element, {
+			renderTimeline,
+			opacity: baseOpacity,
+		});
+	};
+
+	const plans = orderedElements.map((el) =>
+		buildElementPlan(el, transitionInfosById.get(el.id)),
+	);
+
 	const children = (
 		<>
 			<Fill color="black" />
-			{orderedElements.map((el) => {
-				const componentDef = componentRegistry.get(el.component);
-				if (!componentDef) {
-					console.warn(
-						`[PreviewEditor] Component "${el.component}" not registered`,
-					);
-					console.warn(
-						`[PreviewEditor] Available components:`,
-						componentRegistry.getComponentIds(),
-					);
-					return null;
-				}
-
-				const Renderer = componentDef.Renderer;
-
-				return (
-					<TransitionClipLayer
-						key={el.id}
-						element={el}
-						Renderer={Renderer}
-						transitionInfos={transitionInfosById.get(el.id)}
-						elementsById={elementsById}
-					/>
-				);
-			})}
+			{plans.map((plan, index) => (
+				<React.Fragment key={orderedElements[index].id}>
+					{plan.node}
+				</React.Fragment>
+			))}
 		</>
 	);
+
+	const ready = isExporting
+		? Promise.all(plans.map((plan) => plan.ready)).then(() => undefined)
+		: Promise.resolve();
 
 	return {
 		children,
 		orderedElements,
 		visibleElements,
 		transitionInfosById,
+		ready,
 	};
 };
 
