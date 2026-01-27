@@ -11,7 +11,6 @@ import {
 	SkiaSGRoot,
 } from "react-skia-lite";
 import { modelRegistry } from "@/dsl/model/registry";
-import { clearSyncPictures } from "@/dsl/Transition/picture";
 import type { TimelineElement } from "@/dsl/types";
 import { useTimelineStore } from "@/editor/contexts/TimelineContext";
 import { buildSkiaRenderState } from "@/editor/preview/buildSkiaTree";
@@ -212,7 +211,7 @@ export const exportTimelineAsVideo = async (options?: {
 		for (let frame = startFrame; frame < endFrame; frame += 1) {
 			timelineState.setExportTime(frame);
 
-			const { children, ready } = buildSkiaRenderState({
+			const { children, ready, dispose } = await buildSkiaRenderState({
 				elements,
 				displayTime: frame,
 				tracks,
@@ -239,7 +238,7 @@ export const exportTimelineAsVideo = async (options?: {
 
 			await videoSource.add(frame / fps, 1 / fps);
 
-			clearSyncPictures(frame);
+			dispose();
 		}
 
 		await output.finalize();

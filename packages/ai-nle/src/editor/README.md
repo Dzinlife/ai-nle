@@ -106,7 +106,7 @@ editor/
 - `prepareRenderFrame` 只负责准备渲染依赖（解码、离屏图片等），不要在 React 组件内等待。
 - 典型实现：
   - `VideoClip` 在 `prepareRenderFrame` 中调用 model 的 `prepareFrame`。
-  - `Transition` 在 `prepareRenderFrame` 中生成 from/to 的离屏图片，且由渲染计划级联等待。
+  - `Transition` 的 from/to 离屏图片在 `buildSkiaRenderState` 阶段生成并透传给渲染器，由渲染计划级联等待。
 
 ## 轨道与时间线策略
 

@@ -9,6 +9,7 @@ import {
 	Skia,
 	TileMode,
 } from "react-skia-lite";
+import type { SkPicture } from "react-skia-lite";
 import type { TimelineElement } from "@/dsl/types";
 import {
 	useRenderTime,
@@ -16,12 +17,13 @@ import {
 } from "@/editor/contexts/TimelineContext";
 import { getTransitionBoundary } from "@/editor/utils/transitions";
 import type { TransitionProps } from "./model";
-import { useSkPictureFromNode } from "./picture";
 
 interface TransitionRendererProps extends TransitionProps {
 	id: string;
 	fromNode?: ReactNode;
 	toNode?: ReactNode;
+	fromPicture?: SkPicture | null;
+	toPicture?: SkPicture | null;
 	progress?: number;
 }
 
@@ -62,6 +64,8 @@ const resolveTransitionDuration = (
 const TransitionRenderer: React.FC<TransitionRendererProps> = ({
 	fromNode,
 	toNode,
+	fromPicture,
+	toPicture,
 	progress,
 	id,
 }) => {
@@ -96,18 +100,8 @@ const TransitionRenderer: React.FC<TransitionRendererProps> = ({
 	const width = canvasSize.width;
 	const height = canvasSize.height;
 
-	const preRollPicture = useSkPictureFromNode(
-		fromNode ?? null,
-		canvasSize,
-		currentTimeFrames,
-		`${id}:from`,
-	);
-	const afterRollPicture = useSkPictureFromNode(
-		toNode ?? null,
-		canvasSize,
-		currentTimeFrames,
-		`${id}:to`,
-	);
+	const preRollPicture = fromPicture ?? null;
+	const afterRollPicture = toPicture ?? null;
 
 	const blendShader = useMemo(() => {
 		if (

@@ -1,30 +1,20 @@
 import React from "react";
-import { Fill, Group as SkiaGroup } from "react-skia-lite";
+import { Fill, type SkPicture } from "react-skia-lite";
 import { componentRegistry } from "@/dsl/model/componentRegistry";
 import type {
 	ComponentModelStore,
 	RendererPrepareFrameContext,
 } from "@/dsl/model/types";
+import { renderNodeToPicture } from "@/dsl/Transition/picture";
 import type { TimelineElement } from "@/dsl/types";
 import type { TimelineTrack } from "@/editor/timeline/types";
-import {
-	getTransitionBoundary,
-	isTransitionElement,
-} from "@/editor/utils/transitions";
+import { isTransitionElement } from "@/editor/utils/transitions";
 import { computeVisibleElements } from "./utils";
-
-type ActiveTransitionInfo = {
-	role: "from" | "to";
-	boundary: number;
-	transitionId: string;
-	transitionComponent: string;
-	fromId: string;
-	toId: string;
-};
 
 type RenderPlan = {
 	node: React.ReactNode | null;
 	ready: Promise<void>;
+	dispose?: () => void;
 };
 
 type RenderPrepareOptions = {
@@ -32,6 +22,7 @@ type RenderPrepareOptions = {
 	fps: number;
 	canvasSize: { width: number; height: number };
 	getModelStore?: (id: string) => ComponentModelStore | undefined;
+	prepareTransitionPictures?: boolean;
 };
 
 const renderElementNode = (target: TimelineElement) => {
@@ -50,12 +41,7 @@ const renderElementNode = (target: TimelineElement) => {
 	return <TargetRenderer id={target.id} {...target.props} />;
 };
 
-const wrapOpacityNode = (node: React.ReactNode | null, opacity: number) => {
-	if (!node) return null;
-	return <SkiaGroup opacity={opacity}>{node}</SkiaGroup>;
-};
-
-export const buildSkiaRenderState = ({
+export const buildSkiaRenderState = async ({
 	elements,
 	displayTime,
 	tracks,
@@ -75,62 +61,55 @@ export const buildSkiaRenderState = ({
 	const fps = prepare?.fps ?? 0;
 	const canvasSize = prepare?.canvasSize;
 	const getModelStore = prepare?.getModelStore;
+	const shouldPrepareTransitionPictures =
+		(prepare?.prepareTransitionPictures ?? false) || isExporting;
+	const transitionPictureSize =
+		shouldPrepareTransitionPictures &&
+		canvasSize &&
+		canvasSize.width > 0 &&
+		canvasSize.height > 0
+			? canvasSize
+			: null;
 
-	const activeTransitionByElementId = new Map<string, ActiveTransitionInfo>();
-	const extraVisibleIds = new Set<string>();
-
-	const setActiveTransition = (elementId: string, info: ActiveTransitionInfo) => {
-		const current = activeTransitionByElementId.get(elementId);
-		if (!current) {
-			activeTransitionByElementId.set(elementId, info);
-			return;
-		}
-		const currentDistance = Math.abs(displayTime - current.boundary);
-		const nextDistance = Math.abs(displayTime - info.boundary);
-		if (nextDistance < currentDistance) {
-			activeTransitionByElementId.set(elementId, info);
-		}
-	};
-
-	for (const element of elements) {
-		if (!isTransitionElement(element)) continue;
+	const isActiveTransition = (element: TimelineElement): boolean => {
+		if (!isTransitionElement(element)) return false;
 		const trackIndex = getTrackIndexForElement(element);
-		if (tracks[trackIndex]?.hidden) continue;
+		if (tracks[trackIndex]?.hidden) return false;
 		const transitionStart = element.timeline.start;
 		const transitionEnd = element.timeline.end;
-		if (displayTime < transitionStart || displayTime >= transitionEnd) continue;
-
+		if (displayTime < transitionStart || displayTime >= transitionEnd) {
+			return false;
+		}
 		const { fromId, toId } = element.transition ?? {};
-		if (!fromId || !toId) continue;
+		if (!fromId || !toId) return false;
 		const fromElement = elementsById.get(fromId);
 		const toElement = elementsById.get(toId);
-		if (!fromElement || !toElement) continue;
+		if (!fromElement || !toElement) return false;
 		if (isTransitionElement(fromElement) || isTransitionElement(toElement)) {
-			continue;
+			return false;
 		}
+		return true;
+	};
 
-		const boundary = getTransitionBoundary(element);
-		const baseInfo = {
-			boundary,
-			transitionId: element.id,
-			transitionComponent: element.component,
-			fromId,
-			toId,
-		};
-
-		setActiveTransition(fromId, { ...baseInfo, role: "from" });
-		setActiveTransition(toId, { ...baseInfo, role: "to" });
-		extraVisibleIds.add(fromId);
-		extraVisibleIds.add(toId);
-	}
-
-	const visibleElements = elements.filter((el) => {
+	const visibleCandidates = elements.filter((el) => {
 		const trackIndex = getTrackIndexForElement(el);
 		if (tracks[trackIndex]?.hidden) return false;
-		if (isTransitionElement(el)) return false;
-		if (extraVisibleIds.has(el.id)) return true;
 		const { start = 0, end = Infinity } = el.timeline;
+		if (isTransitionElement(el)) {
+			return isActiveTransition(el);
+		}
 		return displayTime >= start && displayTime < end;
+	});
+	const transitionHiddenIds = new Set<string>();
+	for (const element of visibleCandidates) {
+		if (!isTransitionElement(element)) continue;
+		const { fromId, toId } = element.transition ?? {};
+		if (fromId) transitionHiddenIds.add(fromId);
+		if (toId) transitionHiddenIds.add(toId);
+	}
+	const visibleElements = visibleCandidates.filter((el) => {
+		if (isTransitionElement(el)) return true;
+		return !transitionHiddenIds.has(el.id);
 	});
 
 	const orderedElements = sortByTrackIndex(visibleElements);
@@ -153,75 +132,83 @@ export const buildSkiaRenderState = ({
 		});
 	};
 
-	const buildPlainElementPlan = (
-		target: TimelineElement,
-		options?: {
-			opacity?: number;
-		},
-	): RenderPlan => {
+	const buildPlainElementPlan = (target: TimelineElement): RenderPlan => {
 		const content = renderElementNode(target);
-		const node = wrapOpacityNode(content, options?.opacity ?? 1);
 		const ready = runPrepareRenderFrame(target);
-		return { node, ready };
+		return { node: content, ready };
 	};
 
-	const buildElementPlan = (
+	const buildElementPlan = async (
 		element: TimelineElement,
-	): RenderPlan => {
-		const activeTransition = activeTransitionByElementId.get(element.id);
-		const baseOpacity = element.render?.opacity ?? 1;
-
-		if (activeTransition) {
-			const transitionElement = elementsById.get(activeTransition.transitionId);
-			if (transitionElement) {
-				const transitionDef = componentRegistry.get(
-					activeTransition.transitionComponent,
-				);
-				if (transitionDef) {
-					if (activeTransition.role === "from") {
-						return { node: null, ready: Promise.resolve() };
-					}
-					const fromElement = elementsById.get(activeTransition.fromId);
-					const toElement = elementsById.get(activeTransition.toId);
-					if (!fromElement || !toElement) {
-						return { node: null, ready: Promise.resolve() };
-					}
-					const fromOpacity = fromElement.render?.opacity ?? 1;
-					const toOpacity = toElement.render?.opacity ?? 1;
-					const fromPlan = buildPlainElementPlan(fromElement, {
-						opacity: fromOpacity,
-					});
-					const toPlan = buildPlainElementPlan(toElement, {
-						opacity: toOpacity,
-					});
-					const TransitionRenderer = transitionDef.Renderer;
-					const node = (
-						<TransitionRenderer
-							id={activeTransition.transitionId}
-							{...transitionElement.props}
-							fromNode={fromPlan.node}
-							toNode={toPlan.node}
-						/>
-					);
-					const ready = isExporting
-						? Promise.all([fromPlan.ready, toPlan.ready]).then(() =>
-								runPrepareRenderFrame(transitionElement, {
-									fromNode: fromPlan.node,
-									toNode: toPlan.node,
-								}),
-							)
-						: Promise.resolve();
-					return { node, ready };
-				}
+	): Promise<RenderPlan> => {
+		if (!isTransitionElement(element)) {
+			return buildPlainElementPlan(element);
+		}
+		const transitionDef = componentRegistry.get(element.component);
+		if (!transitionDef) {
+			return { node: null, ready: Promise.resolve() };
+		}
+		const { fromId, toId } = element.transition ?? {};
+		if (!fromId || !toId) {
+			return { node: null, ready: Promise.resolve() };
+		}
+		const fromElement = elementsById.get(fromId);
+		const toElement = elementsById.get(toId);
+		if (!fromElement || !toElement) {
+			return { node: null, ready: Promise.resolve() };
+		}
+		if (isTransitionElement(fromElement) || isTransitionElement(toElement)) {
+			return { node: null, ready: Promise.resolve() };
+		}
+		const fromPlan = buildPlainElementPlan(fromElement);
+		const toPlan = buildPlainElementPlan(toElement);
+		const elementReady = Promise.all([fromPlan.ready, toPlan.ready]);
+		let fromPicture: SkPicture | null = null;
+		let toPicture: SkPicture | null = null;
+		let dispose: (() => void) | undefined;
+		if (transitionPictureSize) {
+			await elementReady;
+			const [fromRendered, toRendered] = await Promise.all([
+				fromPlan.node
+					? renderNodeToPicture(fromPlan.node, transitionPictureSize)
+					: Promise.resolve(null),
+				toPlan.node
+					? renderNodeToPicture(toPlan.node, transitionPictureSize)
+					: Promise.resolve(null),
+			]);
+			fromPicture = fromRendered;
+			toPicture = toRendered;
+			if (fromRendered || toRendered) {
+				dispose = () => {
+					fromRendered?.dispose();
+					toRendered?.dispose();
+				};
 			}
 		}
-
-		return buildPlainElementPlan(element, {
-			opacity: baseOpacity,
-		});
+		const TransitionRenderer = transitionDef.Renderer;
+		const node = (
+			<TransitionRenderer
+				id={element.id}
+				{...element.props}
+				fromNode={fromPlan.node}
+				toNode={toPlan.node}
+				fromPicture={fromPicture}
+				toPicture={toPicture}
+			/>
+		);
+		const ready = Promise.all([
+			elementReady,
+			runPrepareRenderFrame(element, {
+				fromNode: fromPlan.node,
+				toNode: toPlan.node,
+			}),
+		]);
+		return { node, ready: ready.then(() => undefined), dispose };
 	};
 
-	const plans = orderedElements.map((el) => buildElementPlan(el));
+	const plans = await Promise.all(
+		orderedElements.map((el) => buildElementPlan(el)),
+	);
 
 	const children = (
 		<>
@@ -237,24 +224,32 @@ export const buildSkiaRenderState = ({
 	const ready = isExporting
 		? Promise.all(plans.map((plan) => plan.ready)).then(() => undefined)
 		: Promise.resolve();
+	const dispose = () => {
+		for (const plan of plans) {
+			plan.dispose?.();
+		}
+	};
 
 	return {
 		children,
 		orderedElements,
 		visibleElements,
 		ready,
+		dispose,
 	};
 };
 
-export const buildSkiaTree = (args: {
+export const buildSkiaTree = async (args: {
 	elements: TimelineElement[];
 	displayTime: number;
 	tracks: TimelineTrack[];
 	getTrackIndexForElement: (element: TimelineElement) => number;
 	sortByTrackIndex: (elements: TimelineElement[]) => TimelineElement[];
+	prepare?: RenderPrepareOptions;
 }) => {
-	const { children, orderedElements } = buildSkiaRenderState(args);
-	return { children, orderedElements };
+	const { children, orderedElements, dispose } =
+		await buildSkiaRenderState(args);
+	return { children, orderedElements, dispose };
 };
 
 export const buildKonvaTree = ({

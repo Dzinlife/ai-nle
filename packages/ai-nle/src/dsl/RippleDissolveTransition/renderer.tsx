@@ -9,18 +9,21 @@ import {
 	Skia,
 	TileMode,
 } from "react-skia-lite";
+import type { SkPicture } from "react-skia-lite";
 import type { TimelineElement } from "@/dsl/types";
 import {
 	useRenderTime,
 	useTimelineStore,
 } from "@/editor/contexts/TimelineContext";
+import { getTransitionBoundary } from "@/editor/utils/transitions";
 import type { TransitionProps } from "../Transition/model";
-import { useSkPictureFromNode } from "../Transition/picture";
 
 interface RippleDissolveTransitionRendererProps extends TransitionProps {
 	id: string;
 	fromNode?: ReactNode;
 	toNode?: ReactNode;
+	fromPicture?: SkPicture | null;
+	toPicture?: SkPicture | null;
 	progress?: number;
 }
 
@@ -77,7 +80,7 @@ const resolveTransitionDuration = (
 
 const RippleDissolveTransitionRenderer: React.FC<
 	RippleDissolveTransitionRendererProps
-> = ({ fromNode, toNode, progress, id }) => {
+> = ({ fromNode, toNode, fromPicture, toPicture, progress, id }) => {
 	const currentTimeFrames = useRenderTime();
 	const transitionElement = useTimelineStore(
 		(state) => state.getElementById(id)!,
@@ -85,6 +88,7 @@ const RippleDissolveTransitionRenderer: React.FC<
 	const canvasSize = useTimelineStore((state) => state.canvasSize);
 	const start = transitionElement?.timeline.start ?? 0;
 	const transitionDuration = resolveTransitionDuration(transitionElement);
+	const boundary = getTransitionBoundary(transitionElement);
 
 	const computedProgress =
 		transitionDuration > 0
@@ -107,18 +111,8 @@ const RippleDissolveTransitionRenderer: React.FC<
 	const width = canvasSize.width;
 	const height = canvasSize.height;
 
-	const preRollPicture = useSkPictureFromNode(
-		fromNode ?? null,
-		canvasSize,
-		currentTimeFrames,
-		`${id}:from`,
-	);
-	const afterRollPicture = useSkPictureFromNode(
-		toNode ?? null,
-		canvasSize,
-		currentTimeFrames,
-		`${id}:to`,
-	);
+	const preRollPicture = fromPicture ?? null;
+	const afterRollPicture = toPicture ?? null;
 
 	const blendShader = useMemo(() => {
 		if (

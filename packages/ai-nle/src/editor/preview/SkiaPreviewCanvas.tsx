@@ -28,35 +28,58 @@ export const SkiaPreviewCanvas: React.FC<SkiaPreviewCanvasProps> = ({
 }) => {
 	const internalCanvasRef = useRef<CanvasRef>(null);
 	const targetCanvasRef = canvasRef ?? internalCanvasRef;
-	const skiaRenderElementsRef = useRef<TimelineElement[]>([]);
+	const renderTokenRef = useRef(0);
+	const disposeRef = useRef<(() => void) | null>(null);
 
-	const renderSkia = useCallback(() => {
-		const displayTime = getDisplayTime();
-		const allElements = getElements();
-		const { children, orderedElements: skiaElements } = buildSkiaTree({
-			elements: allElements,
-			displayTime,
-			tracks,
+	const runRender = useCallback(
+		(elements: TimelineElement[], displayTime: number) => {
+			const renderToken = renderTokenRef.current + 1;
+			renderTokenRef.current = renderToken;
+
+			buildSkiaTree({
+				elements,
+				displayTime,
+				tracks,
+				getTrackIndexForElement,
+				sortByTrackIndex,
+				prepare: {
+					isExporting: false,
+					fps: 0,
+					canvasSize: { width: canvasWidth, height: canvasHeight },
+					prepareTransitionPictures: true,
+				},
+			})
+				.then(({ children, dispose }) => {
+					if (renderTokenRef.current !== renderToken) {
+						dispose?.();
+						return;
+					}
+					const root = targetCanvasRef.current?.getRoot();
+					if (!root) {
+						dispose?.();
+						return;
+					}
+					root.render(children);
+					disposeRef.current?.();
+					disposeRef.current = dispose ?? null;
+				})
+				.catch((error) => {
+					console.error("Failed to build skia preview tree:", error);
+				});
+		},
+		[
+			canvasHeight,
+			canvasWidth,
 			getTrackIndexForElement,
 			sortByTrackIndex,
-		});
+			targetCanvasRef,
+			tracks,
+		],
+	);
 
-		const prevSkiaElements = skiaRenderElementsRef.current;
-		if (
-			prevSkiaElements.length !== skiaElements.length ||
-			skiaElements.some((el, i) => prevSkiaElements[i] !== el)
-		) {
-			skiaRenderElementsRef.current = skiaElements;
-			targetCanvasRef.current?.getRoot()?.render(children);
-		}
-	}, [
-		getDisplayTime,
-		getElements,
-		getTrackIndexForElement,
-		sortByTrackIndex,
-		tracks,
-		targetCanvasRef,
-	]);
+	const renderSkia = useCallback(() => {
+		runRender(getElements(), getDisplayTime());
+	}, [getDisplayTime, getElements, runRender]);
 
 	useEffect(() => {
 		const unsub1 = useTimelineStore.subscribe(
@@ -77,31 +100,20 @@ export const SkiaPreviewCanvas: React.FC<SkiaPreviewCanvasProps> = ({
 		return useTimelineStore.subscribe(
 			(state) => state.elements,
 			(newElements) => {
-				const root = targetCanvasRef.current?.getRoot();
-				if (!root) return;
-
-				const time = getDisplayTime();
-				const { children, orderedElements: skiaElements } = buildSkiaTree({
-					elements: newElements,
-					displayTime: time,
-					tracks,
-					getTrackIndexForElement,
-					sortByTrackIndex,
-				});
-				root.render(children);
-				skiaRenderElementsRef.current = skiaElements;
+				runRender(newElements, getDisplayTime());
 			},
 			{
 				fireImmediately: true,
 			},
 		);
-	}, [
-		getDisplayTime,
-		getTrackIndexForElement,
-		sortByTrackIndex,
-		targetCanvasRef,
-		tracks,
-	]);
+	}, [getDisplayTime, runRender]);
+
+	useEffect(() => {
+		return () => {
+			disposeRef.current?.();
+			disposeRef.current = null;
+		};
+	}, []);
 
 	const skiaCanvas = useMemo(() => {
 		return (
