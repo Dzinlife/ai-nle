@@ -1,12 +1,6 @@
 import { TimelineElement } from "@/dsl/types";
-import { getElementRole, MAIN_TRACK_INDEX } from "./trackAssignment";
 import { updateElementTime } from "./timelineTime";
-
-type TransitionProps = {
-	duration?: number;
-	fromId?: string;
-	toId?: string;
-};
+import { getElementRole, MAIN_TRACK_INDEX } from "./trackAssignment";
 
 interface TransitionLink {
 	fromId: string;
@@ -34,24 +28,61 @@ export const isTransitionElement = (element: TimelineElement): boolean =>
 export const getTransitionDuration = (element: TimelineElement): number => {
 	if (!isTransitionElement(element)) return 0;
 	const metaDuration = element.transition?.duration;
-	const legacyDuration =
-		typeof (element.props as { duration?: number } | undefined)?.duration ===
-		"number"
-			? (element.props as { duration?: number }).duration
-			: undefined;
+	const timelineDuration = element.timeline.end - element.timeline.start;
 	const value =
-		metaDuration ?? legacyDuration ?? DEFAULT_TRANSITION_DURATION;
+		metaDuration ??
+		(Number.isFinite(timelineDuration) && timelineDuration > 0
+			? timelineDuration
+			: DEFAULT_TRANSITION_DURATION);
 	if (!Number.isFinite(value)) return DEFAULT_TRANSITION_DURATION;
 	return Math.max(0, Math.round(value));
 };
 
-const getTransitionDurationParts = (
+export const getTransitionBoundary = (element: TimelineElement): number => {
+	if (!isTransitionElement(element)) return 0;
+	const boundry = element.transition?.boundry;
+	if (!Number.isFinite(boundry)) {
+		const { head } = getTransitionDurationParts(getTransitionDuration(element));
+		return (element.timeline.start ?? 0) + head;
+	}
+	return Math.round(boundry!);
+};
+
+export const getTransitionDurationParts = (
 	duration: number,
 ): { duration: number; head: number; tail: number } => {
 	const safeDuration = Math.max(0, Math.round(duration));
 	const head = Math.floor(safeDuration / 2);
 	const tail = safeDuration - head;
 	return { duration: safeDuration, head, tail };
+};
+
+const resolveTransitionRange = (boundary: number, duration: number) => {
+	const { head, tail } = getTransitionDurationParts(duration);
+	return { start: boundary - head, end: boundary + tail, head, tail };
+};
+
+export const getTransitionRange = (
+	element: TimelineElement,
+): {
+	start: number;
+	end: number;
+	duration: number;
+	boundary: number;
+	head: number;
+	tail: number;
+} => {
+	const duration = getTransitionDuration(element);
+	const boundary = getTransitionBoundary(element);
+	const { start, end, head, tail } = resolveTransitionRange(boundary, duration);
+	return {
+		start,
+		end,
+		duration,
+		boundary,
+		head,
+		tail,
+	};
 };
 const isClipElement = (element: TimelineElement): boolean =>
 	getElementRole(element) === "clip" && !isTransitionElement(element);
@@ -66,13 +97,16 @@ const sortByTimeline = (a: TimelineElement, b: TimelineElement): number => {
 	return a.id.localeCompare(b.id);
 };
 
-const getTransitionLinkFromProps = (
+const getTransitionLinkFromMeta = (
 	element: TimelineElement,
-): { fromId?: string; toId?: string } => {
-	const props = (element.props ?? {}) as TransitionProps;
-	const fromId = typeof props.fromId === "string" ? props.fromId : undefined;
-	const toId = typeof props.toId === "string" ? props.toId : undefined;
-	return { fromId, toId };
+): { fromId?: string; toId?: string; boundry?: number } => {
+	const meta = element.transition;
+	if (!meta) return {};
+	const fromId = typeof meta.fromId === "string" ? meta.fromId : undefined;
+	const toId = typeof meta.toId === "string" ? meta.toId : undefined;
+	const boundry =
+		typeof meta.boundry === "number" ? Math.round(meta.boundry) : undefined;
+	return { fromId, toId, boundry };
 };
 
 const resolvePairTrackId = (
@@ -121,12 +155,11 @@ const ensureTransitionTimeline = (
 	link: TransitionLink,
 	fps: number,
 ): TimelineElement => {
+	const duration = getTransitionDuration(transition);
+	const { start, end } = resolveTransitionRange(link.boundary, duration);
 	let next = transition;
-	if (
-		transition.timeline.start !== link.boundary ||
-		transition.timeline.end !== link.boundary
-	) {
-		next = updateElementTime(transition, link.boundary, link.boundary, fps);
+	if (transition.timeline.start !== start || transition.timeline.end !== end) {
+		next = updateElementTime(transition, start, end, fps);
 	}
 
 	let timelineChanged = false;
@@ -169,24 +202,10 @@ const ensureTransitionTimeline = (
 const resolveTransitionLink = (
 	element: TimelineElement,
 	pairsById: Map<string, TransitionLink>,
-	pairsByBoundary: Map<string, TransitionLink[]>,
-	pairsByBoundaryOnly: Map<number, TransitionLink[]>,
 ): TransitionLink | null => {
-	const { fromId, toId } = getTransitionLinkFromProps(element);
+	const { fromId, toId } = getTransitionLinkFromMeta(element);
 	if (fromId && toId) {
 		return pairsById.get(`${fromId}::${toId}`) ?? null;
-	}
-
-	const boundary = element.timeline.start;
-	const trackIndex = element.timeline.trackIndex ?? MAIN_TRACK_INDEX;
-	const boundaryKey = `${trackIndex}::${boundary}`;
-	const byTrack = pairsByBoundary.get(boundaryKey);
-	if (byTrack && byTrack.length === 1) {
-		return byTrack[0];
-	}
-	const byBoundary = pairsByBoundaryOnly.get(boundary);
-	if (byBoundary && byBoundary.length === 1) {
-		return byBoundary[0];
 	}
 	return null;
 };
@@ -194,8 +213,6 @@ const resolveTransitionLink = (
 const buildTransitionDurationLimiter = (
 	elements: TimelineElement[],
 	pairsById: Map<string, TransitionLink>,
-	pairsByBoundary: Map<string, TransitionLink[]>,
-	pairsByBoundaryOnly: Map<number, TransitionLink[]>,
 ) => {
 	const clipsById = new Map<string, TimelineElement>();
 	for (const el of elements) {
@@ -208,14 +225,11 @@ const buildTransitionDurationLimiter = (
 
 	for (const el of elements) {
 		if (!isTransitionElement(el)) continue;
-		const link = resolveTransitionLink(
-			el,
-			pairsById,
-			pairsByBoundary,
-			pairsByBoundaryOnly,
-		);
+		const link = resolveTransitionLink(el, pairsById);
 		if (!link) continue;
-		const { head, tail } = getTransitionDurationParts(getTransitionDuration(el));
+		const { head, tail } = getTransitionDurationParts(
+			getTransitionDuration(el),
+		);
 		const fromClip = clipsById.get(link.fromId);
 		const toClip = clipsById.get(link.toId);
 		if (fromClip && link.boundary === fromClip.timeline.end) {
@@ -273,23 +287,14 @@ export const collectLinkedTransitions = (
 	}
 
 	const transitionsByPair = new Map<string, TimelineElement[]>();
-	const transitionsByBoundary = new Map<string, TimelineElement[]>();
 
 	for (const transition of transitions) {
-		const { fromId, toId } = getTransitionLinkFromProps(transition);
-		if (fromId && toId) {
-			const key = `${fromId}::${toId}`;
-			const list = transitionsByPair.get(key) ?? [];
-			list.push(transition);
-			transitionsByPair.set(key, list);
-			continue;
-		}
-		const boundary = transition.timeline.start;
-		const trackIndex = transition.timeline.trackIndex ?? MAIN_TRACK_INDEX;
-		const key = `${trackIndex}::${boundary}`;
-		const list = transitionsByBoundary.get(key) ?? [];
+		const { fromId, toId } = getTransitionLinkFromMeta(transition);
+		if (!fromId || !toId) continue;
+		const key = `${fromId}::${toId}`;
+		const list = transitionsByPair.get(key) ?? [];
 		list.push(transition);
-		transitionsByBoundary.set(key, list);
+		transitionsByPair.set(key, list);
 	}
 
 	const extraIds = new Set<string>();
@@ -303,12 +308,6 @@ export const collectLinkedTransitions = (
 			for (const transition of matched) {
 				extraIds.add(transition.id);
 			}
-			continue;
-		}
-		const fallback =
-			transitionsByBoundary.get(`${pair.trackIndex}::${pair.boundary}`) ?? [];
-		for (const transition of fallback) {
-			extraIds.add(transition.id);
 		}
 	}
 
@@ -330,26 +329,12 @@ export const reconcileTransitions = (
 	}
 
 	const pairsById = new Map<string, TransitionLink>();
-	const pairsByBoundary = new Map<string, TransitionLink[]>();
-	const pairsByBoundaryOnly = new Map<number, TransitionLink[]>();
 	for (const pair of pairs) {
 		pairsById.set(`${pair.fromId}::${pair.toId}`, pair);
-		const boundaryKey = `${pair.trackIndex}::${pair.boundary}`;
-		const boundaryList = pairsByBoundary.get(boundaryKey) ?? [];
-		boundaryList.push(pair);
-		pairsByBoundary.set(boundaryKey, boundaryList);
-		const boundaryOnlyList = pairsByBoundaryOnly.get(pair.boundary) ?? [];
-		boundaryOnlyList.push(pair);
-		pairsByBoundaryOnly.set(pair.boundary, boundaryOnlyList);
 	}
 
 	const fpsValue = normalizeFps(fps);
-	const durationLimiter = buildTransitionDurationLimiter(
-		elements,
-		pairsById,
-		pairsByBoundary,
-		pairsByBoundaryOnly,
-	);
+	const durationLimiter = buildTransitionDurationLimiter(elements, pairsById);
 	const usedPairs = new Set<string>();
 	let didChange = false;
 	const next: TimelineElement[] = [];
@@ -360,12 +345,7 @@ export const reconcileTransitions = (
 			continue;
 		}
 
-		const link = resolveTransitionLink(
-			element,
-			pairsById,
-			pairsByBoundary,
-			pairsByBoundaryOnly,
-		);
+		const link = resolveTransitionLink(element, pairsById);
 		if (!link) {
 			didChange = true;
 			continue;
@@ -379,15 +359,22 @@ export const reconcileTransitions = (
 		usedPairs.add(pairKey);
 
 		let updated = element;
-		const { fromId, toId } = getTransitionLinkFromProps(element);
-		if (fromId !== link.fromId || toId !== link.toId) {
+		const currentDuration = getTransitionDuration(element);
+		const nextTransition = {
+			duration: currentDuration,
+			boundry: link.boundary,
+			fromId: link.fromId,
+			toId: link.toId,
+		};
+		if (
+			element.transition?.fromId !== link.fromId ||
+			element.transition?.toId !== link.toId ||
+			element.transition?.boundry !== link.boundary ||
+			element.transition?.duration !== currentDuration
+		) {
 			updated = {
 				...updated,
-				props: {
-					...(updated.props ?? {}),
-					fromId: link.fromId,
-					toId: link.toId,
-				},
+				transition: nextTransition,
 			};
 			didChange = true;
 		}
@@ -398,15 +385,25 @@ export const reconcileTransitions = (
 		}
 
 		const maxDuration = durationLimiter.getMaxDuration(link, normalized);
-		const currentDuration = getTransitionDuration(normalized);
-		if (currentDuration > maxDuration) {
-			next.push({
-				...normalized,
-				transition: {
-					...(normalized.transition ?? {}),
-					duration: maxDuration,
-				},
-			});
+		const normalizedDuration = getTransitionDuration(normalized);
+		if (normalizedDuration > maxDuration) {
+			const { start, end } = resolveTransitionRange(link.boundary, maxDuration);
+			next.push(
+				updateElementTime(
+					{
+						...normalized,
+						transition: {
+							duration: maxDuration,
+							boundry: link.boundary,
+							fromId: link.fromId,
+							toId: link.toId,
+						},
+					},
+					start,
+					end,
+					fpsValue,
+				),
+			);
 			didChange = true;
 			continue;
 		}

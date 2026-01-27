@@ -23,7 +23,9 @@ import {
 } from "../utils/trackAssignment";
 import {
 	collectLinkedTransitions,
+	getTransitionBoundary,
 	getTransitionDuration,
+	getTransitionDurationParts,
 	isTransitionElement,
 } from "../utils/transitions";
 import {
@@ -202,20 +204,10 @@ const getElementOffsetFrames = (element: TimelineElement): number | null => {
 const getTransitionLinkIds = (
 	transition: TimelineElement,
 ): { fromId?: string; toId?: string } => {
-	const props = (transition.props ?? {}) as {
-		fromId?: string;
-		toId?: string;
-	};
-	const fromId = typeof props.fromId === "string" ? props.fromId : undefined;
-	const toId = typeof props.toId === "string" ? props.toId : undefined;
+	const meta = transition.transition;
+	const fromId = typeof meta?.fromId === "string" ? meta.fromId : undefined;
+	const toId = typeof meta?.toId === "string" ? meta.toId : undefined;
 	return { fromId, toId };
-};
-
-const getTransitionDurationParts = (duration: number) => {
-	const safeDuration = Math.max(0, Math.round(duration));
-	const head = Math.floor(safeDuration / 2);
-	const tail = safeDuration - head;
-	return { duration: safeDuration, head, tail };
 };
 
 const resolveTransitionClips = (
@@ -226,7 +218,7 @@ const resolveTransitionClips = (
 	let from = fromId ? elements.find((el) => el.id === fromId) : undefined;
 	let to = toId ? elements.find((el) => el.id === toId) : undefined;
 	if (!from || !to) {
-		const boundary = transition.timeline.start;
+		const boundary = getTransitionBoundary(transition);
 		const trackIndex = transition.timeline.trackIndex ?? 0;
 		if (!from) {
 			from = elements.find(
@@ -270,11 +262,11 @@ const getTransitionMaxDuration = (
 		if (!isTransitionElement(el)) continue;
 		if (el.id === transition.id) continue;
 		const { fromId, toId } = getTransitionLinkIds(el);
-		if (toId === from.id && el.timeline.start === from.timeline.start) {
+		if (toId === from.id && getTransitionBoundary(el) === from.timeline.start) {
 			const { tail } = getTransitionDurationParts(getTransitionDuration(el));
 			incomingTail = Math.max(incomingTail, tail);
 		}
-		if (fromId === to.id && el.timeline.start === to.timeline.end) {
+		if (fromId === to.id && getTransitionBoundary(el) === to.timeline.end) {
 			const { head } = getTransitionDurationParts(getTransitionDuration(el));
 			outgoingHead = Math.max(outgoingHead, head);
 		}
@@ -485,21 +477,52 @@ export const useTimelineElementDnd = ({
 		return updated;
 	};
 
+	const updateTransitionDurationValue = (
+		transition: TimelineElement,
+		duration: number,
+	) => {
+		if (!transition.transition) return transition;
+		const boundary = getTransitionBoundary(transition);
+		const { head, tail } = getTransitionDurationParts(duration);
+		const start = boundary - head;
+		const end = boundary + tail;
+		return updateElementTime(
+			{
+				...transition,
+				transition: {
+					...transition.transition,
+					duration,
+					boundry: boundary,
+				},
+			},
+			start,
+			end,
+			fps,
+		);
+	};
+
 	const getCopyId = (sourceId: string) => copyIdMapRef.current.get(sourceId);
 	const createCopyElement = (source: TimelineElement, copyId: string) => {
 		const baseProps = cloneValue(source.props) as Record<string, unknown>;
 		let nextProps = baseProps;
+		let nextTransition = source.transition
+			? cloneValue(source.transition)
+			: undefined;
 
 		if (isTransitionElement(source)) {
 			const fromId =
-				typeof baseProps?.fromId === "string" ? baseProps.fromId : undefined;
+				typeof source.transition?.fromId === "string"
+					? source.transition?.fromId
+					: undefined;
 			const toId =
-				typeof baseProps?.toId === "string" ? baseProps.toId : undefined;
+				typeof source.transition?.toId === "string"
+					? source.transition?.toId
+					: undefined;
 			const mappedFromId = fromId ? getCopyId(fromId) ?? fromId : undefined;
 			const mappedToId = toId ? getCopyId(toId) ?? toId : undefined;
-			if (mappedFromId !== fromId || mappedToId !== toId) {
-				nextProps = {
-					...baseProps,
+			if (nextTransition && (mappedFromId !== fromId || mappedToId !== toId)) {
+				nextTransition = {
+					...nextTransition,
 					...(mappedFromId ? { fromId: mappedFromId } : {}),
 					...(mappedToId ? { toId: mappedToId } : {}),
 				};
@@ -514,9 +537,7 @@ export const useTimelineElementDnd = ({
 			render: cloneValue(source.render),
 			timeline: { ...source.timeline },
 			...(source.clip ? { clip: cloneValue(source.clip) } : {}),
-			...(source.transition
-				? { transition: cloneValue(source.transition) }
-				: {}),
+			...(nextTransition ? { transition: nextTransition } : {}),
 		};
 	};
 
@@ -577,6 +598,7 @@ export const useTimelineElementDnd = ({
 		let nextStart: number | null = null;
 		for (const el of elements) {
 			if (el.id === element.id) continue;
+			if (el.type === "Transition") continue;
 			const elTrack = el.timeline.trackIndex ?? 0;
 			if (elTrack !== storedTrackIndex) continue;
 			if (el.timeline.end <= referenceStart) {
@@ -668,13 +690,7 @@ export const useTimelineElementDnd = ({
 						setElements((prev) =>
 							prev.map((el) =>
 								el.id === element.id
-									? {
-											...el,
-											transition: {
-												...(el.transition ?? {}),
-												duration: clampedDuration,
-											},
-										}
+									? updateTransitionDurationValue(el, clampedDuration)
 									: el,
 							),
 						);
@@ -895,13 +911,7 @@ export const useTimelineElementDnd = ({
 						setElements((prev) =>
 							prev.map((el) =>
 								el.id === element.id
-									? {
-											...el,
-											transition: {
-												...(el.transition ?? {}),
-												duration: clampedDuration,
-											},
-										}
+									? updateTransitionDurationValue(el, clampedDuration)
 									: el,
 							),
 						);

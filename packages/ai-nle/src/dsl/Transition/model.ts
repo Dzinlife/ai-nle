@@ -6,24 +6,20 @@ import type {
 	ValidationResult,
 } from "../model/types";
 
-export interface TransitionProps {
-	fromId?: string;
-	toId?: string;
-}
+export interface TransitionProps {}
 
 export type TransitionModelStore = ComponentModelStore<TransitionProps>;
 
 export function createTransitionModel(
 	id: string,
-	initialProps: TransitionProps,
+	initialProps: TransitionProps = {},
 ): TransitionModelStore {
 	return createStore<ComponentModel<TransitionProps>>()(
 		subscribeWithSelector((set, get) => ({
 			id,
 			type: "Transition",
 			props: {
-				fromId: initialProps?.fromId,
-				toId: initialProps?.toId,
+				...initialProps,
 			},
 			constraints: {
 				canTrimStart: false,

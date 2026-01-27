@@ -125,10 +125,10 @@
 				"rotation": 0
 			},
 			"timeline": {
-				"start": 178,
-				"end": 178,
-				"startTimecode": "00:00:05:28",
-				"endTimecode": "00:00:05:28",
+				"start": 78,
+				"end": 278,
+				"startTimecode": "00:00:02:18",
+				"endTimecode": "00:00:09:08",
 				"trackIndex": 0,
 				"trackId": "main",
 				"role": "clip"
@@ -136,12 +136,12 @@
 			"render": {
 				"zIndex": 1
 			},
-			"props": {
+			"props": {},
+			"transition": {
+				"duration": 200,
+				"boundry": 178,
 				"fromId": "clip1",
 				"toId": "video-piano"
-			},
-			"transition": {
-				"duration": 200
 			}
 		},
 		{
@@ -310,10 +310,10 @@
 				"rotation": 0
 			},
 			"timeline": {
-				"start": 720,
-				"end": 720,
-				"startTimecode": "00:00:24:00",
-				"endTimecode": "00:00:24:00",
+				"start": 713,
+				"end": 728,
+				"startTimecode": "00:00:23:23",
+				"endTimecode": "00:00:24:08",
 				"trackIndex": 0,
 				"trackId": "main",
 				"role": "clip"
@@ -321,12 +321,12 @@
 			"render": {
 				"zIndex": 1
 			},
-			"props": {
+			"props": {},
+			"transition": {
+				"duration": 15,
+				"boundry": 720,
 				"fromId": "image2",
 				"toId": "seaWave1"
-			},
-			"transition": {
-				"duration": 15
 			}
 		}
 	]

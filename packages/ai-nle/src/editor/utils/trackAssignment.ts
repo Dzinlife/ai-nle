@@ -144,6 +144,7 @@ export function hasRoleConflictOnTrack(
 		if (el.id === excludeId) continue;
 		const elTrack = assignments.get(el.id);
 		if (elTrack !== trackIndex) continue;
+		if (el.type === "Transition") continue;
 		const elRole = getElementRole(el);
 		if (elRole !== role) return true;
 	}
@@ -233,6 +234,7 @@ export function hasOverlapOnStoredTrack(
 		if (el.id === excludeId) continue;
 		const elStoredTrack = el.timeline.trackIndex ?? 0;
 		if (elStoredTrack !== trackIndex) continue;
+		if (el.type === "Transition") continue;
 
 		if (isTimeOverlapping(start, end, el.timeline.start, el.timeline.end)) {
 			return true;
@@ -292,6 +294,10 @@ export function findAvailableTrack(
 	excludeId: string,
 	trackCount: number,
 ): number {
+	const currentElement = elements.find((el) => el.id === excludeId);
+	if (currentElement?.type === "Transition") {
+		return targetTrack;
+	}
 	// 从目标轨道开始向上寻找
 	for (let track = targetTrack; track < trackCount + 1; track++) {
 		if (hasRoleConflictOnTrack(role, track, elements, assignments, excludeId)) {

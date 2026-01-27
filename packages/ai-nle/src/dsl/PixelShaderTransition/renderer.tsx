@@ -46,7 +46,12 @@ const resolveTransitionDuration = (
 	if (!element) return DEFAULT_TRANSITION_DURATION;
 	const metaDuration = element.transition?.duration;
 
-	const value = metaDuration ?? DEFAULT_TRANSITION_DURATION;
+	const timelineDuration = element.timeline.end - element.timeline.start;
+	const value =
+		metaDuration ??
+		(Number.isFinite(timelineDuration) && timelineDuration > 0
+			? timelineDuration
+			: DEFAULT_TRANSITION_DURATION);
 	if (!Number.isFinite(value)) return DEFAULT_TRANSITION_DURATION;
 	return Math.max(0, Math.round(value));
 };
@@ -63,9 +68,7 @@ const PixelShaderTransitionRenderer: React.FC<
 	const canvasSize = useTimelineStore((state) => state.canvasSize);
 
 	const transitionDuration = resolveTransitionDuration(transitionElement);
-	const boundary = transitionElement?.timeline.start ?? 0;
-	const head = Math.floor(transitionDuration / 2);
-	const start = boundary - head;
+	const start = transitionElement?.timeline.start ?? 0;
 	const computedProgress =
 		transitionDuration > 0
 			? clampProgress((currentTimeFrames - start) / transitionDuration)

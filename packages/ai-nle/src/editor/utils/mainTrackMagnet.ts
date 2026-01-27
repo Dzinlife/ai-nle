@@ -30,6 +30,7 @@ function isMainTrackElement(element: TimelineElement): boolean {
 function sortMainTrackElements(elements: TimelineElement[]): TimelineElement[] {
 	return elements
 		.filter(isMainTrackElement)
+		.filter((element) => element.type !== "Transition")
 		.slice()
 		.sort((a, b) => {
 			if (a.timeline.start !== b.timeline.start) {

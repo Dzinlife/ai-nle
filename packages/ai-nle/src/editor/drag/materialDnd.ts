@@ -273,11 +273,9 @@ export function useMaterialDnd<T extends MaterialDndItem>({
 			(el) =>
 				isTransitionElement(el) &&
 				(el.timeline.trackIndex ?? MAIN_TRACK_INDEX) === trackIndex &&
-				(el.timeline.start === best.boundary ||
-					(((el.props as { fromId?: string; toId?: string })?.fromId ??
-						"") === best.fromId &&
-						((el.props as { fromId?: string; toId?: string })?.toId ??
-							"") === best.toId)),
+				(el.transition?.boundry === best.boundary ||
+					(el.transition?.fromId === best.fromId &&
+						el.transition?.toId === best.toId)),
 		);
 		if (hasExisting) return null;
 

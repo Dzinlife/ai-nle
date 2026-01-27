@@ -97,6 +97,7 @@ export function hasOverlapOnTrack(
 ): boolean {
 	for (const el of elements) {
 		if (el.id === excludeId) continue;
+		if (el.type === "Transition") continue;
 		const elTrack = el.timeline.trackIndex ?? 0;
 		if (elTrack !== trackIndex) continue;
 
@@ -122,6 +123,10 @@ export function findAvailableTrack(
 	excludeId: string,
 	maxTrack: number
 ): number {
+	const currentElement = elements.find((el) => el.id === excludeId);
+	if (currentElement?.type === "Transition") {
+		return startTrack;
+	}
 	for (let track = startTrack; track <= maxTrack; track++) {
 		if (!hasOverlapOnTrack(timeRange, track, elements, excludeId)) {
 			return track;

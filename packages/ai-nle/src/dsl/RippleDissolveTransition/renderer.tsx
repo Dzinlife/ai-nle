@@ -65,12 +65,12 @@ const resolveTransitionDuration = (
 ): number => {
 	if (!element) return DEFAULT_TRANSITION_DURATION;
 	const metaDuration = element.transition?.duration;
-	const legacyDuration =
-		typeof (element.props as { duration?: number } | undefined)?.duration ===
-		"number"
-			? (element.props as { duration?: number }).duration
-			: undefined;
-	const value = metaDuration ?? legacyDuration ?? DEFAULT_TRANSITION_DURATION;
+	const timelineDuration = element.timeline.end - element.timeline.start;
+	const value =
+		metaDuration ??
+		(Number.isFinite(timelineDuration) && timelineDuration > 0
+			? timelineDuration
+			: DEFAULT_TRANSITION_DURATION);
 	if (!Number.isFinite(value)) return DEFAULT_TRANSITION_DURATION;
 	return Math.max(0, Math.round(value));
 };
@@ -83,10 +83,8 @@ const RippleDissolveTransitionRenderer: React.FC<
 		(state) => state.getElementById(id)!,
 	);
 	const canvasSize = useTimelineStore((state) => state.canvasSize);
-	const boundary = transitionElement?.timeline.start ?? 0;
+	const start = transitionElement?.timeline.start ?? 0;
 	const transitionDuration = resolveTransitionDuration(transitionElement);
-	const head = Math.floor(transitionDuration / 2);
-	const start = boundary - head;
 
 	const computedProgress =
 		transitionDuration > 0

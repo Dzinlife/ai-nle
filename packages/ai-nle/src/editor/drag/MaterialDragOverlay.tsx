@@ -8,6 +8,7 @@ import {
 } from "../timeline/trackConfig";
 import { getPixelsPerFrame } from "../utils/timelineScale";
 import { getTrackYFromHeights } from "../utils/trackAssignment";
+import { getTransitionDurationParts } from "../utils/transitions";
 import { isMaterialDragData, useDragStore } from "./dragStore";
 import { parseTrackHeights } from "./timelineDropTargets";
 
@@ -80,6 +81,7 @@ const MaterialDropIndicator: React.FC = () => {
 			? (dragData.duration as number)
 			: fallbackDurationFrames;
 	const elementWidth = materialDurationFrames * ratio;
+	const transitionHead = getTransitionDurationParts(materialDurationFrames).head;
 
 	let targetZone: HTMLElement | null = null;
 	let screenX = 0;
@@ -145,9 +147,7 @@ const MaterialDropIndicator: React.FC = () => {
 			if (contentArea) {
 				const contentRect = contentArea.getBoundingClientRect();
 				const scrollLeft = useDragStore.getState().timelineScrollLeft;
-				const startTime = isTransitionMaterial
-					? time - materialDurationFrames / 2
-					: time;
+				const startTime = isTransitionMaterial ? time - transitionHead : time;
 				screenX = contentRect.left + startTime * ratio - scrollLeft;
 				screenY = contentRect.top + indicatorOffset;
 				indicatorHeight = getElementHeightForTrack(
@@ -186,9 +186,7 @@ const MaterialDropIndicator: React.FC = () => {
 					trackHeights.length > 0
 						? getTrackYFromHeights(trackIndex, trackHeights, otherTrackCount)
 						: (otherTrackCount - trackIndex) * fallbackTrackHeight;
-				const startTime = isTransitionMaterial
-					? time - materialDurationFrames / 2
-					: time;
+				const startTime = isTransitionMaterial ? time - transitionHead : time;
 				screenX = contentRect.left + startTime * ratio - scrollLeft;
 				screenY = contentRect.top + trackY + indicatorOffset;
 				indicatorHeight = getElementHeightForTrack(trackHeightForIndex);

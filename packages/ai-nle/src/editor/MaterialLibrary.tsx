@@ -17,7 +17,10 @@ import {
 	finalizeTimelineElements,
 	insertElementIntoMainTrack,
 } from "./utils/mainTrackMagnet";
-import { isTransitionElement } from "./utils/transitions";
+import {
+	getTransitionDurationParts,
+	isTransitionElement,
+} from "./utils/transitions";
 import {
 	useAttachments,
 	useFps,
@@ -153,11 +156,9 @@ const resolveTransitionDrop = (
 			(el) =>
 				isTransitionElement(el) &&
 				(el.timeline.trackIndex ?? 0) === trackIndex &&
-				(el.timeline.start === boundary ||
-					(((el.props as { fromId?: string; toId?: string })?.fromId ??
-						"") === prev.id &&
-						((el.props as { fromId?: string; toId?: string })?.toId ??
-							"") === next.id)),
+				(el.transition?.boundry === boundary ||
+					(el.transition?.fromId === prev.id &&
+						el.transition?.toId === next.id)),
 		);
 		if (hasExisting) return null;
 		return { fromId: prev.id, toId: next.id };
@@ -256,6 +257,9 @@ const MaterialLibrary: React.FC = () => {
 						Number.isFinite(item.duration) && (item.duration ?? 0) > 0
 							? (item.duration as number)
 							: DEFAULT_TRANSITION_DURATION_FRAMES;
+					const { head, tail } = getTransitionDurationParts(durationFrames);
+					const transitionStart = startFrame - head;
+					const transitionEnd = startFrame + tail;
 					const newTransition: TimelineElement = {
 						id: `transition-${Date.now()}`,
 						type: "Transition",
@@ -266,12 +270,12 @@ const MaterialLibrary: React.FC = () => {
 									? "transition/ripple-dissolve"
 									: "transition/crossfade",
 						name: item.name,
-						props: {
-							fromId: link.fromId,
-							toId: link.toId,
-						},
+						props: {},
 						transition: {
 							duration: durationFrames,
+							boundry: startFrame,
+							fromId: link.fromId,
+							toId: link.toId,
 						},
 						transform: {
 							centerX: 0,
@@ -282,8 +286,8 @@ const MaterialLibrary: React.FC = () => {
 						},
 						timeline: buildTimelineMeta(
 							{
-								start: startFrame,
-								end: startFrame,
+								start: transitionStart,
+								end: transitionEnd,
 								trackIndex,
 								role: "clip",
 							},

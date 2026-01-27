@@ -75,15 +75,15 @@ const remapTransitionsAfterSplit = (
 	let didChange = false;
 	const next = elements.map((element) => {
 		if (!isTransitionElement(element)) return element;
-		const props = (element.props ?? {}) as { fromId?: string; toId?: string };
-		const fromId = typeof props.fromId === "string" ? props.fromId : undefined;
-		if (fromId !== clipId) return element;
-		if (element.timeline.start !== originalEnd) return element;
+		const transition = element.transition;
+		if (!transition) return element;
+		if (transition.fromId !== clipId) return element;
+		if (transition.boundry !== originalEnd) return element;
 		didChange = true;
 		return {
 			...element,
-			props: {
-				...props,
+			transition: {
+				...transition,
 				fromId: rightClipId,
 			},
 		};

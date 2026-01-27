@@ -161,7 +161,7 @@ function validateElement(el: any, index: number, fps: number): TimelineElement {
 
 	// 验证 timeline
 	// 转场允许 0 长度的时间范围
-	const allowZeroDuration = el.type === "Transition";
+	const allowZeroDuration = false;
 	const timeline = validateTimelineProps(
 		el.timeline,
 		`${path}.timeline`,
@@ -176,7 +176,29 @@ function validateElement(el: any, index: number, fps: number): TimelineElement {
 	const props = el.props || {};
 
 	const clip = el.clip;
-	const transition = validateTransition(el.transition, `${path}.transition`);
+	const transition = validateTransition(
+		el.transition,
+		`${path}.transition`,
+		el.type === "Transition",
+	);
+	if (el.type === "Transition" && !transition) {
+		throw new Error(`${path}.transition: required for Transition element`);
+	}
+	if (el.type === "Transition" && transition) {
+		const expectedDuration = timeline.end - timeline.start;
+		if (expectedDuration !== transition.duration) {
+			throw new Error(
+				`${path}.transition.duration does not match timeline range`,
+			);
+		}
+		const expectedBoundary =
+			timeline.start + Math.floor(transition.duration / 2);
+		if (transition.boundry !== expectedBoundary) {
+			throw new Error(
+				`${path}.transition.boundry does not match timeline range`,
+			);
+		}
+	}
 
 	return {
 		id: el.id,
@@ -459,26 +481,43 @@ function ensureTimecodes(
 function validateTransition(
 	transition: any,
 	path: string,
+	required: boolean,
 ): TransitionMeta | undefined {
 	if (transition === undefined) {
+		if (required) {
+			throw new Error(`${path}: required`);
+		}
 		return undefined;
 	}
 	if (!transition || typeof transition !== "object") {
 		throw new Error(`${path}: must be an object`);
 	}
-	if (transition.duration !== undefined) {
-		if (
-			typeof transition.duration !== "number" ||
-			transition.duration < 0
-		) {
-			throw new Error(`${path}.duration: must be a non-negative number`);
-		}
+	if (
+		typeof transition.duration !== "number" ||
+		!Number.isInteger(transition.duration) ||
+		transition.duration <= 0
+	) {
+		throw new Error(`${path}.duration: must be a positive integer`);
+	}
+	if (
+		typeof transition.boundry !== "number" ||
+		!Number.isInteger(transition.boundry) ||
+		transition.boundry < 0
+	) {
+		throw new Error(`${path}.boundry: must be a non-negative integer`);
+	}
+	if (typeof transition.fromId !== "string" || transition.fromId.length === 0) {
+		throw new Error(`${path}.fromId: must be a non-empty string`);
+	}
+	if (typeof transition.toId !== "string" || transition.toId.length === 0) {
+		throw new Error(`${path}.toId: must be a non-empty string`);
 	}
 	return {
-		...(transition.duration !== undefined
-			? { duration: transition.duration }
-			: {}),
-	} as TransitionMeta;
+		duration: transition.duration,
+		boundry: transition.boundry,
+		fromId: transition.fromId,
+		toId: transition.toId,
+	};
 }
 
 /**

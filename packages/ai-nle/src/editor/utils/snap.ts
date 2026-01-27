@@ -25,6 +25,7 @@ export function collectSnapPoints(
 
 	// 收集所有元素的 start/end 边缘
 	elements.forEach((el) => {
+		if (el.type === "Transition") return;
 		if (el.id !== excludeId) {
 			points.push({
 				time: el.timeline.start,

@@ -260,19 +260,11 @@ export function createVideoClipModel(
 
 			for (const element of elements) {
 				if (element.type !== "Transition") continue;
-				const props = (element.props ?? {}) as {
-					fromId?: string;
-					toId?: string;
-				};
-				const { fromId, toId } = props;
+				const { fromId, toId } = element.transition ?? {};
 				if (!fromId || !toId) continue;
 				if (fromId !== clip.id && toId !== clip.id) continue;
-				const duration = element.transition?.duration ?? 15;
-				const safeDuration = Math.max(0, Math.round(duration));
-				const head = Math.floor(safeDuration / 2);
-				const tail = safeDuration - head;
-				const transitionStart = element.timeline.start - head;
-				const transitionEnd = element.timeline.start + tail;
+				const transitionStart = element.timeline.start;
+				const transitionEnd = element.timeline.end;
 				if (time >= transitionStart && time < transitionEnd) {
 					return true;
 				}

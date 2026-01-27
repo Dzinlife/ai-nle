@@ -8,55 +8,18 @@ import type {
 import type { TimelineElement } from "@/dsl/types";
 import type { TimelineTrack } from "@/editor/timeline/types";
 import {
-	getTransitionDuration,
+	getTransitionBoundary,
 	isTransitionElement,
 } from "@/editor/utils/transitions";
 import { computeVisibleElements } from "./utils";
 
-const getTransitionRange = (
-	boundary: number,
-	duration: number,
-): { start: number; end: number; duration: number } => {
-	return {
-		start: boundary - duration / 2,
-		end: boundary + duration / 2,
-		duration,
-	};
-};
-
-export type TransitionClipInfo = {
-	transitionStart: number;
-	transitionEnd: number;
-	boundary: number;
-	duration: number;
+type ActiveTransitionInfo = {
 	role: "from" | "to";
+	boundary: number;
 	transitionId: string;
 	transitionComponent: string;
 	fromId: string;
 	toId: string;
-};
-
-export const pickActiveTransition = (
-	infos: TransitionClipInfo[] | undefined,
-	currentTime: number,
-): TransitionClipInfo | null => {
-	if (!infos || infos.length === 0) return null;
-	let best: TransitionClipInfo | null = null;
-	let bestDistance = Number.POSITIVE_INFINITY;
-	for (const info of infos) {
-		if (
-			currentTime < info.transitionStart ||
-			currentTime >= info.transitionEnd
-		) {
-			continue;
-		}
-		const distance = Math.abs(currentTime - info.boundary);
-		if (!best || distance < bestDistance) {
-			best = info;
-			bestDistance = distance;
-		}
-	}
-	return best;
 };
 
 type RenderPlan = {
@@ -113,25 +76,31 @@ export const buildSkiaRenderState = ({
 	const canvasSize = prepare?.canvasSize;
 	const getModelStore = prepare?.getModelStore;
 
-	const transitionInfosById = new Map<string, TransitionClipInfo[]>();
+	const activeTransitionByElementId = new Map<string, ActiveTransitionInfo>();
+	const extraVisibleIds = new Set<string>();
+
+	const setActiveTransition = (elementId: string, info: ActiveTransitionInfo) => {
+		const current = activeTransitionByElementId.get(elementId);
+		if (!current) {
+			activeTransitionByElementId.set(elementId, info);
+			return;
+		}
+		const currentDistance = Math.abs(displayTime - current.boundary);
+		const nextDistance = Math.abs(displayTime - info.boundary);
+		if (nextDistance < currentDistance) {
+			activeTransitionByElementId.set(elementId, info);
+		}
+	};
 
 	for (const element of elements) {
 		if (!isTransitionElement(element)) continue;
 		const trackIndex = getTrackIndexForElement(element);
 		if (tracks[trackIndex]?.hidden) continue;
-		const transitionDuration = getTransitionDuration(element);
-		if (transitionDuration <= 0) continue;
+		const transitionStart = element.timeline.start;
+		const transitionEnd = element.timeline.end;
+		if (displayTime < transitionStart || displayTime >= transitionEnd) continue;
 
-		const { start, end, duration } = getTransitionRange(
-			element.timeline.start,
-			transitionDuration,
-		);
-		if (displayTime < start || displayTime >= end) continue;
-
-		const { fromId, toId } = (element.props ?? {}) as {
-			fromId?: string;
-			toId?: string;
-		};
+		const { fromId, toId } = element.transition ?? {};
 		if (!fromId || !toId) continue;
 		const fromElement = elementsById.get(fromId);
 		const toElement = elementsById.get(toId);
@@ -140,49 +109,26 @@ export const buildSkiaRenderState = ({
 			continue;
 		}
 
-		const baseTransitionInfo = {
-			transitionStart: start,
-			transitionEnd: end,
-			boundary: element.timeline.start,
-			duration,
+		const boundary = getTransitionBoundary(element);
+		const baseInfo = {
+			boundary,
 			transitionId: element.id,
 			transitionComponent: element.component,
 			fromId,
 			toId,
 		};
 
-		const fromInfo: TransitionClipInfo = {
-			...baseTransitionInfo,
-			role: "from",
-		};
-		const toInfo: TransitionClipInfo = {
-			...baseTransitionInfo,
-			role: "to",
-		};
-
-		const fromList = transitionInfosById.get(fromId) ?? [];
-		fromList.push(fromInfo);
-		transitionInfosById.set(fromId, fromList);
-
-		const toList = transitionInfosById.get(toId) ?? [];
-		toList.push(toInfo);
-		transitionInfosById.set(toId, toList);
+		setActiveTransition(fromId, { ...baseInfo, role: "from" });
+		setActiveTransition(toId, { ...baseInfo, role: "to" });
+		extraVisibleIds.add(fromId);
+		extraVisibleIds.add(toId);
 	}
 
 	const visibleElements = elements.filter((el) => {
 		const trackIndex = getTrackIndexForElement(el);
 		if (tracks[trackIndex]?.hidden) return false;
 		if (isTransitionElement(el)) return false;
-		const transitionInfos = transitionInfosById.get(el.id);
-		if (
-			transitionInfos?.some(
-				(info) =>
-					displayTime >= info.transitionStart &&
-					displayTime < info.transitionEnd,
-			)
-		) {
-			return true;
-		}
+		if (extraVisibleIds.has(el.id)) return true;
 		const { start = 0, end = Infinity } = el.timeline;
 		return displayTime >= start && displayTime < end;
 	});
@@ -221,9 +167,8 @@ export const buildSkiaRenderState = ({
 
 	const buildElementPlan = (
 		element: TimelineElement,
-		transitionInfos?: TransitionClipInfo[],
 	): RenderPlan => {
-		const activeTransition = pickActiveTransition(transitionInfos, displayTime);
+		const activeTransition = activeTransitionByElementId.get(element.id);
 		const baseOpacity = element.render?.opacity ?? 1;
 
 		if (activeTransition) {
@@ -276,9 +221,7 @@ export const buildSkiaRenderState = ({
 		});
 	};
 
-	const plans = orderedElements.map((el) =>
-		buildElementPlan(el, transitionInfosById.get(el.id)),
-	);
+	const plans = orderedElements.map((el) => buildElementPlan(el));
 
 	const children = (
 		<>
@@ -299,7 +242,6 @@ export const buildSkiaRenderState = ({
 		children,
 		orderedElements,
 		visibleElements,
-		transitionInfosById,
 		ready,
 	};
 };
@@ -327,5 +269,7 @@ export const buildKonvaTree = ({
 	sortByTrackIndex: (elements: TimelineElement[]) => TimelineElement[];
 }) => {
 	const visibleElements = computeVisibleElements(elements, displayTime, tracks);
-	return sortByTrackIndex(visibleElements);
+	return sortByTrackIndex(
+		visibleElements.filter((element) => !isTransitionElement(element)),
+	);
 };

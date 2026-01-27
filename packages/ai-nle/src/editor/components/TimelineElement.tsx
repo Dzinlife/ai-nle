@@ -32,6 +32,7 @@ import { getElementHeightForTrack } from "../timeline/index";
 import { useTimelineElementDnd } from "../timeline/useTimelineElementDnd";
 import {
 	getTransitionDuration,
+	getTransitionDurationParts,
 	isTransitionElement,
 } from "../utils/transitions";
 
@@ -289,9 +290,18 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	const elementRef = useRef<HTMLDivElement>(null);
 
 	// 计算显示值
-	const startTime = localStartTime ?? timeline.start;
-	const endTime = localEndTime ?? timeline.end;
 	const transitionDuration = localTransitionDuration ?? transitionBaseDuration;
+	const { head: transitionHead, tail: transitionTail } =
+		getTransitionDurationParts(transitionDuration);
+	const transitionBoundary = isTransition
+		? (element.transition?.boundry ?? timeline.start + transitionHead)
+		: 0;
+	const transitionStart = transitionBoundary - transitionHead;
+	const transitionEnd = transitionBoundary + transitionTail;
+	const startTime = isTransition
+		? transitionStart
+		: localStartTime ?? timeline.start;
+	const endTime = isTransition ? transitionEnd : localEndTime ?? timeline.end;
 	const startTimecode = framesToTimecode(startTime, fps);
 	const endTimecode = framesToTimecode(endTime, fps);
 	// 显示 Y：主轨道元素在容器内固定为 0，其他轨道使用 trackY
@@ -300,13 +310,13 @@ const TimelineElement: React.FC<TimelineElementProps> = ({
 	const displayY = trackIndex === 0 ? 0 : (localTrackY ?? trackY);
 
 	// 计算位置和尺寸
-	const transitionDisplayWidth = Math.max(6, transitionDuration * ratio - 2);
+	const transitionWidth = transitionDuration * ratio;
+	const transitionDisplayWidth = Math.max(6, transitionWidth - 2);
+	const transitionDisplayOffset = (transitionWidth - transitionDisplayWidth) / 2;
 	const left = isTransition
-		? timeline.start * ratio - transitionDisplayWidth / 2
+		? transitionStart * ratio + transitionDisplayOffset
 		: startTime * ratio;
-	const width = isTransition
-		? transitionDuration * ratio
-		: (endTime - startTime) * ratio;
+	const width = isTransition ? transitionWidth : (endTime - startTime) * ratio;
 	const displayWidth = isTransition ? transitionDisplayWidth : width - 1;
 
 	// 样式计算

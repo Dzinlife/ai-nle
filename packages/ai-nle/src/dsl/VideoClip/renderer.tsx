@@ -26,8 +26,6 @@ const useVideoClipSelector = createModelSelector<
 
 // 低于该帧数的时间抖动不触发 seek（按时间线 FPS 计算）
 const SEEK_SKIP_FRAMES = 1.5;
-const DEFAULT_TRANSITION_DURATION = 15;
-
 const resolveRenderTimeFromState = (
 	state: ReturnType<typeof useTimelineStore.getState>,
 ) => {
@@ -43,22 +41,10 @@ const isClipInTransitionAtTime = (
 ): boolean => {
 	for (const element of elements) {
 		if (element.type !== "Transition") continue;
-		const props = (element.props ?? {}) as {
-			fromId?: string;
-			toId?: string;
-			duration?: number;
-		};
-		if (props.fromId !== clipId && props.toId !== clipId) continue;
-		const duration =
-			element.transition?.duration ??
-			props.duration ??
-			DEFAULT_TRANSITION_DURATION;
-		const safeDuration = Math.max(0, Math.round(duration));
-		const head = Math.floor(safeDuration / 2);
-		const tail = safeDuration - head;
-		const boundary = element.timeline.start ?? 0;
-		const start = boundary - head;
-		const end = boundary + tail;
+		const { fromId, toId } = element.transition ?? {};
+		if (fromId !== clipId && toId !== clipId) continue;
+		const start = element.timeline.start ?? 0;
+		const end = element.timeline.end ?? 0;
 		if (time >= start && time < end) return true;
 	}
 	return false;

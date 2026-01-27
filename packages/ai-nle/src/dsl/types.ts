@@ -100,7 +100,10 @@ export type ElementType = (typeof ELEMENT_TYPE_VALUES)[number];
  * 转场元信息（仅用于模型层元数据）
  */
 export interface TransitionMeta {
-	duration?: number;
+	duration: number;
+	boundry: number;
+	fromId: string;
+	toId: string;
 }
 
 /**
