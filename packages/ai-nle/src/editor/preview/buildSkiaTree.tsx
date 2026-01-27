@@ -7,20 +7,20 @@ import type {
 } from "@/dsl/model/types";
 import type { TimelineElement } from "@/dsl/types";
 import type { TimelineTrack } from "@/editor/timeline/types";
-import { getTransitionDuration, isTransitionElement } from "@/editor/utils/transitions";
+import {
+	getTransitionDuration,
+	isTransitionElement,
+} from "@/editor/utils/transitions";
 import { computeVisibleElements } from "./utils";
 
 const getTransitionRange = (
 	boundary: number,
 	duration: number,
 ): { start: number; end: number; duration: number } => {
-	const safeDuration = Math.max(0, Math.round(duration));
-	const head = Math.floor(safeDuration / 2);
-	const tail = safeDuration - head;
 	return {
-		start: boundary - head,
-		end: boundary + tail,
-		duration: safeDuration,
+		start: boundary - duration / 2,
+		end: boundary + duration / 2,
+		duration,
 	};
 };
 
@@ -34,31 +34,6 @@ export type TransitionClipInfo = {
 	transitionComponent: string;
 	fromId: string;
 	toId: string;
-	renderTimeline?: {
-		start: number;
-		end: number;
-		offset: number;
-	};
-	peerRenderTimeline?: {
-		start: number;
-		end: number;
-		offset: number;
-	};
-};
-
-const buildTransitionRenderTimeline = (
-	element: TimelineElement,
-	transitionStart: number,
-	transitionEnd: number,
-): { start: number; end: number; offset: number } => {
-	const baseStart = element.timeline.start ?? 0;
-	const baseOffset = element.timeline.offset ?? 0;
-	const offset = Math.round(baseOffset + (transitionStart - baseStart));
-	return {
-		start: transitionStart,
-		end: transitionEnd,
-		offset,
-	};
 };
 
 export const pickActiveTransition = (
@@ -69,7 +44,10 @@ export const pickActiveTransition = (
 	let best: TransitionClipInfo | null = null;
 	let bestDistance = Number.POSITIVE_INFINITY;
 	for (const info of infos) {
-		if (currentTime < info.transitionStart || currentTime >= info.transitionEnd) {
+		if (
+			currentTime < info.transitionStart ||
+			currentTime >= info.transitionEnd
+		) {
 			continue;
 		}
 		const distance = Math.abs(currentTime - info.boundary);
@@ -93,10 +71,7 @@ type RenderPrepareOptions = {
 	getModelStore?: (id: string) => ComponentModelStore | undefined;
 };
 
-const renderElementNode = (
-	target: TimelineElement,
-	timeline?: TransitionClipInfo["renderTimeline"],
-) => {
+const renderElementNode = (target: TimelineElement) => {
 	const componentDef = componentRegistry.get(target.component);
 	if (!componentDef) {
 		console.warn(
@@ -109,15 +84,7 @@ const renderElementNode = (
 		return null;
 	}
 	const TargetRenderer = componentDef.Renderer;
-	return (
-		<TargetRenderer
-			id={target.id}
-			{...target.props}
-			{...(target.type === "VideoClip" && timeline
-				? { renderTimeline: timeline }
-				: {})}
-		/>
-	);
+	return <TargetRenderer id={target.id} {...target.props} />;
 };
 
 const wrapOpacityNode = (node: React.ReactNode | null, opacity: number) => {
@@ -173,14 +140,6 @@ export const buildSkiaRenderState = ({
 			continue;
 		}
 
-		const fromRenderTimeline =
-			fromElement.type === "VideoClip"
-				? buildTransitionRenderTimeline(fromElement, start, end)
-				: undefined;
-		const toRenderTimeline =
-			toElement.type === "VideoClip"
-				? buildTransitionRenderTimeline(toElement, start, end)
-				: undefined;
 		const baseTransitionInfo = {
 			transitionStart: start,
 			transitionEnd: end,
@@ -195,14 +154,10 @@ export const buildSkiaRenderState = ({
 		const fromInfo: TransitionClipInfo = {
 			...baseTransitionInfo,
 			role: "from",
-			renderTimeline: fromRenderTimeline,
-			peerRenderTimeline: toRenderTimeline,
 		};
 		const toInfo: TransitionClipInfo = {
 			...baseTransitionInfo,
 			role: "to",
-			renderTimeline: toRenderTimeline,
-			peerRenderTimeline: fromRenderTimeline,
 		};
 
 		const fromList = transitionInfosById.get(fromId) ?? [];
@@ -236,7 +191,6 @@ export const buildSkiaRenderState = ({
 
 	const runPrepareRenderFrame = async (
 		target: TimelineElement,
-		renderTimeline?: TransitionClipInfo["renderTimeline"],
 		extra?: Partial<RendererPrepareFrameContext>,
 	): Promise<void> => {
 		if (!isExporting) return;
@@ -246,7 +200,6 @@ export const buildSkiaRenderState = ({
 			element: target,
 			displayTime,
 			fps,
-			renderTimeline,
 			modelStore: getModelStore?.(target.id),
 			getModelStore,
 			canvasSize,
@@ -257,13 +210,12 @@ export const buildSkiaRenderState = ({
 	const buildPlainElementPlan = (
 		target: TimelineElement,
 		options?: {
-			renderTimeline?: TransitionClipInfo["renderTimeline"];
 			opacity?: number;
 		},
 	): RenderPlan => {
-		const content = renderElementNode(target, options?.renderTimeline);
+		const content = renderElementNode(target);
 		const node = wrapOpacityNode(content, options?.opacity ?? 1);
-		const ready = runPrepareRenderFrame(target, options?.renderTimeline);
+		const ready = runPrepareRenderFrame(target);
 		return { node, ready };
 	};
 
@@ -273,10 +225,8 @@ export const buildSkiaRenderState = ({
 	): RenderPlan => {
 		const activeTransition = pickActiveTransition(transitionInfos, displayTime);
 		const baseOpacity = element.render?.opacity ?? 1;
-		let renderTimeline: TransitionClipInfo["renderTimeline"];
 
 		if (activeTransition) {
-			renderTimeline = activeTransition.renderTimeline;
 			const transitionElement = elementsById.get(activeTransition.transitionId);
 			if (transitionElement) {
 				const transitionDef = componentRegistry.get(
@@ -294,11 +244,9 @@ export const buildSkiaRenderState = ({
 					const fromOpacity = fromElement.render?.opacity ?? 1;
 					const toOpacity = toElement.render?.opacity ?? 1;
 					const fromPlan = buildPlainElementPlan(fromElement, {
-						renderTimeline: activeTransition.peerRenderTimeline,
 						opacity: fromOpacity,
 					});
 					const toPlan = buildPlainElementPlan(toElement, {
-						renderTimeline: activeTransition.renderTimeline,
 						opacity: toOpacity,
 					});
 					const TransitionRenderer = transitionDef.Renderer;
@@ -312,7 +260,7 @@ export const buildSkiaRenderState = ({
 					);
 					const ready = isExporting
 						? Promise.all([fromPlan.ready, toPlan.ready]).then(() =>
-								runPrepareRenderFrame(transitionElement, undefined, {
+								runPrepareRenderFrame(transitionElement, {
 									fromNode: fromPlan.node,
 									toNode: toPlan.node,
 								}),
@@ -324,7 +272,6 @@ export const buildSkiaRenderState = ({
 		}
 
 		return buildPlainElementPlan(element, {
-			renderTimeline,
 			opacity: baseOpacity,
 		});
 	};

@@ -11,11 +11,6 @@ export type PrepareFrameContext = {
 	element: TimelineElement;
 	displayTime: number;
 	fps: number;
-	renderTimeline?: {
-		start: number;
-		end: number;
-		offset?: number;
-	};
 	phase?: "beforeRender" | "afterRender";
 };
 
@@ -23,11 +18,6 @@ export type RendererPrepareFrameContext = {
 	element: TimelineElement;
 	displayTime: number;
 	fps: number;
-	renderTimeline?: {
-		start: number;
-		end: number;
-		offset?: number;
-	};
 	modelStore?: ComponentModelStore;
 	getModelStore?: (id: string) => ComponentModelStore | undefined;
 	canvasSize?: { width: number; height: number };

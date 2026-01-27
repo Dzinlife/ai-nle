@@ -17,11 +17,6 @@ import {
 
 interface VideoClipRendererProps extends VideoClipProps {
 	id: string;
-	renderTimeline?: {
-		start: number;
-		end: number;
-		offset?: number;
-	};
 }
 
 const useVideoClipSelector = createModelSelector<
@@ -69,22 +64,17 @@ const isClipInTransitionAtTime = (
 	return false;
 };
 
-const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
-	id,
-	renderTimeline,
-}) => {
+const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({ id }) => {
 	// 渲染时优先使用导出帧
 	const currentTimeFrames = useRenderTime();
 	const { fps } = useFps();
 	const { isPlaying } = usePlaybackControl();
 	const isExporting = useTimelineStore((state) => state.isExporting);
-	const isTransitionRender = renderTimeline !== undefined;
 
 	// 直接从 TimelineStore 读取元素的 timeline 数据
 	const timeline = useTimelineStore(
 		(state) => state.getElementById(id)?.timeline,
 	);
-	const activeTimeline = renderTimeline ?? timeline;
 
 	// 将中心坐标转换为左上角坐标
 	const {
@@ -151,26 +141,20 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
 			hasError ||
 			!props.uri ||
 			videoDuration <= 0 ||
-			!activeTimeline
+			!timeline
 		) {
 			return;
 		}
 
 		const safeFps = Number.isFinite(fps) && fps > 0 ? Math.round(fps) : 30;
 		const seekSkipSeconds = SEEK_SKIP_FRAMES / safeFps;
-		const startSeconds =
-			renderTimeline !== undefined
-				? activeTimeline.start / safeFps
-				: framesToSeconds(activeTimeline.start, safeFps);
+		const startSeconds = framesToSeconds(timeline.start ?? 0, safeFps);
 		const currentSeconds = framesToSeconds(currentTimeFrames, fps);
-		const clipDurationSeconds =
-			renderTimeline !== undefined
-				? (activeTimeline.end - activeTimeline.start) / safeFps
-				: framesToSeconds(activeTimeline.end - activeTimeline.start, safeFps);
-		const offsetSeconds =
-			renderTimeline !== undefined
-				? (activeTimeline?.offset ?? 0) / safeFps
-				: framesToSeconds(activeTimeline?.offset ?? 0, safeFps);
+		const clipDurationSeconds = framesToSeconds(
+			timeline.end - timeline.start,
+			safeFps,
+		);
+		const offsetSeconds = framesToSeconds(timeline.offset ?? 0, safeFps);
 
 		// 计算实际要 seek 的视频时间
 		const videoTime = calculateVideoTime({
@@ -181,24 +165,6 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
 			offset: offsetSeconds,
 			clipDuration: clipDurationSeconds,
 		});
-
-		// 转场渲染：播放时用流式步进，暂停时用 seek
-		if (isTransitionRender) {
-			if (isPlaying) {
-				stepPlayback(videoTime);
-				return;
-			}
-			stopPlayback();
-			if (
-				lastVideoTimeRef.current !== null &&
-				Math.abs(lastVideoTimeRef.current - videoTime) < seekSkipSeconds
-			) {
-				return;
-			}
-			lastVideoTimeRef.current = videoTime;
-			seekToTime(videoTime);
-			return;
-		}
 
 		// 播放中：使用统一步进，跨组件跳转也能生效
 		if (isPlaying) {
@@ -228,8 +194,7 @@ const VideoClipRenderer: React.FC<VideoClipRendererProps> = ({
 	}, [
 		props.uri,
 		props.reversed,
-		activeTimeline,
-		isTransitionRender,
+		timeline,
 		videoDuration,
 		isLoading,
 		hasError,

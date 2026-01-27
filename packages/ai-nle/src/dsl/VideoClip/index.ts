@@ -14,14 +14,12 @@ export const VideoClipDefinition: DSLComponentDefinition<VideoClipProps> = {
 		element,
 		displayTime,
 		fps,
-		renderTimeline,
 		modelStore,
 	}) => {
 		await modelStore?.getState()?.prepareFrame?.({
 			element,
 			displayTime,
 			fps,
-			renderTimeline,
 			phase: "beforeRender",
 		});
 	},

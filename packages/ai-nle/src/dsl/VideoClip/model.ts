@@ -598,24 +598,19 @@ export function createVideoClipModel(
 	};
 
 	const prepareFrame = async (context: PrepareFrameContext): Promise<void> => {
-		const { element, displayTime, fps, renderTimeline } = context;
+		const { element, displayTime, fps } = context;
 		if (context.phase === "afterRender") return;
 		const { internal, constraints, props } = store.getState();
 		if (constraints.isLoading || constraints.hasError) return;
 		if (!props.uri || internal.videoDuration <= 0) return;
 
-		const timeline = renderTimeline ?? {
-			start: element.timeline.start ?? 0,
-			end: element.timeline.end ?? 0,
-			offset: element.timeline.offset ?? 0,
-		};
-		const startSeconds = framesToSeconds(timeline.start, fps);
+		const startSeconds = framesToSeconds(element.timeline.start ?? 0, fps);
 		const currentSeconds = framesToSeconds(displayTime, fps);
 		const clipDurationSeconds = framesToSeconds(
-			timeline.end - timeline.start,
+			element.timeline.end - element.timeline.start,
 			fps,
 		);
-		const offsetSeconds = framesToSeconds(timeline.offset ?? 0, fps);
+		const offsetSeconds = framesToSeconds(element.timeline.offset ?? 0, fps);
 
 		const videoTime = calculateVideoTime({
 			start: startSeconds,
