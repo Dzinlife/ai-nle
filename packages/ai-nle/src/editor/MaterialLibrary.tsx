@@ -27,7 +27,6 @@ import {
 	useMainTrackMagnet,
 	useTimelineStore,
 } from "./contexts/TimelineContext";
-import MaterialDragOverlay from "./drag/MaterialDragOverlay";
 import {
 	type MaterialDndContext,
 	type MaterialDndItem,
@@ -465,8 +464,6 @@ const MaterialLibrary: React.FC = () => {
 					/>
 				))}
 			</div>
-
-			<MaterialDragOverlay />
 		</>
 	);
 };

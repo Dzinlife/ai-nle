@@ -36,7 +36,7 @@ import {
 	useTrackAssignments,
 	useTracks,
 } from "./contexts/TimelineContext";
-import { useDragStore } from "./drag";
+import { MaterialDragOverlay, useDragStore } from "./drag";
 import {
 	calculateAutoScrollSpeed,
 	type MaterialDragData,
@@ -1703,6 +1703,7 @@ const TimelineEditor = () => {
 					timelinePaddingLeft={timelinePaddingLeft}
 				/>
 			</div>
+			<MaterialDragOverlay />
 		</div>
 	);
 };
