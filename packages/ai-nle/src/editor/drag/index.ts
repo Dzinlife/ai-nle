@@ -17,6 +17,8 @@ export { default as MaterialDragOverlay } from "./MaterialDragOverlay";
 export {
 	useMaterialDnd,
 	useMaterialDndContext,
+	resolveMaterialDropTarget,
+	type MaterialDropTargetState,
 	type MaterialDndContext,
 	type MaterialDndItem,
 } from "./materialDnd";

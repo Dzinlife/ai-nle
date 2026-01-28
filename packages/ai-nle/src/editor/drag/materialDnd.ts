@@ -97,18 +97,18 @@ export function useMaterialDndContext(): MaterialDndContext {
 	};
 }
 
-	const defaultMaterialRole = (item: MaterialDndItem): TrackRole => {
-		switch (item.type) {
-			case "audio":
-				return "audio";
-			case "text":
-				return "overlay";
-			case "transition":
-				return "clip";
-			default:
-				return "clip";
-		}
-	};
+const defaultMaterialRole = (item: MaterialDndItem): TrackRole => {
+	switch (item.type) {
+		case "audio":
+			return "audio";
+		case "text":
+			return "overlay";
+		case "transition":
+			return "clip";
+		default:
+			return "clip";
+	}
+};
 
 const defaultMaterialDurationFrames = (
 	item: MaterialDndItem,
@@ -132,6 +132,209 @@ const defaultGhostInfo = (
 	thumbnailUrl: item.thumbnailUrl,
 	label: item.name,
 });
+
+export interface MaterialDropTargetState {
+	materialRole: TrackRole;
+	materialDurationFrames: number;
+	isTransitionMaterial: boolean;
+}
+
+export function resolveMaterialDropTarget(
+	context: MaterialDndContext,
+	state: MaterialDropTargetState,
+	screenX: number,
+	screenY: number,
+): DropTargetInfo | null {
+	const previewTarget = getPreviewDropTargetFromScreenPosition(screenX, screenY);
+	if (previewTarget) {
+		if (state.isTransitionMaterial) {
+			return { ...previewTarget, canDrop: false };
+		}
+		return previewTarget;
+	}
+
+	const otherTrackCountFallback = Math.max(context.trackCount - 1, 0);
+	const baseDropTarget = findTimelineDropTargetFromScreenPosition(
+		screenX,
+		screenY,
+		otherTrackCountFallback,
+		DEFAULT_TRACK_HEIGHT,
+		false,
+	);
+	if (!baseDropTarget) return null;
+
+	const scrollLeft = useDragStore.getState().timelineScrollLeft;
+	const rawTime = getTimelineDropTimeFromScreenX(
+		screenX,
+		baseDropTarget.trackIndex,
+		context.ratio,
+		scrollLeft,
+	);
+	if (rawTime === null) return null;
+
+	const time = clampFrame(rawTime);
+	const dropEnd = time + state.materialDurationFrames;
+
+	const isTrackLocked = (trackIndex: number): boolean =>
+		context.trackLockedMap.get(trackIndex) ?? false;
+
+	const resolveTrackRole = (trackIndex: number): TrackRole => {
+		if (trackIndex === MAIN_TRACK_INDEX) return "clip";
+		return context.trackRoleMap.get(trackIndex) ?? "overlay";
+	};
+
+	const shouldForceGapInsert = (
+		trackIndex: number,
+		start: number,
+		end: number,
+	): boolean => {
+		if (!isRoleCompatibleWithTrack(state.materialRole, trackIndex)) return true;
+		if (resolveTrackRole(trackIndex) !== state.materialRole) return true;
+		if (trackIndex === MAIN_TRACK_INDEX && context.mainTrackMagnetEnabled) {
+			return false;
+		}
+		return hasOverlapOnTrack(
+			start,
+			end,
+			trackIndex,
+			context.elements,
+			context.trackAssignments,
+		);
+	};
+
+	const normalizeGapIndex = (trackIndex: number): number =>
+		Math.max(MAIN_TRACK_INDEX + 1, trackIndex);
+
+	const isClipTrack = (trackIndex: number): boolean => {
+		if (trackIndex === MAIN_TRACK_INDEX) return true;
+		return context.trackRoleMap.get(trackIndex) === "clip";
+	};
+
+	const resolveTransitionBoundary = (timeValue: number, trackIndex: number) => {
+		const thresholdFrames = Math.max(1, Math.round(8 / context.ratio));
+		const clips = context.elements
+			.filter(
+				(el) =>
+					(el.timeline.trackIndex ?? MAIN_TRACK_INDEX) === trackIndex &&
+					getElementRole(el) === "clip" &&
+					!isTransitionElement(el),
+			)
+			.sort((a, b) => {
+				if (a.timeline.start !== b.timeline.start) {
+					return a.timeline.start - b.timeline.start;
+				}
+				if (a.timeline.end !== b.timeline.end) {
+					return a.timeline.end - b.timeline.end;
+				}
+				return a.id.localeCompare(b.id);
+			});
+
+		let best: {
+			boundary: number;
+			fromId: string;
+			toId: string;
+			distance: number;
+		} | null = null;
+		for (let i = 0; i < clips.length - 1; i += 1) {
+			const prev = clips[i];
+			const next = clips[i + 1];
+			if (prev.timeline.end !== next.timeline.start) continue;
+			const boundary = prev.timeline.end;
+			const distance = Math.abs(boundary - timeValue);
+			if (distance > thresholdFrames) continue;
+			if (!best || distance < best.distance) {
+				best = {
+					boundary,
+					fromId: prev.id,
+					toId: next.id,
+					distance,
+				};
+			}
+		}
+
+		if (!best) return null;
+
+		const hasExisting = context.elements.some(
+			(el) =>
+				isTransitionElement(el) &&
+				(el.timeline.trackIndex ?? MAIN_TRACK_INDEX) === trackIndex &&
+				(el.transition?.boundry === best.boundary ||
+					(el.transition?.fromId === best.fromId &&
+						el.transition?.toId === best.toId)),
+		);
+		if (hasExisting) return null;
+
+		return { boundary: best.boundary, fromId: best.fromId, toId: best.toId };
+	};
+
+	if (state.isTransitionMaterial) {
+		if (baseDropTarget.type === "track" && isTrackLocked(baseDropTarget.trackIndex)) {
+			return {
+				zone: "timeline",
+				type: baseDropTarget.type,
+				trackIndex: baseDropTarget.trackIndex,
+				time,
+				canDrop: false,
+			};
+		}
+		if (baseDropTarget.type === "gap" || !isClipTrack(baseDropTarget.trackIndex)) {
+			return {
+				zone: "timeline",
+				type: baseDropTarget.type,
+				trackIndex: baseDropTarget.trackIndex,
+				time,
+				canDrop: false,
+			};
+		}
+
+		const target = resolveTransitionBoundary(time, baseDropTarget.trackIndex);
+		if (!target) {
+			return {
+				zone: "timeline",
+				type: "track",
+				trackIndex: baseDropTarget.trackIndex,
+				time,
+				canDrop: false,
+			};
+		}
+
+		return {
+			zone: "timeline",
+			type: "track",
+			trackIndex: baseDropTarget.trackIndex,
+			time: target.boundary,
+			canDrop: true,
+		};
+	}
+
+	let resolvedDropTarget =
+		baseDropTarget.type === "gap"
+			? {
+					...baseDropTarget,
+					trackIndex: normalizeGapIndex(baseDropTarget.trackIndex),
+				}
+			: baseDropTarget;
+
+	if (
+		resolvedDropTarget.type === "track" &&
+		shouldForceGapInsert(resolvedDropTarget.trackIndex, time, dropEnd)
+	) {
+		resolvedDropTarget = {
+			type: "gap",
+			trackIndex: normalizeGapIndex(resolvedDropTarget.trackIndex),
+		};
+	}
+
+	return {
+		zone: "timeline",
+		type: resolvedDropTarget.type,
+		trackIndex: resolvedDropTarget.trackIndex,
+		time,
+		canDrop:
+			resolvedDropTarget.type === "gap" ||
+			!isTrackLocked(resolvedDropTarget.trackIndex),
+	};
+}
 
 export interface UseMaterialDndOptions<T extends MaterialDndItem> {
 	item: T;
@@ -193,199 +396,6 @@ export function useMaterialDnd<T extends MaterialDndItem>({
 		context.defaultDurationFrames,
 	);
 	const isTransitionMaterial = item.type === "transition";
-
-	const isTrackLocked = (trackIndex: number): boolean =>
-		context.trackLockedMap.get(trackIndex) ?? false;
-
-	const resolveTrackRole = (trackIndex: number): TrackRole => {
-		if (trackIndex === MAIN_TRACK_INDEX) return "clip";
-		return context.trackRoleMap.get(trackIndex) ?? "overlay";
-	};
-
-	const shouldForceGapInsert = (
-		trackIndex: number,
-		start: number,
-		end: number,
-	): boolean => {
-		if (!isRoleCompatibleWithTrack(materialRole, trackIndex)) return true;
-		if (resolveTrackRole(trackIndex) !== materialRole) return true;
-		if (trackIndex === MAIN_TRACK_INDEX && context.mainTrackMagnetEnabled) {
-			return false;
-		}
-		return hasOverlapOnTrack(
-			start,
-			end,
-			trackIndex,
-			context.elements,
-			context.trackAssignments,
-		);
-	};
-
-	const normalizeGapIndex = (trackIndex: number): number =>
-		Math.max(MAIN_TRACK_INDEX + 1, trackIndex);
-
-	const isClipTrack = (trackIndex: number): boolean => {
-		if (trackIndex === MAIN_TRACK_INDEX) return true;
-		return context.trackRoleMap.get(trackIndex) === "clip";
-	};
-
-	const resolveTransitionBoundary = (time: number, trackIndex: number) => {
-		const thresholdFrames = Math.max(1, Math.round(8 / context.ratio));
-		const clips = context.elements
-			.filter(
-				(el) =>
-					(el.timeline.trackIndex ?? MAIN_TRACK_INDEX) === trackIndex &&
-					getElementRole(el) === "clip" &&
-					!isTransitionElement(el),
-			)
-			.sort((a, b) => {
-				if (a.timeline.start !== b.timeline.start) {
-					return a.timeline.start - b.timeline.start;
-				}
-				if (a.timeline.end !== b.timeline.end) {
-					return a.timeline.end - b.timeline.end;
-				}
-				return a.id.localeCompare(b.id);
-			});
-
-		let best: { boundary: number; fromId: string; toId: string; distance: number } | null =
-			null;
-		for (let i = 0; i < clips.length - 1; i += 1) {
-			const prev = clips[i];
-			const next = clips[i + 1];
-			if (prev.timeline.end !== next.timeline.start) continue;
-			const boundary = prev.timeline.end;
-			const distance = Math.abs(boundary - time);
-			if (distance > thresholdFrames) continue;
-			if (!best || distance < best.distance) {
-				best = {
-					boundary,
-					fromId: prev.id,
-					toId: next.id,
-					distance,
-				};
-			}
-		}
-
-		if (!best) return null;
-
-		const hasExisting = context.elements.some(
-			(el) =>
-				isTransitionElement(el) &&
-				(el.timeline.trackIndex ?? MAIN_TRACK_INDEX) === trackIndex &&
-				(el.transition?.boundry === best.boundary ||
-					(el.transition?.fromId === best.fromId &&
-						el.transition?.toId === best.toId)),
-		);
-		if (hasExisting) return null;
-
-		return { boundary: best.boundary, fromId: best.fromId, toId: best.toId };
-	};
-
-	const detectDropTarget = (mouseX: number, mouseY: number): DropTargetInfo | null => {
-		const previewTarget = getPreviewDropTargetFromScreenPosition(mouseX, mouseY);
-		if (previewTarget) {
-			if (isTransitionMaterial) {
-				return { ...previewTarget, canDrop: false };
-			}
-			return previewTarget;
-		}
-
-		const otherTrackCountFallback = Math.max(context.trackCount - 1, 0);
-		const baseDropTarget = findTimelineDropTargetFromScreenPosition(
-			mouseX,
-			mouseY,
-			otherTrackCountFallback,
-			DEFAULT_TRACK_HEIGHT,
-			false,
-		);
-		if (!baseDropTarget) return null;
-
-		const scrollLeft = useDragStore.getState().timelineScrollLeft;
-		const rawTime = getTimelineDropTimeFromScreenX(
-			mouseX,
-			baseDropTarget.trackIndex,
-			context.ratio,
-			scrollLeft,
-		);
-		if (rawTime === null) return null;
-		const time = clampFrame(rawTime);
-		const dropEnd = time + materialDurationFrames;
-
-		if (isTransitionMaterial) {
-			if (
-				baseDropTarget.type === "track" &&
-				isTrackLocked(baseDropTarget.trackIndex)
-			) {
-				return {
-					zone: "timeline",
-					type: baseDropTarget.type,
-					trackIndex: baseDropTarget.trackIndex,
-					time,
-					canDrop: false,
-				};
-			}
-			if (
-				baseDropTarget.type === "gap" ||
-				!isClipTrack(baseDropTarget.trackIndex)
-			) {
-				return {
-					zone: "timeline",
-					type: baseDropTarget.type,
-					trackIndex: baseDropTarget.trackIndex,
-					time,
-					canDrop: false,
-				};
-			}
-
-			const target = resolveTransitionBoundary(time, baseDropTarget.trackIndex);
-			if (!target) {
-				return {
-					zone: "timeline",
-					type: "track",
-					trackIndex: baseDropTarget.trackIndex,
-					time,
-					canDrop: false,
-				};
-			}
-
-			return {
-				zone: "timeline",
-				type: "track",
-				trackIndex: baseDropTarget.trackIndex,
-				time: target.boundary,
-				canDrop: true,
-			};
-		}
-
-		let resolvedDropTarget =
-			baseDropTarget.type === "gap"
-				? {
-						...baseDropTarget,
-						trackIndex: normalizeGapIndex(baseDropTarget.trackIndex),
-					}
-				: baseDropTarget;
-
-		if (
-			resolvedDropTarget.type === "track" &&
-			shouldForceGapInsert(resolvedDropTarget.trackIndex, time, dropEnd)
-		) {
-			resolvedDropTarget = {
-				type: "gap",
-				trackIndex: normalizeGapIndex(resolvedDropTarget.trackIndex),
-			};
-		}
-
-		return {
-			zone: "timeline",
-			type: resolvedDropTarget.type,
-			trackIndex: resolvedDropTarget.trackIndex,
-			time,
-			canDrop:
-				resolvedDropTarget.type === "gap" ||
-				!isTrackLocked(resolvedDropTarget.trackIndex),
-		};
-	};
 
 	const bindDrag = useDrag(
 		({ xy, first, last, event }) => {
@@ -455,7 +465,16 @@ export function useMaterialDnd<T extends MaterialDndItem>({
 				screenY: xy[1] - initialOffsetRef.current.y,
 			});
 
-			const dropTarget = detectDropTarget(xy[0], xy[1]);
+			const dropTarget = resolveMaterialDropTarget(
+				context,
+				{
+					materialRole,
+					materialDurationFrames,
+					isTransitionMaterial,
+				},
+				xy[0],
+				xy[1],
+			);
 			updateDropTarget(dropTarget);
 
 			const scrollArea = document.querySelector<HTMLElement>(
