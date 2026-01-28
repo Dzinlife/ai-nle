@@ -873,7 +873,9 @@ export const useTimelineElementDnd = ({
 				setActiveSnapPoint(snapPoint);
 			}
 		},
-		{ axis: "x", filterTaps: true },
+		// 关闭 pointer capture，避免手柄移动后丢失拖拽事件
+		// 不设置 axis，避免首帧纵向位移导致锁定到 y 轴后整段拖拽失效
+		{ filterTaps: true, pointer: { capture: false } },
 	);
 
 	const bindRightDrag = useDrag(
@@ -1035,7 +1037,9 @@ export const useTimelineElementDnd = ({
 				setActiveSnapPoint(snapPoint);
 			}
 		},
-		{ axis: "x", filterTaps: true },
+		// 关闭 pointer capture，避免手柄移动后丢失拖拽事件
+		// 不设置 axis，避免首帧纵向位移导致锁定到 y 轴后整段拖拽失效
+		{ filterTaps: true, pointer: { capture: false } },
 	);
 
 	const bindBodyDrag = useDrag(
