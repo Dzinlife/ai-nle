@@ -109,6 +109,8 @@ export function createVideoClipModel(
 	const SEEK_PREFETCH_FRAMES = 24;
 	// 用于取消异步操作
 	let asyncId = 0;
+	// init 的取消标记，避免被播放/seek 的 asyncId 误伤
+	let initEpoch = 0;
 	let isSeekingFlag = false;
 	let lastSeekTime: number | null = null;
 	let pendingSeekTime: number | null = null;
@@ -765,15 +767,16 @@ export function createVideoClipModel(
 					return;
 				}
 
+				initEpoch += 1;
+				const currentInitEpoch = initEpoch;
 				asyncId++;
-				const currentAsyncId = asyncId;
 				let localHandle: AssetHandle<VideoAsset> | null = null;
 
 				try {
 					localHandle = await acquireVideoAsset(uri);
 
 					// 检查是否被取消
-					if (currentAsyncId !== asyncId) {
+					if (currentInitEpoch !== initEpoch) {
 						localHandle.release();
 						return;
 					}
@@ -831,6 +834,8 @@ export function createVideoClipModel(
 
 					await seekToTime(videoTime);
 
+					if (currentInitEpoch !== initEpoch) return;
+
 					if (!unsubscribeTimelineOffset) {
 						unsubscribeTimelineOffset = useTimelineStore.subscribe(
 							(state) => state.getElementById(id)?.timeline?.offset ?? 0,
@@ -871,7 +876,7 @@ export function createVideoClipModel(
 						assetHandle = null;
 					}
 
-					if (currentAsyncId !== asyncId) return;
+					if (currentInitEpoch !== initEpoch) return;
 
 					set((state) => ({
 						constraints: {
@@ -886,6 +891,7 @@ export function createVideoClipModel(
 			},
 
 			dispose: () => {
+				initEpoch += 1; // 终止进行中的 init，避免继续写入
 				asyncId++; // 取消所有进行中的异步操作
 				const internal = get().internal as VideoClipInternal;
 
