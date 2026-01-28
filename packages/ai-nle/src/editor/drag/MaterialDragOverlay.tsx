@@ -14,7 +14,11 @@ import { parseTrackHeights } from "./timelineDropTargets";
 
 const MaterialDragGhost: React.FC = () => {
 	const { isDragging, ghostInfo, dragSource, dropTarget } = useDragStore();
-	if (!isDragging || !ghostInfo || dragSource !== "material-library") {
+	if (
+		!isDragging ||
+		!ghostInfo ||
+		(dragSource !== "material-library" && dragSource !== "external-file")
+	) {
 		return null;
 	}
 	if (dropTarget?.zone === "timeline") {
@@ -57,7 +61,11 @@ const MaterialDropIndicator: React.FC = () => {
 	const ratio = getPixelsPerFrame(fps, timelineScale);
 	const indicatorOffset = TRACK_CONTENT_GAP / 2;
 
-	if (!isDragging || dragSource !== "material-library" || !dropTarget) {
+	if (
+		!isDragging ||
+		(dragSource !== "material-library" && dragSource !== "external-file") ||
+		!dropTarget
+	) {
 		return null;
 	}
 	if (dropTarget.zone !== "timeline" || !dropTarget.canDrop) {

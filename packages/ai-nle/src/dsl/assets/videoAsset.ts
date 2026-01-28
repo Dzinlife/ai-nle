@@ -16,6 +16,7 @@ export type VideoAsset = {
 	getCachedFrame: (timestamp: number) => SkImage | undefined;
 	storeFrame: (timestamp: number, image: SkImage) => void;
 	clearCache: () => void;
+	releaseSource?: () => void;
 };
 
 export const acquireVideoAsset = (
@@ -27,12 +28,42 @@ export const acquireVideoAsset = (
 		() => createVideoAsset(uri),
 		(asset) => {
 			asset.clearCache();
+			asset.releaseSource?.();
 		},
 	);
 };
 
+const OPFS_PREFIX = "opfs://";
+
+const resolveOpfsFile = async (uri: string): Promise<File> => {
+	const rawPath = uri.slice(OPFS_PREFIX.length);
+	const parts = rawPath.split("/").filter(Boolean);
+	if (parts.length === 0) {
+		throw new Error("OPFS 路径为空");
+	}
+	const root = await navigator.storage.getDirectory();
+	let current: FileSystemDirectoryHandle = root;
+	for (let i = 0; i < parts.length - 1; i += 1) {
+		current = await current.getDirectoryHandle(parts[i]);
+	}
+	const fileHandle = await current.getFileHandle(parts[parts.length - 1]);
+	return fileHandle.getFile();
+};
+
 const createVideoAsset = async (uri: string): Promise<VideoAsset> => {
-	const source = new UrlSource(uri);
+	let sourceUrl = uri;
+	let releaseSource: (() => void) | undefined;
+
+	if (uri.startsWith(OPFS_PREFIX)) {
+		// OPFS 文件需要转成 objectURL 供解码器读取
+		const file = await resolveOpfsFile(uri);
+		sourceUrl = URL.createObjectURL(file);
+		releaseSource = () => {
+			URL.revokeObjectURL(sourceUrl);
+		};
+	}
+
+	const source = new UrlSource(sourceUrl);
 	const input = new Input({
 		source,
 		formats: ALL_FORMATS,
@@ -113,5 +144,6 @@ const createVideoAsset = async (uri: string): Promise<VideoAsset> => {
 			frameCache.clear();
 			cacheAccessOrder.length = 0;
 		},
+		releaseSource,
 	};
 };

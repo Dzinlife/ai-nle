@@ -7,6 +7,7 @@ import React, {
 	useRef,
 	useState,
 } from "react";
+import { toast } from "sonner";
 import { ProgressiveBlur } from "@/components/ui/progressive-blur";
 import type { TimelineElement as TimelineElementType } from "@/dsl/types";
 import TimeIndicatorCanvas from "@/editor/components/TimeIndicatorCanvas";
@@ -36,10 +37,27 @@ import {
 	useTracks,
 } from "./contexts/TimelineContext";
 import { useDragStore } from "./drag";
+import {
+	calculateAutoScrollSpeed,
+	type MaterialDragData,
+} from "./drag/dragStore";
+import {
+	findTimelineDropTargetFromScreenPosition,
+	getTimelineDropTimeFromScreenX,
+} from "./drag/timelineDropTargets";
 import { TRACK_CONTENT_GAP } from "./timeline/trackConfig";
-import { finalizeTimelineElements } from "./utils/mainTrackMagnet";
+import {
+	getFallbackVideoMetadata,
+	isVideoFile,
+	readVideoMetadata,
+	writeVideoToOpfs,
+} from "./utils/externalVideo";
+import {
+	finalizeTimelineElements,
+	insertElementIntoMainTrack,
+} from "./utils/mainTrackMagnet";
 import { getPixelsPerFrame } from "./utils/timelineScale";
-import { updateElementTime } from "./utils/timelineTime";
+import { buildTimelineMeta, updateElementTime } from "./utils/timelineTime";
 import {
 	buildTrackLayout,
 	getTrackHeightByRole,
@@ -148,6 +166,8 @@ const TimelineEditor = () => {
 		rectBottom: number;
 	} | null>(null);
 	const wasDraggingRef = useRef(false);
+	const externalDragActiveRef = useRef(false);
+	const externalDragOffsetRef = useRef({ x: 0, y: 0 });
 
 	// 左侧列宽度状态
 	const [leftColumnWidth] = useState(172); // 默认 44 * 4 = 176px (w-44)
@@ -207,6 +227,29 @@ const TimelineEditor = () => {
 		return () => window.removeEventListener("keydown", handleKeyDown);
 	}, [deleteSelectedElements, selectedIds.length]);
 
+	useEffect(() => {
+		const preventBrowserDrop = (event: DragEvent) => {
+			if (!event.dataTransfer) return;
+			if (event.dataTransfer.types?.includes("Files")) {
+				event.preventDefault();
+			}
+		};
+
+		const handleWindowDrop = (event: DragEvent) => {
+			if (!event.dataTransfer) return;
+			if (event.dataTransfer.files?.length) {
+				event.preventDefault();
+			}
+		};
+
+		window.addEventListener("dragover", preventBrowserDrop);
+		window.addEventListener("drop", handleWindowDrop);
+		return () => {
+			window.removeEventListener("dragover", preventBrowserDrop);
+			window.removeEventListener("drop", handleWindowDrop);
+		};
+	}, []);
+
 	// 使用 callback ref 来监听容器宽度
 	const rulerContainerRef = useCallback((node: HTMLDivElement | null) => {
 		if (observerRef.current) {
@@ -236,6 +279,19 @@ const TimelineEditor = () => {
 	const setTimelineScrollLeft = useDragStore(
 		(state) => state.setTimelineScrollLeft,
 	);
+	const {
+		startDrag,
+		updateGhost,
+		updateDropTarget,
+		endDrag,
+		setAutoScrollSpeedX,
+		setAutoScrollSpeedY,
+		stopAutoScroll,
+	} = useDragStore();
+	const isExternalDragActive = useDragStore(
+		(state) => state.isDragging && state.dragSource === "external-file",
+	);
+	console.log(11111, isExternalDragActive);
 	useEffect(() => {
 		setTimelineScrollLeft(scrollLeft);
 	}, [scrollLeft, setTimelineScrollLeft]);
@@ -308,6 +364,311 @@ const TimelineEditor = () => {
 			isPlaying,
 			isDragging,
 			setPreviewTime,
+		],
+	);
+
+	const hasExternalFileDrag = useCallback(
+		(dataTransfer: DataTransfer | null): boolean => {
+			if (!dataTransfer) return false;
+			if (dataTransfer.types?.includes("Files")) return true;
+			if (dataTransfer.items) {
+				return Array.from(dataTransfer.items).some(
+					(item) => item.kind === "file",
+				);
+			}
+			return false;
+		},
+		[],
+	);
+
+	const getExternalVideoFiles = useCallback(
+		(dataTransfer: DataTransfer | null) => {
+			if (!dataTransfer) return [];
+			const files = Array.from(dataTransfer.files);
+			return files.filter((file) => isVideoFile(file));
+		},
+		[],
+	);
+
+	const resolveExternalDropTarget = useCallback(
+		(clientX: number, clientY: number) => {
+			const dropTarget = findTimelineDropTargetFromScreenPosition(
+				clientX,
+				clientY,
+				trackCount - 1,
+			);
+			const trackIndex = dropTarget.trackIndex ?? 0;
+			const time =
+				getTimelineDropTimeFromScreenX(
+					clientX,
+					trackIndex,
+					ratio,
+					scrollLeft,
+				) ?? 0;
+			const canDrop =
+				dropTarget.type === "gap" || !(trackLockedMap.get(trackIndex) ?? false);
+			return {
+				zone: "timeline" as const,
+				type: dropTarget.type,
+				trackIndex,
+				time,
+				canDrop,
+			};
+		},
+		[ratio, scrollLeft, trackCount, trackLockedMap],
+	);
+
+	const handleExternalDragEnter = useCallback(
+		(event: React.DragEvent<HTMLDivElement>) => {
+			if (!hasExternalFileDrag(event.dataTransfer)) return;
+			event.preventDefault();
+			if (externalDragActiveRef.current) return;
+			externalDragActiveRef.current = true;
+			externalDragOffsetRef.current = { x: 60, y: 40 };
+			const dragData: MaterialDragData = {
+				type: "video",
+				uri: "",
+				name: "视频文件",
+			};
+			startDrag("external-file", dragData, {
+				screenX: event.clientX - externalDragOffsetRef.current.x,
+				screenY: event.clientY - externalDragOffsetRef.current.y,
+				width: 120,
+				height: 80,
+				label: dragData.name,
+			});
+		},
+		[hasExternalFileDrag, startDrag],
+	);
+
+	const handleExternalDragOver = useCallback(
+		(event: React.DragEvent<HTMLDivElement>) => {
+			if (!hasExternalFileDrag(event.dataTransfer)) return;
+			event.preventDefault();
+			event.stopPropagation();
+
+			if (!externalDragActiveRef.current) {
+				externalDragActiveRef.current = true;
+				externalDragOffsetRef.current = { x: 60, y: 40 };
+				const dragData: MaterialDragData = {
+					type: "video",
+					uri: "",
+					name: "视频文件",
+				};
+				startDrag("external-file", dragData, {
+					screenX: event.clientX - externalDragOffsetRef.current.x,
+					screenY: event.clientY - externalDragOffsetRef.current.y,
+					width: 120,
+					height: 80,
+					label: dragData.name,
+				});
+			}
+
+			updateGhost({
+				screenX: event.clientX - externalDragOffsetRef.current.x,
+				screenY: event.clientY - externalDragOffsetRef.current.y,
+			});
+			const dropTarget = resolveExternalDropTarget(
+				event.clientX,
+				event.clientY,
+			);
+			updateDropTarget(dropTarget);
+
+			const scrollArea = scrollAreaRef.current;
+			if (scrollArea) {
+				const rect = scrollArea.getBoundingClientRect();
+				const speedX = calculateAutoScrollSpeed(
+					event.clientX,
+					rect.left,
+					rect.right,
+				);
+				setAutoScrollSpeedX(speedX);
+			}
+
+			const verticalScrollArea = verticalScrollRef.current;
+			if (verticalScrollArea) {
+				const rect = verticalScrollArea.getBoundingClientRect();
+				const speedY = calculateAutoScrollSpeed(
+					event.clientY,
+					rect.top,
+					rect.bottom,
+				);
+				setAutoScrollSpeedY(speedY);
+			}
+		},
+		[
+			hasExternalFileDrag,
+			resolveExternalDropTarget,
+			startDrag,
+			setAutoScrollSpeedX,
+			setAutoScrollSpeedY,
+			updateDropTarget,
+			updateGhost,
+		],
+	);
+
+	const handleExternalDragLeave = useCallback(
+		(event: React.DragEvent<HTMLDivElement>) => {
+			if (!hasExternalFileDrag(event.dataTransfer)) return;
+			event.preventDefault();
+			stopAutoScroll();
+			externalDragActiveRef.current = false;
+			updateDropTarget(null);
+			endDrag();
+		},
+		[hasExternalFileDrag, stopAutoScroll, updateDropTarget, endDrag],
+	);
+
+	const handleExternalDrop = useCallback(
+		async (event: React.DragEvent<HTMLDivElement>) => {
+			const files = getExternalVideoFiles(event.dataTransfer);
+			if (files.length === 0) return;
+			event.preventDefault();
+			event.stopPropagation();
+
+			const dropTarget =
+				useDragStore.getState().dropTarget ??
+				resolveExternalDropTarget(event.clientX, event.clientY);
+			stopAutoScroll();
+			externalDragActiveRef.current = false;
+			updateDropTarget(null);
+			endDrag();
+
+			if (!dropTarget?.canDrop) {
+				toast.error("当前轨道已锁定，无法放置");
+				return;
+			}
+
+			const prepared = [];
+			for (const file of files) {
+				try {
+					const { uri } = await writeVideoToOpfs(file);
+					const metadata = await readVideoMetadata(file).catch(() =>
+						getFallbackVideoMetadata(),
+					);
+					prepared.push({
+						file,
+						uri,
+						metadata,
+					});
+				} catch (error) {
+					console.warn("外部视频导入失败:", error);
+					toast.error(`导入失败：${file.name}`);
+				}
+			}
+
+			if (prepared.length === 0) return;
+
+			setElements((prev) => {
+				let nextElements = prev;
+				let nextStart = clampFrame(dropTarget.time ?? 0);
+				let targetTrackIndex = dropTarget.trackIndex ?? 0;
+				let targetType: "track" | "gap" = dropTarget.type ?? "track";
+
+				const postProcessOptions = {
+					mainTrackMagnetEnabled,
+					attachments,
+					autoAttach,
+					fps,
+					trackLockedMap,
+				};
+
+				prepared.forEach((item, index) => {
+					const durationFrames = Math.max(
+						1,
+						Math.round(item.metadata.duration * fps),
+					);
+					const startFrame = nextStart;
+					const endFrame = startFrame + durationFrames;
+					const insertIndex =
+						targetType === "gap"
+							? Math.max(1, targetTrackIndex)
+							: targetTrackIndex;
+
+					const newElement: TimelineElementType = {
+						id: `external-video-${Date.now()}-${index}`,
+						type: "VideoClip",
+						component: "video-clip",
+						name: item.file.name,
+						props: {
+							uri: item.uri,
+						},
+						transform: {
+							centerX: 0,
+							centerY: 0,
+							width: item.metadata.width,
+							height: item.metadata.height,
+							rotation: 0,
+						},
+						timeline: buildTimelineMeta(
+							{
+								start: startFrame,
+								end: endFrame,
+								trackIndex: insertIndex,
+								role: "clip",
+							},
+							fps,
+						),
+						render: {
+							zIndex: 0,
+							visible: true,
+							opacity: 1,
+						},
+					};
+
+					if (targetType === "gap") {
+						const shifted = nextElements.map((el) => {
+							const currentTrack = el.timeline.trackIndex ?? 0;
+							if (currentTrack >= insertIndex) {
+								return {
+									...el,
+									timeline: {
+										...el.timeline,
+										trackIndex: currentTrack + 1,
+									},
+								};
+							}
+							return el;
+						});
+						nextElements = finalizeTimelineElements(
+							[...shifted, newElement],
+							postProcessOptions,
+						);
+						targetType = "track";
+					} else if (mainTrackMagnetEnabled && insertIndex === 0) {
+						nextElements = insertElementIntoMainTrack(
+							nextElements,
+							newElement.id,
+							startFrame,
+							postProcessOptions,
+							newElement,
+						);
+					} else {
+						nextElements = finalizeTimelineElements(
+							[...nextElements, newElement],
+							postProcessOptions,
+						);
+					}
+
+					const inserted = nextElements.find((el) => el.id === newElement.id);
+					nextStart = inserted ? inserted.timeline.end : endFrame;
+				});
+
+				return nextElements;
+			});
+		},
+		[
+			getExternalVideoFiles,
+			mainTrackMagnetEnabled,
+			attachments,
+			autoAttach,
+			fps,
+			trackLockedMap,
+			resolveExternalDropTarget,
+			stopAutoScroll,
+			updateDropTarget,
+			endDrag,
+			setElements,
 		],
 	);
 
@@ -879,6 +1240,15 @@ const TimelineEditor = () => {
 				onMouseLeave={handleMouseLeave}
 				{...bindRulerDrag()}
 			>
+				{isExternalDragActive && (
+					<div className="absolute inset-0 z-90 pointer-events-none">
+						{/* 外部拖拽高亮提示 */}
+						<div className="absolute inset-3 rounded-2xl border border-blue-500/60 bg-blue-500/10 shadow-[0_0_30px_rgba(59,130,246,0.25)]" />
+						<div className="absolute top-6 left-1/2 -translate-x-1/2 rounded-full bg-blue-500/15 text-blue-200 text-xs px-3 py-1 border border-blue-500/30 backdrop-blur">
+							松手导入视频到时间线
+						</div>
+					</div>
+				)}
 				<div className="flex bg-neutral-800/10 border border-white/10 rounded-full mx-4 backdrop-blur-2xl overflow-hidden">
 					<div
 						className="border-r border-white/10"
@@ -904,6 +1274,7 @@ const TimelineEditor = () => {
 			</div>
 		);
 	}, [
+		isExternalDragActive,
 		handleMouseMove,
 		handleClick,
 		leftColumnWidth,
@@ -1192,6 +1563,10 @@ const TimelineEditor = () => {
 				onMouseUp={handleSelectionMouseUp}
 				onMouseLeave={handleMouseLeave}
 				onClick={handleClick}
+				onDragEnter={handleExternalDragEnter}
+				onDragOver={handleExternalDragOver}
+				onDragLeave={handleExternalDragLeave}
+				onDrop={handleExternalDrop}
 			>
 				{selectionBox && selectionBox.width > 0 && selectionBox.height > 0 && (
 					<div

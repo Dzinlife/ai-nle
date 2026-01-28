@@ -1,7 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useModelSelectorSafe } from "@/dsl/model";
 import { framesToTimecode } from "@/utils/timecode";
-import { useElements, useFps, useSelectedElement } from "../contexts/TimelineContext";
+import {
+	useElements,
+	useFps,
+	useSelectedElement,
+} from "../contexts/TimelineContext";
 
 const ElementSettingsPanel: React.FC = () => {
 	const { selectedElement } = useSelectedElement();
@@ -73,8 +77,8 @@ const ElementSettingsPanel: React.FC = () => {
 						{selectedElement.timeline.endTimecode})
 					</div>
 					<div>
-						Duration: {durationFrames}f (
-						{framesToTimecode(durationFrames, fps)})
+						Duration: {durationFrames}f ({framesToTimecode(durationFrames, fps)}
+						)
 					</div>
 					<div>Transform:</div>
 					<div>CenterX: {selectedElement.transform.centerX}</div>
@@ -91,6 +95,7 @@ const ElementSettingsPanel: React.FC = () => {
 								)})`
 							: "-"}
 					</div>
+					<div>props: {JSON.stringify(selectedElement.props)}</div>
 				</div>
 			</div>
 		</div>

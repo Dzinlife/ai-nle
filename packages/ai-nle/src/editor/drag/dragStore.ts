@@ -11,7 +11,7 @@ import { subscribeWithSelector } from "zustand/middleware";
 // ============================================================================
 
 /** 拖拽来源类型 */
-export type DragSourceType = "timeline" | "material-library";
+export type DragSourceType = "timeline" | "material-library" | "external-file";
 
 /** 素材类型 */
 export type MaterialType =
